@@ -35,7 +35,7 @@ class TestSSL(gruvi.test.UnitTest):
         s1.bind(('localhost', 0))
         s1.listen(1)
         s2 = gruvi.Socket(hub)
-        data = ['foo', None]
+        data = [b'foo', None]
         def server(sock):
             csock, addr = sock.accept()
             sslsock = gruvi.SSLSocket(hub, csock, server_side=True,
@@ -63,7 +63,7 @@ class TestSSL(gruvi.test.UnitTest):
         s1.bind(('localhost', 0))
         s1.listen(1)
         s2 = gruvi.Socket(hub)
-        data = ['foo', 'bar', 'baz']
+        data = [b'foo', b'bar', b'baz']
         echo = []
         def server(sock):
             csock, addr = sock.accept()
@@ -103,14 +103,14 @@ class TestSSL(gruvi.test.UnitTest):
         s1.listen(1)
         s2 = gruvi.Socket(hub)
         counters = [0, 0]
-        buf = 'x' * 10000
+        buf = b'x' * 10000
         def server(sock):
             csock, addr = sock.accept()
             sslsock = gruvi.SSLSocket(hub, csock, server_side=True,
                             keyfile=self.keyfile, certfile=self.certfile)
             while True:
                 buf = sslsock.recv()
-                if buf == '':
+                if len(buf) == 0:
                     break
                 counters[1] += len(buf)
             sslsock.close()

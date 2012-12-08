@@ -13,7 +13,9 @@ import sys
 import pyuv
 import gruvi
 import errno
+import socket
 import _socket
+import six
 
 
 nonblocking_errors = (errno.EAGAIN, errno.EWOULDBLOCK, errno.EINTR)
@@ -28,7 +30,7 @@ def sock_retry(sock, method, args=(), retry_read=None, retry_write=None,
     while True:
         try:
             return method(*args)
-        except _socket.error as e:
+        except socket.error as e:
             if retry_read and e.errno in retry_read:
                 events = pyuv.UV_READABLE
             elif retry_write and e.errno in retry_write:
@@ -40,7 +42,7 @@ def sock_retry(sock, method, args=(), retry_read=None, retry_write=None,
         if timeout is not None:
             elapsed = sock.hub.loop.now() - start_time
             if elapsed > sock.timeout:
-                raise _socket.timeout()
+                raise socket.timeout()
             secs = timeout - elapsed
             sock.hub.wait(sock.timer, secs, 0)
         sock.hub.wait(sock.poll, events)
@@ -54,10 +56,13 @@ class Socket(object):
     and is compatible with Python's socket.SocketType.
     """
 
-    def __init__(self, hub, family=_socket.AF_INET, type=_socket.SOCK_STREAM,
+    def __init__(self, hub, family=socket.AF_INET, type=socket.SOCK_STREAM,
                  proto=0, _sock=None):
         if _sock is None:
-            _sock = _socket.socket(family, type, proto)
+            if six.PY3:
+                _sock = socket.socket(family, type, proto)
+            else:
+                _sock = _socket.socket(family, type, proto)
         self._sock = _sock
         self.hub = hub
         self.poll = pyuv.Poll(hub.loop, self.fileno())
@@ -68,7 +73,7 @@ class Socket(object):
         return self._sock.fileno()
 
     def dup(self):
-        return Socket(_sock=self)
+        return Socket(_sock=self._sock)
 
     def getblocking(self):
         return self.timeout is None
@@ -110,7 +115,7 @@ class Socket(object):
         try:
             self.connect(address)
             return 0
-        except _socket.error as e:
+        except socket.error as e:
             return e.errno
 
     def recv(self, nbytes=1024, flags=0):

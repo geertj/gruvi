@@ -19,12 +19,12 @@ class TestSocket(object):
         s1.bind(('localhost', 0))
         s1.listen(1)
         counters = [0, 0]
-        buf = 'x' * 10000
+        buf = b'x' * 10000
         def server(sock):
             client, addr = sock.accept()
             while True:
                 buf = client.recv()
-                if buf == '':
+                if len(buf) == 0:
                     break
                 counters[1] += len(buf)
             client.close()

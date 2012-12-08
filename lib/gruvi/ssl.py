@@ -11,8 +11,10 @@ from __future__ import absolute_import, print_function
 import pyuv
 import gruvi
 import errno
-import _socket
+import socket
 import _ssl
+import ssl
+import six
 
 
 def ssl_retry(sslsock, method, args=()):
@@ -21,17 +23,17 @@ def ssl_retry(sslsock, method, args=()):
     while True:
         try:
             return method(*args)
-        except _ssl.SSLError as e:
-            if e.errno == _ssl.SSL_ERROR_WANT_READ:
+        except ssl.SSLError as e:
+            if e.errno == ssl.SSL_ERROR_WANT_READ:
                 events = pyuv.UV_READABLE
-            elif e.errno == _ssl.SSL_ERROR_WANT_WRITE:
+            elif e.errno == ssl.SSL_ERROR_WANT_WRITE:
                 events = pyuv.UV_WRITABLE
             else:
                 raise
         if timeout is not None:
             elapsed = sslsock.hub.loop.now() - start_time
             if elapsed > sslsock.timeout:
-                raise _socket.timeout()
+                raise socket.timeout()
             secs = timeout - elapsed
             sslsock.hub.wait(sock.timer, secs, 0)
         sslsock.hub.wait(sslsock.poll, events)
@@ -41,8 +43,8 @@ def ssl_retry(sslsock, method, args=()):
 class SSLSocket(gruvi.Socket):
 
     def __init__(self, hub, sock, keyfile=None, certfile=None,
-                 server_side=False, cert_reqs=_ssl.CERT_NONE,
-                 ssl_version=_ssl.PROTOCOL_SSLv23, ca_certs=None,
+                 server_side=False, cert_reqs=ssl.CERT_NONE,
+                 ssl_version=ssl.PROTOCOL_SSLv23, ca_certs=None,
                  do_handshake_on_connect=True, ciphers=None):
         super(SSLSocket, self).__init__(hub, _sock=sock._sock)
         self.hub = hub
@@ -54,19 +56,30 @@ class SSLSocket(gruvi.Socket):
         self.ca_certs = ca_certs
         self.do_handshake_on_connect = do_handshake_on_connect
         self._wrapped = sock
-        self._ssl_enabled = False
         try:
             name = sock.getpeername()
-        except _socket.error as e:
+        except socket.error as e:
             if e.errno != errno.ENOTCONN:
                 raise
             self._sslobj = None
+            return
+        if six.PY3:
+            context = ssl.SSLContext(ssl_version)
+            context.verify_mode = cert_reqs
+            if certfile:
+                context.load_cert_chain(certfile, keyfile)
+            if ca_certs:
+                context.load_verify_locations(ca_certs)
+            if ciphers:
+                context.set_ciphers(ciphers)
+            self.context = context
+            self._sslobj = context._wrap_socket(self._sock, server_side)
         else:
             self._sslobj = _ssl.sslwrap(self._sock, server_side, keyfile,
                                         certfile, cert_reqs, ssl_version,
                                         ca_certs, ciphers)
-            if do_handshake_on_connect:
-                self.do_handshake()
+        if do_handshake_on_connect:
+            self.do_handshake()
 
     def do_handshake(self):
         if self._sslobj is None:
@@ -115,8 +128,8 @@ class SSLSocket(gruvi.Socket):
             raise ValueError('cannot specify flags when ssl is active')
         try:
             return ssl_retry(self, self._sslobj.read, (nbytes,))
-        except _ssl.SSLError as e:
-            if e.errno == _ssl.SSL_ERROR_EOF:
+        except ssl.SSLError as e:
+            if e.errno == ssl.SSL_ERROR_EOF:
                 return ''
             raise
 
