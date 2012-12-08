@@ -40,6 +40,7 @@ active.
 Currently Gruvi supports two network classes: `Socket` and `SSLSocket`.
 An example echo server:
 
+```python
     import sys
     import gruvi
 
@@ -84,6 +85,7 @@ An example echo server:
     server = EchoServer(hub, ('localhost', 0), EchoHandler)
     server.start()
     hub.switch()
+```
 
 
 Feedback
