@@ -33,5 +33,6 @@ setup(
     packages = [ 'gruvi', 'gruvi.test' ],
     requires = ['greenlet'],
     install_requires = ['setuptools'],
+    test_suite = 'nose.collector',
     **version_info
 )
