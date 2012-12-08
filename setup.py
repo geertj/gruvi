@@ -31,7 +31,7 @@ version_info = {
 setup(
     package_dir = { '': 'lib' },
     packages = [ 'gruvi', 'gruvi.test' ],
-    requires = ['greenlet'],
+    requires = ['greenlet', 'pyuv'],
     install_requires = ['setuptools'],
     test_suite = 'nose.collector',
     **version_info
