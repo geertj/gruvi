@@ -55,6 +55,7 @@ class SSLSocket(gruvi.Socket):
         self.ssl_version = ssl_version
         self.ca_certs = ca_certs
         self.do_handshake_on_connect = do_handshake_on_connect
+        self.ciphers = ciphers
         self._wrapped = sock
         try:
             name = sock.getpeername()
@@ -77,7 +78,8 @@ class SSLSocket(gruvi.Socket):
         else:
             self._sslobj = _ssl.sslwrap(self._sock, server_side, keyfile,
                                         certfile, cert_reqs, ssl_version,
-                                        ca_certs, ciphers)
+                                        ca_certs)
+            # XXX set ciphers
         if do_handshake_on_connect:
             self.do_handshake()
 
@@ -117,7 +119,7 @@ class SSLSocket(gruvi.Socket):
         super(SSLSocket, self).connect(address)
         self._sslobj = _ssl.sslwrap(self._sock, server_side, keyfile,
                                     certfile, cert_reqs, ssl_version,
-                                    ca_certs, ciphers)
+                                    ca_certs)
         if self.do_handshake_on_connect:
             self.do_handshake()
 
