@@ -43,7 +43,7 @@ class Hub(greenlet.greenlet):
     def run(self):
         current = greenlet.getcurrent()
         if current is not self:
-            raise RuntimeErro('run() may only be called from the Hub')
+            raise RuntimeError('run() may only be called from the Hub')
         while True:
             self.loop.run()
             self.parent.switch()
