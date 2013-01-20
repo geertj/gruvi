@@ -44,9 +44,12 @@ def sock_retry(sock, method, args=(), retry_read=None, retry_write=None,
             if elapsed > sock.timeout:
                 raise socket.timeout()
             secs = timeout - elapsed
-            sock.hub.wait(sock.timer, secs, 0)
-        sock.hub.wait(sock.poll, events)
+            sock.timer.start(sock.hub.switch_back(), secs, 0)
+        sock.poll.start(events, sock.hub.switch_back())
         sock.hub.switch()
+        if timeout is not None:
+            sock.timer.stop()
+        sock.poll.stop()
 
 
 class Socket(object):

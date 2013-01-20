@@ -41,6 +41,7 @@ class Hub(greenlet.greenlet):
         return cls.instance
 
     def run(self):
+        """Target of Hub.switch()."""
         current = greenlet.getcurrent()
         if current is not self:
             raise RuntimeError('run() may only be called from the Hub')
@@ -49,25 +50,16 @@ class Hub(greenlet.greenlet):
             self.parent.switch()
 
     def switch(self):
-        """Swtich to the hub. Can be called from the root greenlet to start the
+        """Switch to the hub. Can be called from the root greenlet to start the
         event loop, or from a non-root greenlet to wait for I/O. """
         current = greenlet.getcurrent()
         if current is self:
             raise RuntimeError('switch() may not be called from the Hub')
         super(Hub, self).switch()
 
-    def wait(self, handle, *args):
-        """Start `handle`. When it triggers switch back to the current
-        greenlet. """
+    def switch_back(self):
+        """Return a callback that switches back to the current greenlet."""
         current = greenlet.getcurrent()
-        current.handles.append(handle)
-        def callback(self, *cbargs):
-            for handle in current.handles:
-                handle.stop()
-            current.handles = []
-            current.switch(*cbargs)
-        if isinstance(handle, pyuv.Timer):
-            args = (callback,) + args
-        else:
-            args = args + (callback,)
-        handle.start(*args)
+        def callback(*args):
+            current.switch(*args)
+        return callback

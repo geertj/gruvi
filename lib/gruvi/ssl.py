@@ -35,9 +35,12 @@ def ssl_retry(sslsock, method, args=()):
             if elapsed > sslsock.timeout:
                 raise socket.timeout()
             secs = timeout - elapsed
-            sslsock.hub.wait(sock.timer, secs, 0)
-        sslsock.hub.wait(sslsock.poll, events)
+            sock.timer.start(sslsock.hub.switch_back(), secs, 0)
+        sslsock.poll.start(events, sslsock.hub.switch_back())
         sslsock.hub.switch()
+        if timeout is not None:
+            sslsock.timer.stop()
+        sslsock.poll.stop()
 
 
 class SSLSocket(gruvi.Socket):
