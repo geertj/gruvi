@@ -6,3 +6,4 @@ dist/
 .*.swo
 *~
 __pycache__
+venv*/
