@@ -10,3 +10,5 @@ from gruvi.hub import Hub
 from gruvi.greenlet import Greenlet
 from gruvi.socket import Socket
 from gruvi.ssl import SSLSocket
+from gruvi.local import local
+from gruvi import util
