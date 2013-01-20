@@ -25,7 +25,6 @@ class local(object):
 
     def __getattr__(self, key):
         grid = id(greenlet.getcurrent())
-        print('__getattr__(): grid: %s' % grid)
         try:
             return self.__dicts[grid][key]
         except KeyError:
