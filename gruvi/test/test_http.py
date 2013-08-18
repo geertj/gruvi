@@ -347,4 +347,4 @@ class TestHttp(UnitTest):
         assert server.startswith('gruvi.http')
         ctype = response.get_header('Content-Type')
         assert ctype == 'text/plain'
-        assert response.body.read() == b'Hello!'
+        assert response.read() == b'Hello!'
