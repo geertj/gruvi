@@ -1,9 +1,12 @@
-*.pyc
 build/
 dist/
+trash/
 *.egg-info
+*.pyc
+*.pyo
 .*.swp
 .*.swo
 *~
 __pycache__
-venv*/
+*.pem
+docs/_build
