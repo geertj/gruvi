@@ -15,6 +15,7 @@ import textwrap
 import subprocess
 
 from setuptools import setup, Extension
+import gruvi
 
 
 version_info = {
@@ -106,8 +107,12 @@ def main():
     update_manifest()
     setup(
         packages = ['gruvi', 'gruvi.test'],
-        install_requires = ['greenlet>=0.4.0', 'pyuv>=0.10.3'],
+        install_requires = ['greenlet', 'pyuv', 'cffi', 'six'],
         test_suite = 'nose.collector',
+        zip_safe = False,
+        ext_modules = [gruvi.dbus_ffi.ffi.verifier.get_extension(),
+                       gruvi.http_ffi.ffi.verifier.get_extension(),
+                       gruvi.jsonrpc_ffi.ffi.verifier.get_extension()],
         **version_info
     )
 
