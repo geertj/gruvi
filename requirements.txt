@@ -1,5 +1,5 @@
 greenlet
-pyuv
+git+git://github.com/saghul/pyuv.git@v0.10#egg=pyuv
 cffi
 six
 nose
