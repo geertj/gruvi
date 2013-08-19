@@ -1,6 +1,5 @@
-****************
 Welcome to Gruvi
-****************
+================
 
 Gruvi is a network library for Python. It combines the efficiencies of
 event-based I/O with a sequential programming model. Gruvi uses libuv_ (via
@@ -21,7 +20,7 @@ Gruvi values:
 * Minimalistic design. All of Gruvi is less than 4,000 lines of Python.
 
 Requirements
-************
+============
 
 You need Python 2.6, 2.7 or 3.3+.
 
@@ -32,22 +31,22 @@ The following operating systems are currently tested:
 * Windows (currently untested)
 
 Download
-********
+========
 
 Source are available from Github_.
 
 Documentation
-*************
+=============
 
 The documentation is available on readthedocs_.
 
 License
-*******
+=======
 
 Gruvi is free software, available under the MIT license.
 
 Contact
-*******
+=======
 
 Feel free to contact the author at geertj@gmail.com. You can also submit
 tickets or suggenstions for improvements on Github_.
