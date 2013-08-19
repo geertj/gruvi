@@ -54,7 +54,9 @@ def create_ssl_certificate(fname):
 
 def setup():
     """Package-level setup."""
-    create_ssl_certificate('server.pem')
+    dirname, fname = os.path.split(__file__)
+    certname = os.path.join(dirname, 'server.pem')
+    create_ssl_certificate(certname)
 
 
 def setup_logger(logger):
