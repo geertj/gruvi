@@ -40,8 +40,8 @@ Contents
 
 Gruvi is free software, available under the MIT license.
 
-The author of Gruvi may be contacted at geertj@gmail.com. You may also submit
-tickets or suggenstions for improvements on Gruvi's `github page`_.
+Feel free to contact the author at geertj@gmail.com. You can also submit
+tickets or suggenstions for improvements on Github_.
 
 .. _libuv: https://github.com/joyent/libuv
 .. _pyuv: http://pyuv.readthedocs.org/en/latest
@@ -51,4 +51,4 @@ tickets or suggenstions for improvements on Gruvi's `github page`_.
 .. _eventlet: http://eventlet.net/
 .. _http-parser: https://github.com/joyent/http-parser
 .. _txdbus: https://github.com/cocagne/txdbus
-.. _github page: https://github.com/geertj/gruvi
+.. _Github: https://github.com/geertj/gruvi
