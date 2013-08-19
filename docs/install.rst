@@ -26,11 +26,11 @@ small exception would be RHEL/CentOS 5 which by default comes with Python 2.4.
 Make sure you have gcc installed, and also the Python development files. On
 Debian/Ubuntu type systems::
 
-  $ sudo apt-get install gcc python-dev python-virtualenv
+  $ sudo apt-get install gcc python-dev python-virtualenv git libffi-dev
 
 On Red Hat/Fedora type systems::
 
-  $ sudo yum install gcc python-devel python-virtualenv
+  $ sudo yum install gcc python-devel python-virtualenv git libffi-devel
 
 After this follow the generic instructions above.
 
