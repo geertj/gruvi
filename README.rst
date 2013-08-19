@@ -1,5 +1,5 @@
 Welcome to Gruvi
-================
+----------------
 
 Gruvi is a network library for Python. It combines the efficiencies of
 event-based I/O with a sequential programming model. Gruvi uses libuv_ (via
