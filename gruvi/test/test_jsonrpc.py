@@ -341,7 +341,7 @@ class TestJsonRpc(UnitTest):
                 client.write(chunk)
         except pyuv.error.TCPError as e:
             error = e
-        assert error.args[0] == pyuv.errno.UV_ECONNRESET
+        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE)
 
     def test_send_whitespace(self):
         server = JsonRpcServer(echo_app)
@@ -356,7 +356,7 @@ class TestJsonRpc(UnitTest):
                 client.write(chunk)
         except pyuv.error.TCPError as e:
             error = e
-        assert error.args[0] == pyuv.errno.UV_ECONNRESET
+        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE)
 
     def test_send_random(self):
         server = JsonRpcServer(echo_app)
@@ -371,4 +371,4 @@ class TestJsonRpc(UnitTest):
                 client.write(chunk)
         except pyuv.error.TCPError as e:
             error = e
-        assert error.args[0] == pyuv.errno.UV_ECONNRESET
+        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE)
