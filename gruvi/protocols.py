@@ -177,6 +177,7 @@ class Protocol(object):
         nbytes = len(data)
         def on_write_complete(transport, error):
             if error:
+                error = pyuv_exc(transport, error)
                 transport._error = error
                 transport._events.notify('Error', error)
                 return
