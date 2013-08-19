@@ -232,7 +232,7 @@ class TestDBusFFI(UnitTest):
                 assert ctx.offset % len(m) == 0
             nbytes += len(buf)
         speed = nbytes / (1024 * 1024 * (t2 - t1))
-        print('Throughput: {:.2f} MiB/sec'.format(speed))
+        print('Throughput: {0:.2f} MiB/sec'.format(speed))
 
 
 class TestDBusParser(UnitTest):

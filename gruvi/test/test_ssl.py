@@ -164,7 +164,7 @@ class TestSSLPipe(UnitTest):
             nbytes += len(received)
         t2 = time.time()
         speed = (nbytes / (t2 - t1)) / (1024 * 1024)
-        print('SSL speed: {:.2f} MiB/sec'.format(speed))
+        print('SSL speed: {0:.2f} MiB/sec'.format(speed))
 
 
 class TestSSL(UnitTest):

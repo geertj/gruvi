@@ -322,7 +322,7 @@ class TestHttpParser(UnitTest):
             assert nmessages == 10
             nbytes += nparsed
         speed = nbytes / (1024 * 1024 * (t2 - t1))
-        print('Speed: {:.2f} MiB/sec'.format(speed))
+        print('Speed: {0:.2f} MiB/sec'.format(speed))
 
 
 def hello_app(environ, start_response):
