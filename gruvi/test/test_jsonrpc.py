@@ -341,8 +341,8 @@ class TestJsonRpc(UnitTest):
                 client.write(chunk)
         except pyuv.error.TCPError as e:
             error = e
-        print('errno: {0}: {1}'.format(error.args[0], pyuv.errno.errorcode.get(error.args[0])))
-        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE)
+        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE,
+                                 pyuv.errno.UV_ECANCELED)
 
     def test_send_whitespace(self):
         server = JsonRpcServer(echo_app)
@@ -357,8 +357,8 @@ class TestJsonRpc(UnitTest):
                 client.write(chunk)
         except pyuv.error.TCPError as e:
             error = e
-        print('errno: {0}: {1}'.format(error.args[0], pyuv.errno.errorcode.get(error.args[0])))
-        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE)
+        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE,
+                                 pyuv.errno.UV_ECANCELED)
 
     def test_send_random(self):
         server = JsonRpcServer(echo_app)
@@ -373,5 +373,5 @@ class TestJsonRpc(UnitTest):
                 client.write(chunk)
         except pyuv.error.TCPError as e:
             error = e
-        print('errno: {0}: {1}'.format(error.args[0], pyuv.errno.errorcode.get(error.args[0])))
-        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE)
+        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE,
+                                 pyuv.errno.UV_ECANCELED)
