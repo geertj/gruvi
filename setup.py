@@ -10,6 +10,7 @@ from __future__ import absolute_import, print_function
 
 import os
 import sys
+import time
 import tempfile
 import textwrap
 import subprocess
@@ -17,13 +18,23 @@ import subprocess
 from setuptools import setup, Extension
 
 # CFFI is needed to call setup(). Therefore it needs to be installed already.
-# Installing it using setup_requires is not possible.
+# I had hoped that specifying setup_requires would force pip to download it
+# before installing an sdist from PyPI. It appears not to be the case. So
+# therefore we install it here by calling easy_install ourselves. It's a bit of
+# a hack and not all users might appreciate it. So therefore we offer 5 seconds
+# to bail out.
 try:
     import cffi
 except ImportError:
-    sys.stderr.write('Error: please install CFFI first\n')
-    sys.stderr.write('Use: pip install cffi\n')
-    sys.exit(1)
+    sys.stderr.write('Warning: CFFI not installed\n')
+    sys.stderr.write('Installing it using easy_install in 5 seconds\n')
+    sys.stderr.write('Press CTRL-C to quit\n')
+    time.sleep(5)
+    from setuptools.command import easy_install
+    easy_install.main(['cffi'])
+    import pkg_resources
+    pkg_resources.get_distribution('cffi').activate()
+    import cffi
 
 
 version_info = {
@@ -38,8 +49,8 @@ version_info = {
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: MIT License',
         'Operating System :: POSIX',
-        'Operating System :: Windows',
-        'Operating System :: Mac OSX',
+        'Operating System :: Microsoft :: Windows',
+        'Operating System :: MacOS :: MacOS X',
         'Programming Language :: Python :: 2.6',
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3.3'
