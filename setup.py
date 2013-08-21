@@ -28,7 +28,7 @@ except ImportError:
 
 version_info = {
     'name': 'gruvi',
-    'version': '0.9.dev',
+    'version': '0.9.0',
     'description': 'Synchronous evented IO with pyuv and greenlets',
     'author': 'Geert Jansen',
     'author_email': 'geertj@gmail.com',
