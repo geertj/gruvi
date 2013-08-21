@@ -6,12 +6,12 @@ Welcome to Gruvi
 
 Gruvi is a network library for Python. It combines the efficiencies of
 event-based I/O with a sequential programming model. Gruvi uses libuv_ (via
-pyuv_) as the underlying, high-performance event-based I/O layer, and
-greenlets_ to turn the callback programming style associated with event-based
-I/O into a traditional sequential programming style. 
+pyuv_) as the underlying high-performance event-based I/O layer, and coroutines
+based on greenlets_ to create a traditional sequential programming model on top
+of the evented I/O callback API.
 
-Gruvi is similar in concept to gevent_, concurrence_ and eventlet_. For a
-rationale on why I've created a new library, see :ref:`rationale`.
+Gruvi comes with batteries included. It has out of the box support for SSL,
+HTTP (both client and server), JSON-RPC and D-BUS.
 
 Gruvi values:
 
@@ -24,6 +24,9 @@ Gruvi values:
 * Platform support. All supported platforms (Posix, Mac OSX and Windows) are
   first-class citizens. This is mostly thanks to libuv.
 * Minimalistic design. All of Gruvi is less than 4,000 lines of Python.
+
+Gruvi is similar in concept to gevent_, concurrence_ and eventlet_. For a
+rationale on why I've created a new library, see :ref:`rationale`.
 
 Contents
 ########
