@@ -242,15 +242,14 @@ def sigFromPy( pobj ):
         return sig
     
     elif isinstance(pobj,        int): return 'i'
-    elif isinstance(pobj,       long): return 'x'
     elif isinstance(pobj,      float): return 'd'
-    elif isinstance(pobj, basestring): return 's'
+    elif isinstance(pobj,        str): return 's'
     
     elif isinstance(pobj,       list):
         return 'a' + sigFromPy(pobj[0])
     
     elif isinstance(pobj,       dict):
-        return 'a{' + sigFromPy(pobj.keys()[0]) + sigFromPy(pobj.values()[0]) + '}'
+        return 'a{' + sigFromPy(next(iter(pobj.keys()))) + sigFromPy(next(iter(pobj.values()))) + '}'
     
     else:
         raise MarshallingError('Invalid Python type for variant: ' + repr(pobj))
@@ -262,14 +261,14 @@ def sigFromPy( pobj ):
 #    - All data types must be padded to the correct alignment
 #    - All padding bytes must be nul
 #
-padding = { 0 : '\0' * 0,
-            1 : '\0' * 1,
-            2 : '\0' * 2,
-            3 : '\0' * 3,
-            4 : '\0' * 4,
-            5 : '\0' * 5,
-            6 : '\0' * 6,
-            7 : '\0' * 7 }
+padding = { 0 : b'\0' * 0,
+            1 : b'\0' * 1,
+            2 : b'\0' * 2,
+            3 : b'\0' * 3,
+            4 : b'\0' * 4,
+            5 : b'\0' * 5,
+            6 : b'\0' * 6,
+            7 : b'\0' * 7 }
 
 def genpad( align ):
     return lambda x : padding[ x % align and (align - x%align) or 0 ]
@@ -404,11 +403,13 @@ def marshal_double( ct, var, start_byte, lendian ):
 #       3 - terminating nul byte
 #
 def marshal_string( ct, var, start_byte, lendian ):
-    if not isinstance(var, basestring):
+    if isinstance(var, six.text_type):
+        var = var.encode('utf8')
+    elif not isinstance(var, six.binary_type):
         raise MarshallingError('Required string. Received: ' + repr(var))
-    if var.find('\0') != -1:
+    if var.find(b'\0') != -1:
         raise MarshallingError('Embedded nul characters are not allowed within DBus strings')
-    return 4 + len(var) + 1, [ struct.pack( lendian and '<I' or '>I', len(var)), var, '\0' ]
+    return 4 + len(var) + 1, [ struct.pack( lendian and '<I' or '>I', len(var)), var, b'\0' ]
 
 
 # OBJECT_PATH:
@@ -429,7 +430,11 @@ def marshal_object_path( ct, var, start_byte, lendian ):
 #       3 - terminating nul byte
 def marshal_signature( ct, var, start_byte, lendian ):
     # XXX validate signature
-    return 2 + len(var), [struct.pack(lendian and '<B' or '>B', len(var)), var, '\0']
+    if isinstance(var, six.text_type):
+        var = var.encode('ascii')
+    elif not isinstance(var, six.binary_type):
+        raise MarshallingError('Required string. Received: ' + repr(var))
+    return 2 + len(var), [struct.pack(lendian and '<B' or '>B', len(var)), var, b'\0']
 
 
 # ARRAY:
@@ -455,7 +460,7 @@ def marshal_array( ct, var, start_byte, lendian ):
     if isinstance(var, (list, tuple)):
         arr_list = var
     elif isinstance(var, dict):
-        arr_list = [ tpl for tpl in var.iteritems() ]
+        arr_list = [ tpl for tpl in var.items() ]
     else:
         raise MarshallingError('List, Tuple, or Dictionary required for DBus array. Received: ' + repr(var))
 
@@ -641,7 +646,7 @@ def unmarshal_double(ct, data, offset, lendian):
 #
 def unmarshal_string(ct, data, offset, lendian):
     slen = struct.unpack_from( lendian and '<I' or '>I', data, offset)[0]
-    return 4 + slen + 1, data[ offset + 4 :  offset + 4 + slen ]
+    return 4 + slen + 1, data[ offset + 4 :  offset + 4 + slen ].decode('ascii')
     
 
 # OBJECT_PATH:
@@ -660,7 +665,7 @@ unmarshal_object_path = unmarshal_string
 #       3 - terminating nul byte
 def unmarshal_signature(ct, data, offset, lendian):
     slen = struct.unpack_from( lendian and '<b' or '>b', data, offset)[0]
-    return 1 + slen + 1, data[ offset + 1 : offset + 1 + slen ]
+    return 1 + slen + 1, data[ offset + 1 : offset + 1 + slen ].decode('ascii')
     
 
 # ARRAY:

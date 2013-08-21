@@ -104,9 +104,9 @@ class DBusMessage (object):
                 self.headers.append( [code, hval] )
 
         if self.signature:
-            binBody = ''.join( marshal.marshal( self.signature, self.body )[1] )
+            binBody = b''.join( marshal.marshal( self.signature, self.body )[1] )
         else:
-            binBody = ''
+            binBody = b''
 
         self.bodyLength = len(binBody)
 
@@ -115,7 +115,7 @@ class DBusMessage (object):
 
             DBusMessage._nextSerial += 1
         
-        binHeader = ''.join(marshal.marshal(_headerFormat,
+        binHeader = b''.join(marshal.marshal(_headerFormat,
                                             [self.endian,
                                              self._messageType,
                                              flags,
@@ -131,7 +131,7 @@ class DBusMessage (object):
         self.rawPadding = headerPadding
         self.rawBody    = binBody
         
-        self.rawMessage = ''.join( [binHeader, headerPadding, binBody] )
+        self.rawMessage = b''.join( [binHeader, headerPadding, binBody] )
 
         if len(self.rawMessage) > self._maxMsgLen:
             raise error.MarshallingError('Marshalled message exceeds maximum message size of %d' %

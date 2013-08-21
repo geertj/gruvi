@@ -24,7 +24,7 @@ class MessageTester(unittest.TestCase):
         try:
             message.parseMessage(E('foo.bar', 5).rawMessage)
             self.assertTrue(False)
-        except Exception, e:
+        except Exception as e:
             self.assertEquals(str(e), 'Unknown Message Type: 99')
         
     
