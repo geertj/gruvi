@@ -39,23 +39,23 @@ def split_string(s):
 class TestJsonRpcFFI(UnitTest):
 
     def test_simple(self):
-        r = '{ "foo": "bar" }'
+        r = b'{ "foo": "bar" }'
         ctx = split_string(r)
         assert ctx.error == 0
         assert ctx.offset == len(r)
 
     def test_leading_whitespace(self):
-        r = ' { "foo": "bar" }'
+        r = b' { "foo": "bar" }'
         ctx = split_string(r)
         assert ctx.error == 0
         assert ctx.offset == len(r)
-        r = ' \t\n{ "foo": "bar" }'
+        r = b' \t\n{ "foo": "bar" }'
         ctx = split_string(r)
         assert ctx.error == 0
         assert ctx.offset == len(r)
 
     def test_trailing_whitespace(self):
-        r = '{ "foo": "bar" } '
+        r = b'{ "foo": "bar" } '
         ctx = split_string(r)
         assert ctx.error == 0
         assert ctx.offset == len(r)-1
@@ -64,33 +64,33 @@ class TestJsonRpcFFI(UnitTest):
         assert ctx.offset == len(r)
 
     def test_brace_in_string(self):
-        r = '{ "foo": "b{r" }'
+        r = b'{ "foo": "b{r" }'
         ctx = split_string(r)
         assert ctx.error == 0
         assert ctx.offset == len(r)
-        r = '{ "foo": "b}r" }'
+        r = b'{ "foo": "b}r" }'
         ctx = split_string(r)
         assert ctx.error == 0
         assert ctx.offset == len(r)
 
     def test_string_escape(self):
-        r = r'{ "foo": "b\"}" }'
+        r = b'{ "foo": "b\\"}" }'
         ctx = split_string(r)
         assert ctx.error == 0
         assert ctx.offset == len(r)
 
     def test_error(self):
-        r = ' x { "foo": "bar" }'
+        r = b' x { "foo": "bar" }'
         ctx = split_string(r)
         assert ctx.error == jsonrpc_ffi.lib.ERROR
         assert ctx.offset == 1
-        r = '[ { "foo": "bar" } ]'
+        r = b'[ { "foo": "bar" } ]'
         ctx = split_string(r)
         assert ctx.error == jsonrpc_ffi.lib.ERROR
         assert ctx.offset == 0
 
     def test_multiple(self):
-        r = '{ "foo": "bar" } { "baz": "qux" }'
+        r = b'{ "foo": "bar" } { "baz": "qux" }'
         ctx = split_string(r)
         assert ctx.error == 0
         assert ctx.offset == 16
@@ -99,22 +99,22 @@ class TestJsonRpcFFI(UnitTest):
         assert ctx.offset == len(r)
 
     def test_incremental(self):
-        r = '{ "foo": "bar" }'
+        r = b'{ "foo": "bar" }'
         state = 0
         ctx = jsonrpc_ffi.ffi.new('struct context *')
-        for ch in r[:-1]:
-            set_buffer(ctx, ch)
+        for i in range(len(r)-1):
+            set_buffer(ctx, r[i:i+1])
             error = jsonrpc_ffi.lib.split(ctx)
             assert error == ctx.error == jsonrpc_ffi.lib.INCOMPLETE
             assert ctx.offset == 1
-        buf = ctx.buf = jsonrpc_ffi.ffi.new('char[]', r[-1])
+        buf = ctx.buf = jsonrpc_ffi.ffi.new('char[]', r[-1:])
         ctx.buflen = 1; ctx.offset = 0
         error = jsonrpc_ffi.lib.split(ctx)
         assert error == ctx.error == 0
         assert ctx.offset == 1
 
     def test_performance(self):
-        chunk = '{' + 'x' * 100 + '}'
+        chunk = b'{' + b'x' * 100 + b'}'
         buf = chunk * 100
         ctx = jsonrpc_ffi.ffi.new('struct context *')
         nbytes = 0
@@ -135,7 +135,7 @@ class TestJsonRpcFFI(UnitTest):
 class TestJsonRpcParser(UnitTest):
 
     def test_simple(self):
-        m = '{ "id": "1", "method": "foo" }'
+        m = b'{ "id": "1", "method": "foo" }'
         parser = JsonRpcParser()
         parser.feed(m)
         msg = parser.pop_message()
@@ -145,8 +145,8 @@ class TestJsonRpcParser(UnitTest):
         assert msg is None
 
     def test_multiple(self):
-        m = '{ "id": "1", "method": "foo" }' \
-            '{ "id": "2", "method": "bar" }'
+        m = b'{ "id": "1", "method": "foo" }' \
+            b'{ "id": "2", "method": "bar" }'
         parser = JsonRpcParser()
         parser.feed(m)
         msg = parser.pop_message()
@@ -157,8 +157,8 @@ class TestJsonRpcParser(UnitTest):
         assert msg is None
 
     def test_whitespace(self):
-        m = '  { "id": "1", "method": "foo" }' \
-            '  { "id": "2", "method": "bar" }'
+        m = b'  { "id": "1", "method": "foo" }' \
+            b'  { "id": "2", "method": "bar" }'
         parser = JsonRpcParser()
         parser.feed(m)
         msg = parser.pop_message()
@@ -169,47 +169,48 @@ class TestJsonRpcParser(UnitTest):
         assert msg is None
 
     def test_incremental(self):
-        m = '{ "id": "1", "method": "foo" }'
+        m = b'{ "id": "1", "method": "foo" }'
         parser = JsonRpcParser()
-        for ch in m[:-1]:
-            parser.feed(ch)
+        for i in range(len(m)-1):
+            parser.feed(m[i:i+1])
             assert parser.pop_message() is None
             assert parser.is_partial()
-        parser.feed(m[-1])
+        parser.feed(m[-1:])
         msg = parser.pop_message()
         assert not parser.is_partial()
         assert msg == { 'id': '1', 'method': 'foo' }
 
     def test_framing_error(self):
-        m = 'xxx'
+        m = b'xxx'
         parser = JsonRpcParser()
         exc = assert_raises(ParseError, parser.feed, m)
-        assert exc[0] == errno.FRAMING_ERROR
+        assert exc.args[0] == errno.FRAMING_ERROR
 
     def test_encoding_error(self):
-        m = '{ xxx\xff }'
+        m = b'{ xxx\xff }'
         parser = JsonRpcParser()
         exc = assert_raises(ParseError, parser.feed, m)
-        assert exc[0] == errno.PARSE_ERROR
+        assert exc.args[0] == errno.PARSE_ERROR
 
     def test_illegal_json(self):
-        m = '{ "xxxx" }'
+        m = b'{ "xxxx" }'
         parser = JsonRpcParser()
         exc = assert_raises(ParseError, parser.feed, m)
-        assert exc[0] == errno.PARSE_ERROR
+        assert exc.args[0] == errno.PARSE_ERROR
 
     def test_illegal_jsonrpc(self):
-        m = '{ "xxxx": "yyyy" }'
+        m = b'{ "xxxx": "yyyy" }'
         parser = JsonRpcParser()
         exc = assert_raises(ParseError, parser.feed, m)
-        assert exc[0] == errno.PARSE_ERROR
+        assert exc.args[0] == errno.PARSE_ERROR
  
     def test_maximum_message_size_exceeded(self):
         parser = JsonRpcParser()
         parser.max_message_size = 100
         message = '{{ "{0}": "{1}" }}'.format('x' * 100, 'y' * 100)
+        message = message.encode('ascii')
         exc = assert_raises(ParseError, parser.feed, message)
-        assert exc[0] == errno.MESSAGE_TOO_LARGE
+        assert exc.args[0] == errno.MESSAGE_TOO_LARGE
 
 
 def echo_app(message, endpoint, transport):
@@ -269,7 +270,7 @@ class TestJsonRpc(UnitTest):
         client = JsonRpcClient()
         client.connect(addr)
         exc = assert_raises(JsonRpcError, client.call_method, 'echo2')
-        assert exc[0] == errno.INVALID_REQUEST
+        assert exc.args[0] == errno.INVALID_REQUEST
  
     def test_send_notification(self):
         server = JsonRpcServer(notification_app())
@@ -336,7 +337,7 @@ class TestJsonRpc(UnitTest):
         client = StreamClient()
         client.connect(addr)
         try:
-            chunk = '{' * 1024
+            chunk = b'{' * 1024
             while True:
                 client.write(chunk)
         except pyuv.error.TCPError as e:
@@ -352,7 +353,7 @@ class TestJsonRpc(UnitTest):
         client = StreamClient()
         client.connect(addr)
         try:
-            chunk = ' ' * 1024
+            chunk = b' ' * 1024
             while True:
                 client.write(chunk)
         except pyuv.error.TCPError as e:

@@ -229,7 +229,7 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
             raise RuntimeError('not connected')
         if not check_message(message):
             raise ValueError('illegal JSON-RPC message')
-        serialized = json.dumps(message, ensure_ascii=True)
+        serialized = json.dumps(message, ensure_ascii=True).encode('ascii')
         self._write(transport, serialized)
 
 

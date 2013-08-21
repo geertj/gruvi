@@ -84,9 +84,9 @@ class DBusClientAuthenticator(object):
                 raise ValueError('client must initiate handshake')
             self._state = self.s_auth_external
             return b'\0AUTH EXTERNAL\r\n'
-        if not line.endswith('\r\n'):
+        if not line.endswith(b'\r\n'):
             raise ValueError('Incomplete line')
-        pos = line.find(' ')
+        pos = line.find(b' ')
         if pos != -1:
             command = line[:pos]
             args = line[pos+1:-2]

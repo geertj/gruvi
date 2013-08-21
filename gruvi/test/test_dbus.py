@@ -166,12 +166,12 @@ class TestDBusFFI(UnitTest):
         m = b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
         offset = state = 0
         ctx = dbus_ffi.ffi.new('struct context *')
-        for ch in m[:-1]:
-            set_buffer(ctx, ch)
+        for i in range(len(m)-1):
+            set_buffer(ctx, m[i:i+1])
             error = dbus_ffi.lib.split(ctx)
             assert error == ctx.error == dbus_ffi.lib.INCOMPLETE
             assert ctx.offset == 1
-        set_buffer(ctx, m[-1])
+        set_buffer(ctx, m[-1:])
         error = dbus_ffi.lib.split(ctx)
         assert error == ctx.error == 0
         assert ctx.offset == 1
@@ -179,12 +179,12 @@ class TestDBusFFI(UnitTest):
     def test_incremental_with_body(self):
         m = b'l\1\0\1\4\0\0\0\1\0\0\0\0\0\0\0abcd'
         ctx = dbus_ffi.ffi.new('struct context *')
-        for ch in m[:-1]:
-            set_buffer(ctx, ch)
+        for i in range(len(m)-1):
+            set_buffer(ctx, m[i:i+1])
             error = dbus_ffi.lib.split(ctx)
             assert error == ctx.error == dbus_ffi.lib.INCOMPLETE
             assert ctx.offset == 1
-        set_buffer(ctx, m[-1])
+        set_buffer(ctx, m[-1:])
         error = dbus_ffi.lib.split(ctx)
         assert error == ctx.error == 0
         assert ctx.offset == 1
@@ -192,12 +192,12 @@ class TestDBusFFI(UnitTest):
     def test_incremental_with_header(self):
         m = b'l\1\0\1\0\0\0\0\1\0\0\0\10\0\0\0h2345678'
         ctx = dbus_ffi.ffi.new('struct context *')
-        for ch in m[:-1]:
-            set_buffer(ctx, ch)
+        for i in range(len(m)-1):
+            set_buffer(ctx, m[i:i+1])
             error = dbus_ffi.lib.split(ctx)
             assert error == ctx.error == dbus_ffi.lib.INCOMPLETE
             assert ctx.offset == 1
-        set_buffer(ctx, m[-1])
+        set_buffer(ctx, m[-1:])
         error = dbus_ffi.lib.split(ctx)
         assert error == ctx.error == 0
         assert ctx.offset == 1
@@ -205,12 +205,12 @@ class TestDBusFFI(UnitTest):
     def test_incremental_with_header_and_body(self):
         m = b'l\1\0\1\4\0\0\0\1\0\0\0\4\0\0\0h23456781234'
         ctx = dbus_ffi.ffi.new('struct context *')
-        for ch in m[:-1]:
-            set_buffer(ctx, ch)
+        for i in range(len(m)-1):
+            set_buffer(ctx, m[i:i+1])
             error = dbus_ffi.lib.split(ctx)
             assert error == ctx.error == dbus_ffi.lib.INCOMPLETE
             assert ctx.offset == 1
-        set_buffer(ctx, m[-1])
+        set_buffer(ctx, m[-1:])
         error = dbus_ffi.lib.split(ctx)
         assert error == ctx.error == 0
         assert ctx.offset == 1
@@ -268,11 +268,11 @@ class TestDBusParser(UnitTest):
     def test_incremental(self):
         m = b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
         parser = DBusParser()
-        for ch in m[:-1]:
-            parser.feed(ch)
+        for i in range(len(m)-1):
+            parser.feed(m[i:i+1])
             assert parser.pop_message() is None
             assert parser.is_partial()
-        parser.feed(m[-1])
+        parser.feed(m[-1:])
         msg = parser.pop_message()
         assert isinstance(msg, txdbus.DBusMessage)
         assert not parser.is_partial()
@@ -281,14 +281,14 @@ class TestDBusParser(UnitTest):
         m = b'l\1\0\2\0\0\0\0\1\0\0\0\0\0\0\0'
         parser = DBusParser()
         exc = assert_raises(ParseError, parser.feed, m)
-        assert exc[0] == errno.FRAMING_ERROR
+        assert exc.args[0] == errno.FRAMING_ERROR
 
     def test_maximum_message_size_exceeded(self):
         parser = DBusParser()
         parser.max_message_size = 100
         m = b'l\1\0\1\0\1\0\0\1\0\0\0\0\0\0\0' + b'x' * 256
         exc = assert_raises(ParseError, parser.feed, m)
-        assert exc[0] == errno.MESSAGE_TOO_LARGE
+        assert exc.args[0] == errno.MESSAGE_TOO_LARGE
 
 
 def uses_host_dbus(test):
@@ -315,11 +315,11 @@ class DummyAuthenticator(object):
 
     def feed(self, line):
         if self._state == self.s_start:
-            if line == '\0AUTH EXTERNAL\r\n':
+            if line == b'\0AUTH EXTERNAL\r\n':
                 self._state = self.s_begin
-                return 'OK\r\n'
+                return b'OK\r\n'
         elif self._state == self.s_begin:
-            if line == 'BEGIN\r\n':
+            if line == b'BEGIN\r\n':
                 self._state = self.s_authenticated
                 self._username = '<external>'
 
