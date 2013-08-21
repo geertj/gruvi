@@ -86,7 +86,7 @@ def update_manifest():
     stdout, _ = cmd.communicate()
     files = stdout.splitlines()
     files.append('gruvi/_version.py')
-    lines = ['include {0}\n'.format(fname.decode('ascii')) for fname in files]
+    lines = ['include {0}\n'.format(fname) for fname in files]
     new = ''.join(sorted(lines))
     try:
         with open('MANIFEST.in', 'r') as fin:
@@ -113,9 +113,9 @@ def main():
     os.chdir(topdir)
     update_version()
     update_manifest()
-    sys.path.insert(0, 'gruvi')
+    sys.path.append('gruvi')
     import dbus_ffi, http_ffi, jsonrpc_ffi
-    del sys.path[0]
+    sys.path.pop()
     setup(
         packages = ['gruvi', 'gruvi.txdbus'],
         install_requires = ['greenlet', 'pyuv', 'cffi', 'six'],
