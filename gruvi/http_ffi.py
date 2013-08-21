@@ -81,16 +81,15 @@ ffi.cdef("""
 
 
 parent, _ = os.path.split(os.path.abspath(__file__))
-parent, _ = os.path.split(parent)
-srcdir = os.path.join(parent, 'src')
-parser = os.path.join(srcdir, 'http_parser.c')
+topdir, _ = os.path.split(parent)
 
 lib = ffi.verify("""
     #include <stdlib.h>
-    #include "http_parser.h"
+    #include "src/http_parser.h"
+    #include "src/http_parser.c"
 
     unsigned char http_message_type(http_parser *p) { return p->type; }
     unsigned char http_errno(http_parser *p) { return p->http_errno; }
     unsigned char http_is_upgrade(http_parser *p) { return p->upgrade; }
 
-    """, include_dirs=[srcdir], sources=[parser])
+    """, modulename='http_cffi', include_dirs=[topdir])

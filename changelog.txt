@@ -1,4 +1,4 @@
-Changes in version 0.9:
+Changes in version 0.9.0:
 
 * Almost complete rewrite.
 * First release of beta quality.

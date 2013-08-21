@@ -15,7 +15,15 @@ import textwrap
 import subprocess
 
 from setuptools import setup, Extension
-import gruvi
+
+# CFFI is needed to call setup(). Therefore it needs to be installed already.
+# Installing it using setup_requires is not possible.
+try:
+    import cffi
+except ImportError:
+    sys.stderr.write('Error: please install CFFI first\n')
+    sys.stderr.write('Use: pip install cffi\n')
+    sys.exit(1)
 
 
 version_info = {
@@ -105,14 +113,17 @@ def main():
     os.chdir(topdir)
     update_version()
     update_manifest()
+    sys.path.insert(0, 'gruvi')
+    import dbus_ffi, http_ffi, jsonrpc_ffi
+    del sys.path[0]
     setup(
-        packages = ['gruvi', 'gruvi.test'],
+        packages = ['gruvi', 'gruvi.txdbus'],
         install_requires = ['greenlet', 'pyuv', 'cffi', 'six'],
         test_suite = 'nose.collector',
         zip_safe = False,
-        ext_modules = [gruvi.dbus_ffi.ffi.verifier.get_extension(),
-                       gruvi.http_ffi.ffi.verifier.get_extension(),
-                       gruvi.jsonrpc_ffi.ffi.verifier.get_extension()],
+        ext_modules = [dbus_ffi.ffi.verifier.get_extension(),
+                       http_ffi.ffi.verifier.get_extension(),
+                       jsonrpc_ffi.ffi.verifier.get_extension()],
         **version_info
     )
 
