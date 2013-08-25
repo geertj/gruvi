@@ -88,7 +88,7 @@ def update_manifest():
     cmd = subprocess.Popen(['git', 'ls-tree', '-r', 'master', '--name-only'],
                            stdout=subprocess.PIPE)
     stdout, _ = cmd.communicate()
-    files = stdout.splitlines()
+    files = stdout.decode('ascii').splitlines()
     files.append('gruvi/_version.py')
     lines = ['include {0}\n'.format(fname) for fname in files]
     new = ''.join(sorted(lines))
