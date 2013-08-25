@@ -21,7 +21,7 @@ args = parser.parse_args()
 def hello_app(environ, start_response):
     headers = [('Content-Type', 'text/plain')]
     start_response('200 OK', headers)
-    return b'Hello, world!'
+    return [b'Hello, world!']
 
 
 server = HttpServer(hello_app)
