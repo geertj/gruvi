@@ -368,7 +368,7 @@ def genCompleteTypes( compoundSig ):
 #
 
 def marshal_byte( ct, var, start_byte, lendian ):
-    return 1, [ struct.pack( lendian and '<b' or '>b', var) ]
+    return 1, [ struct.pack( lendian and '<B' or '>B', var) ]
 
 def marshal_boolean( ct, var, start_byte, lendian ):
     return 4, [ struct.pack( lendian and '<I' or '>I', 1 if var else 0) ]
@@ -610,7 +610,7 @@ def marshal( compoundSignature, variableList, startByte = 0, lendian=True ):
 
 
 def unmarshal_byte(ct, data, offset, lendian):
-    return 1, struct.unpack_from( lendian and '<b' or '>b', data, offset)[0]
+    return 1, struct.unpack_from( lendian and '<B' or '>B', data, offset)[0]
 
 def unmarshal_boolean(ct, data, offset, lendian):
     return 4, struct.unpack_from( lendian and '<I' or '>I', data, offset)[0] != 0
@@ -664,7 +664,7 @@ unmarshal_object_path = unmarshal_string
 #       2 - Valid signature string
 #       3 - terminating nul byte
 def unmarshal_signature(ct, data, offset, lendian):
-    slen = struct.unpack_from( lendian and '<b' or '>b', data, offset)[0]
+    slen = struct.unpack_from( lendian and '<B' or '>B', data, offset)[0]
     return 1 + slen + 1, data[ offset + 1 : offset + 1 + slen ].decode('ascii')
     
 
