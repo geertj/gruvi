@@ -41,9 +41,8 @@ from __future__ import absolute_import, print_function
 
 import os
 import struct
-import six
 
-from . import hub, error, txdbus, protocols, dbus_ffi
+from . import hub, error, txdbus, protocols, dbus_ffi, compat
 from .hub import switchpoint
 from .util import objref
 from .protocols import errno, ParseError
@@ -287,7 +286,7 @@ class DBusClient(DBusBase):
         also be one of the special addresses ``'session'`` or ``'system'``, to
         connect to the D-BUS session and system bus, respectively.
         """
-        if isinstance(address, (six.binary_type, six.text_type)):
+        if isinstance(address, (compat.binary_type, compat.text_type)):
             addresses = parse_dbus_address(address)
         elif hasattr(address, 'connect'):
             addresses = [address]

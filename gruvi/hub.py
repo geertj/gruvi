@@ -8,7 +8,6 @@
 
 from __future__ import absolute_import, print_function
 
-import six
 import pyuv
 import signal
 import greenlet
@@ -17,6 +16,8 @@ import threading
 import inspect
 import textwrap
 import itertools
+
+from . import compat
 
 __all__ = ['switchpoint', 'assert_no_switchpoints', 'get_hub', 'Hub']
 
@@ -64,7 +65,7 @@ def switchpoint(func):
                                            docstring=doc, arglist=arglist)
     namespace = {'get_hub': get_hub, 'getcurrent': greenlet.getcurrent,
                  '_{0}'.format(name): func}
-    six.exec_(funcdef, namespace)
+    compat.exec_(funcdef, namespace)
     return namespace[name]
 
 

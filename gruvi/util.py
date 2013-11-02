@@ -8,10 +8,10 @@
 
 from __future__ import absolute_import, print_function
 
-import six
 import pyuv
 import socket
 
+from . import compat
 from .hub import switchpoint, get_hub
 from .pyuv import pyuv_exc, TCP, Pipe
 from .ssl import SSL
@@ -49,7 +49,7 @@ def sleep(secs):
 
 def saddr(address):
     """Return a family specific string representation for a socket address."""
-    if isinstance(address, (six.binary_type, six.text_type)):
+    if isinstance(address, (compat.binary_type, compat.text_type)):
         return address
     elif isinstance(address, tuple) and len(address) == 2:
         return '{0}:{1}'.format(*address)
@@ -104,7 +104,7 @@ def create_connection(address, ssl=False, local_address=None,
     """
     from . import logging
     logger = logging.get_logger('create_connection()')
-    if isinstance(address, (six.binary_type, six.text_type)):
+    if isinstance(address, (compat.binary_type, compat.text_type)):
         transport_type = Pipe
         addresses = [address]
     elif isinstance(address, tuple):

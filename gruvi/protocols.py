@@ -11,10 +11,9 @@ from __future__ import absolute_import, print_function
 import json
 import socket
 import collections
-import six
 import pyuv
 
-from . import hub, error, logging, greenlet
+from . import hub, error, logging, greenlet, compat
 from .hub import switchpoint
 from .pyuv import pyuv_exc, TCP, Pipe
 from .ssl import SSL
@@ -92,7 +91,7 @@ class Protocol(object):
         """
         if self._transport is not None and not self._transport.closed:
             raise RuntimeError('already listening')
-        if isinstance(address, (six.binary_type, six.text_type)):
+        if isinstance(address, (compat.binary_type, compat.text_type)):
             transport = Pipe()
             transport.bind(address)
             self._logger.debug('listen(): bound to {0}'.format(saddr(address)))

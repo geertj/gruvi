@@ -8,9 +8,9 @@ from __future__ import absolute_import, print_function
 
 import struct
 import re
-import six
 
 from .error import MarshallingError
+from .. import compat
 
 
 invalid_obj_path_re = re.compile('[^a-zA-Z0-9_/]')
@@ -324,7 +324,7 @@ def genCompleteTypes( compoundSig ):
         elif c == 'a':
             start = i
             g = genCompleteTypes( compoundSig[i+1:] )
-            ct = six.next(g)
+            ct = compat.next(g)
             i += len(ct)
             yield 'a' + ct
             
@@ -403,9 +403,9 @@ def marshal_double( ct, var, start_byte, lendian ):
 #       3 - terminating nul byte
 #
 def marshal_string( ct, var, start_byte, lendian ):
-    if isinstance(var, six.text_type):
+    if isinstance(var, compat.text_type):
         var = var.encode('utf8')
-    elif not isinstance(var, six.binary_type):
+    elif not isinstance(var, compat.binary_type):
         raise MarshallingError('Required string. Received: ' + repr(var))
     if var.find(b'\0') != -1:
         raise MarshallingError('Embedded nul characters are not allowed within DBus strings')
@@ -430,9 +430,9 @@ def marshal_object_path( ct, var, start_byte, lendian ):
 #       3 - terminating nul byte
 def marshal_signature( ct, var, start_byte, lendian ):
     # XXX validate signature
-    if isinstance(var, six.text_type):
+    if isinstance(var, compat.text_type):
         var = var.encode('ascii')
-    elif not isinstance(var, six.binary_type):
+    elif not isinstance(var, compat.binary_type):
         raise MarshallingError('Required string. Received: ' + repr(var))
     return 2 + len(var), [struct.pack(lendian and '<B' or '>B', len(var)), var, b'\0']
 

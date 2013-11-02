@@ -15,7 +15,7 @@ import functools
 from nose import SkipTest
 
 import gruvi
-from gruvi import dbus_ffi, txdbus
+from gruvi import dbus_ffi, txdbus, compat
 from gruvi.protocols import errno, ParseError
 from gruvi.dbus import DBusParser, DBusBase, DBusClient
 from gruvi.test import UnitTest, assert_raises
@@ -350,7 +350,7 @@ class TestDBus(UnitTest):
                                     'org.freedesktop.DBus', 'ListNames')
         assert isinstance(result, list)
         for name in result:
-            assert isinstance(name, compat.str)
+            assert isinstance(name, compat.text_type)
 
     def test_simple(self):
         server = DBusBase(echo_app)

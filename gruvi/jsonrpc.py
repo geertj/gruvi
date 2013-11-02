@@ -38,10 +38,9 @@ many as there are connections.
 
 from __future__ import absolute_import, print_function
 
-import six
 import json
 
-from . import hub, error, protocols, jsonrpc_ffi
+from . import hub, error, protocols, jsonrpc_ffi, compat
 from .hub import switchpoint
 from .util import docfrom
 from .protocols import errno, ParseError
@@ -68,7 +67,7 @@ def check_message(message):
         return False
     if 'method' in message:
         # Request or notification
-        if not isinstance(message['method'], six.string_types):
+        if not isinstance(message['method'], compat.string_types):
             return False
         if not isinstance(message.get('params', []), (list, tuple)):
             return False

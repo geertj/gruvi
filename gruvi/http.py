@@ -36,11 +36,10 @@ Some general notes:
 
 from __future__ import absolute_import, print_function
 
-import six
 import os.path
 import collections
 
-from . import hub, protocols, error, reader, http_ffi, logging
+from . import hub, protocols, error, reader, http_ffi, logging, compat
 from .hub import switchpoint
 from .util import objref, docfrom
 from ._version import __version__
@@ -140,7 +139,7 @@ def create_response(version, status, headers):
 
 def _ba2str(ba):
     """Convert a byte-array to a "str" type."""
-    if six.PY3:
+    if compat.PY3:
         return ba.decode('iso-8859-1')
     else:
         return bytes(ba)
@@ -149,7 +148,7 @@ def _ba2str(ba):
 def _cp2str(cd):
     """Convert a cffi cdata('char *') to a str."""
     s = http_ffi.ffi.string(cd)
-    if six.PY3:
+    if compat.PY3:
         s = s.decode('iso-8859-1')
     return s
 
@@ -507,7 +506,7 @@ class HttpClient(protocols.RequestResponseProtocol):
             headers.append(('Host', self._default_host))
         if body is None:
             body = b''
-        if not isinstance(body, (six.binary_type, six.text_type)) \
+        if not isinstance(body, (compat.binary_type, compat.text_type)) \
                     and not hasattr(body, 'read') \
                     and not hasattr(body, '__iter__'):
             raise TypeError('body: expecting a bytes or str instance, ' \
@@ -650,9 +649,9 @@ class HttpServer(protocols.RequestResponseProtocol):
 
     @switchpoint
     def _write(self, transport, data, last=False):
-        if isinstance(data, six.text_type):
+        if isinstance(data, compat.text_type):
             data = data.encode('iso-8859-1')
-        elif not isinstance(data, six.binary_type):
+        elif not isinstance(data, compat.binary_type):
             raise TypeError('data: expecting bytes or str instance')
         if not data and not last:
             return
@@ -671,7 +670,7 @@ class HttpServer(protocols.RequestResponseProtocol):
         if exc_info:
             try:
                 if transport._headers_sent:
-                    six.reraise(*exc_info)
+                    compat.reraise(*exc_info)
             finally:
                 exc_info = None
         elif transport._status is not None:
