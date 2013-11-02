@@ -13,8 +13,9 @@ import socket
 import collections
 import pyuv
 
-from . import hub, error, logging, fiber, compat
+from . import hub, error, logging, compat
 from .hub import switchpoint
+from .fiber import ConditionSet, Queue, Fiber
 from .pyuv import pyuv_exc, TCP, Pipe
 from .ssl import SSL
 from .util import objref, saddr, getaddrinfo, create_connection, docfrom
@@ -146,7 +147,7 @@ class Protocol(object):
         """Initialize a client or server transport."""
         transport._eof = False
         transport._error = None
-        transport._events = hub.Events()
+        transport._events = ConditionSet()
         transport._write_buffer = 0
         transport._logger = logging.get_logger(objref(self))
         transport.start_read(self._on_transport_readable)
@@ -160,7 +161,7 @@ class Protocol(object):
             # _on_new_connection()
             if error and hasattr(transport, '_events'):
                 transport._error = error
-                transport._events.notify('HandleError', error)
+                transport._events.notify('HandleError')
         transport.close(on_transport_closed)
 
     def _on_transport_readable(self, transport, data, error):
@@ -178,18 +179,18 @@ class Protocol(object):
             if error:
                 error = pyuv_exc(transport, error)
                 transport._error = error
-                transport._events.notify('Error', error)
+                transport._events.notify('HandleError')
                 return
             oldsize = transport._write_buffer
             transport._write_buffer -= nbytes
             if transport._write_buffer < self.max_buffer_size <= oldsize:
-                transport._events.notify('BelowThreshold')
+                transport._events.notify('BufferBelowThreshold')
             if transport._write_buffer == 0:
-                transport._events.notify('Empty')
+                transport._events.notify('BufferEmpty')
         transport._write_buffer += nbytes
         transport.write(data, on_write_complete)
         if transport._write_buffer > self.max_buffer_size:
-            transport._events.wait('BelowThreshold', 'Error')
+            transport._events.wait('BufferBelowThreshold', 'HandleError')
         if transport._error:
             raise transport._error
         return nbytes
@@ -206,7 +207,7 @@ class Protocol(object):
         if not transport._write_buffer:
             return
         if not transport._error:
-            transport._events.wait('Empty', 'Error')
+            transport._events.wait('BufferEmpty', 'HandleError')
         if transport._error:
             raise transport._error
 
@@ -289,11 +290,11 @@ class RequestResponseProtocol(Protocol):
                 transport.stop_read()
             elif oldsize >= self.max_buffer_size > newsize:
                 transport.start_read(self._on_transport_readable)
-        transport._queue = hub.Queue(on_queue_size_change)
+        transport._queue = Queue(on_queue_size_change)
         transport._dispatcher = None
 
     def _start_dispatcher(self, transport):
-        transport._dispatcher = fiber.Fiber(self._dispatch, args=(transport,))
+        transport._dispatcher = Fiber(self._dispatch, args=(transport,))
         transport._dispatcher.start()
 
     def _dispatch_fast_path(self, transport, message):
@@ -332,21 +333,21 @@ class RequestResponseProtocol(Protocol):
                 continue
             if transport._dispatcher is None:
                 self._start_dispatcher(transport)
-            transport._queue.add(message)
+            transport._queue.put(message)
         # Do we need to close the connection?
         if transport._eof or error:
-            if not transport._dispatcher or len(transport._queue) == 0:
+            if not transport._dispatcher or transport._queue.qsize() == 0:
                 # Close the connection right away
                 self._close_transport(transport, error)
             else:
                 # Let the dispatcher transport the error and close the connection
-                transport._queue.add(error)
+                transport._queue.put(error)
 
     def _dispatch(self, transport):
         """Dispatch messages for a client or server. This method runs in its
         own fiber."""
         while True:
-            message = transport._queue.pop()
+            message = transport._queue.get()
             if not message:
                 self._close_transport(transport)  # EOF
                 break

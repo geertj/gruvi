@@ -8,14 +8,15 @@
 
 from __future__ import absolute_import, print_function
 
-import pyuv
 import signal
-import fibers
 import collections
 import threading
 import inspect
 import textwrap
 import itertools
+
+import pyuv
+import fibers
 
 from . import compat
 
@@ -23,7 +24,7 @@ __all__ = ['switchpoint', 'assert_no_switchpoints', 'get_hub', 'Hub']
 
 
 # The @switchpoint decorator dynamically compiles the wrapping code at import
-# time. The more standard way of returning a closure would result in Sphinx
+# time. The more obvious way of using a closure would result in Sphinx
 # documenting the function as having the signature of func(*args, **kwargs).
 
 _switchpoint_template = textwrap.dedent("""\
@@ -103,88 +104,6 @@ class assert_no_switchpoints(object):
 def get_hub():
     """Return the singleton instance of the hub."""
     return Hub.get()
-
-
-class Events(object):
-    """Synchronize and exchange data via events."""
-
-    def __init__(self):
-        self._hub = get_hub()
-        self._events = {}
-
-    def wait(self, *events, **kwargs):
-        """Suspend the current fiber and wait until a notification is sent
-        for any of the events in *events*.
-        """
-        if not events:
-            raise ValueError('specify at least one event')
-        for event in events:
-            if event in self._events:
-                raise RuntimeError('already waiting for event {0}'
-                                        .format(event))
-        timeout = kwargs.get('timeout')
-        switch_back = self._hub.switch_back()
-        def on_notify(*args):
-            for event in events:
-                del self._events[event]
-            switch_back(*args)
-        for event in events:
-            self._events[event] = on_notify
-        args = self._hub.switch(timeout)
-        assert isinstance(args, tuple)
-        if len(args) == 1:
-            args = args[0]
-        return args
-
-    def notify(self, event, *args):
-        """Notify the fiber that is blocked on *event*, if any."""
-        callback = self._events.get(event)
-        if not callback:
-            return False
-        callback(*args)
-        return True
-
-
-class Queue(object):
-    """A synchronized queue."""
-
-    def __init__(self, on_size_change=None, sizefunc=None):
-        """Create a new queue.
-
-        The *on_size_change* argument is an optional callback that will be
-        called when the total amount of bytes in the queue changes. This is
-        useful for implementing flow control.
-        """
-        self._queue = collections.deque()
-        self._events = Events()
-        self._buffer_size = 0
-        self._on_size_change = on_size_change
-        self._sizefunc = sizefunc or (lambda x: len(x))
-
-    def __len__(self):
-        return len(self._queue)
-
-    def _adjust_size(self, delta):
-        """Adjust the _buffer_size property."""
-        oldsize = self._buffer_size
-        self._buffer_size += delta
-        if self._on_size_change:
-            self._on_size_change(oldsize, self._buffer_size)
-
-    def add(self, obj):
-        """Add an object *obj* to the queue."""
-        self._queue.append(obj)
-        self._adjust_size(self._sizefunc(obj))
-        self._events.notify('RequestAdded')
-
-    @switchpoint
-    def pop(self):
-        """Pop an object from the queue. Wait if the queue is empty."""
-        if not self._queue:
-            self._events.wait('RequestAdded')
-        obj = self._queue.popleft()
-        self._adjust_size(-self._sizefunc(obj))
-        return obj
 
 
 class Hub(fibers.Fiber):

@@ -459,7 +459,7 @@ class HttpClient(protocols.RequestResponseProtocol):
             transport.nodelay(True)
 
     def _dispatch_fast_path(self, transport, message):
-        transport._queue.add(message)
+        transport._queue.put(message)
         def on_size_change(oldsize, newsize):
             transport._queue._adjust_size(newsize-oldsize)
         message.body._on_size_change = on_size_change
@@ -542,7 +542,7 @@ class HttpClient(protocols.RequestResponseProtocol):
         """
         if not self._transport._parser.requests and not self._transport._queue:
             raise RuntimeError('there are no outstanding requests')
-        message = self._transport._queue.pop()
+        message = self._transport._queue.get()
         response = HttpResponse(message)
         return response
 

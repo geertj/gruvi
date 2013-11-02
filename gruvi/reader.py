@@ -9,7 +9,8 @@
 import io
 import collections
 
-from .hub import switchpoint, Events
+from .hub import switchpoint
+from .fiber import ConditionSet
 
 
 class Reader(io.BufferedIOBase):
@@ -30,7 +31,7 @@ class Reader(io.BufferedIOBase):
         self._error = None
         self._buffer_size = 0
         self._on_size_change = on_size_change
-        self._events = Events()
+        self._events = ConditionSet()
 
     def _adjust_size(self, delta):
         """Adjust the buffer size and fire the callback if any."""
