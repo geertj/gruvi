@@ -4,6 +4,7 @@ trash/
 *.egg-info
 *.pyc
 *.pyo
+*.so
 .*.swp
 .*.swo
 *~
