@@ -33,7 +33,7 @@ except ImportError:
 version_info = {
     'name': 'gruvi',
     'version': '0.9.1.dev',
-    'description': 'Synchronous evented IO with pyuv and greenlets',
+    'description': 'Synchronous evented IO with pyuv and fibers',
     'author': 'Geert Jansen',
     'author_email': 'geertj@gmail.com',
     'url': 'https://github.com/geertj/gruvi',
@@ -122,7 +122,7 @@ def main():
     sys.path.pop()
     setup(
         packages = ['gruvi', 'gruvi.txdbus'],
-        install_requires = ['greenlet', 'pyuv', 'cffi', 'six'],
+        install_requires = ['fibers', 'pyuv', 'cffi'],
         test_suite = 'nose.collector',
         zip_safe = False,
         ext_modules = [dbus_ffi.ffi.verifier.get_extension(),
