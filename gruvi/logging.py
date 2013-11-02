@@ -8,9 +8,8 @@
 
 from __future__ import absolute_import, print_function
 
+import fibers
 import logging
-import greenlet
-
 from . import util, compat
 
 
@@ -49,7 +48,7 @@ class LoggingLogger(object):
         type(self)._patched_logger = True
 
     def _process(self, msg, args, kwargs):
-        current = greenlet.getcurrent()
+        current = fibers.current()
         grname = getattr(current, 'name', util.objref(current))
         target = getattr(current, 'target', None)
         if target:

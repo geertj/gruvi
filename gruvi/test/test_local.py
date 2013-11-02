@@ -10,9 +10,7 @@ from __future__ import absolute_import, print_function
 
 import gc
 import gruvi
-from gruvi import util, test
-
-import greenlet
+from gruvi import util, test, fiber
 
 
 class TestLocal(test.UnitTest):
@@ -20,7 +18,7 @@ class TestLocal(test.UnitTest):
     def test_isolation(self):
         local = gruvi.local.local()
         interleaved = []
-        def greenlet1():
+        def fiber1():
             local.foo = 10
             interleaved.append(1)
             util.sleep(0)
@@ -29,7 +27,7 @@ class TestLocal(test.UnitTest):
             interleaved.append(1)
             util.sleep(0)
             assert local.foo == 30
-        def greenlet2():
+        def fiber2():
             assert not hasattr(local, 'foo')
             local.foo = 20
             interleaved.append(2)
@@ -40,20 +38,20 @@ class TestLocal(test.UnitTest):
             util.sleep(0)
             assert local.foo == 40
         hub = gruvi.Hub.get()
-        gr1 = gruvi.Greenlet(greenlet1)
-        gr2 = gruvi.Greenlet(greenlet2)
+        gr1 = gruvi.Fiber(fiber1)
+        gr2 = gruvi.Fiber(fiber2)
         gr1.start()
         gr2.start()
         hub.switch()
         assert not hasattr(local, 'foo')
         assert interleaved == [1, 2, 1, 2]
 
-    def test_cleanup_on_greenlet_exit(self):
+    def test_cleanup_on_fiber_exit(self):
         hub = gruvi.Hub.get()
         local = gruvi.local.local()
-        def greenlet1():
+        def fiber1():
             local.foo = 10
-        gr1 = gruvi.Greenlet(greenlet1)
+        gr1 = gruvi.Fiber(fiber1)
         gr1.start()
         hub.switch()
         # Access the local object as if access was from gr1

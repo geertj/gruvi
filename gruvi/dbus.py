@@ -33,8 +33,8 @@ The return value of the message handler may be ``None``, or an instance of a
 :class:`txdbus.DBusMessage` subclass. The latter is useful when you are
 responding to a method call.
 
-Message handlers runs in their own greenlet. This allows a message handler to
-call into a switchpoint. There will be one greenlet for every transport.
+Message handlers runs in their own fiber. This allows a message handler to call
+into a switchpoint. There will be one fiber for every transport.
 """
 
 from __future__ import absolute_import, print_function

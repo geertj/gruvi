@@ -9,14 +9,14 @@ design decisions and their rationale. To get started immediately, skip to the
 :ref:`introduction` section.
 
 Gruvi is a network library for Python. It combines the efficiencies of
-event-based I/O with a sequential programming model. Gruvi uses `libuv`_ (via
-`pyuv`_) as the underlying, high-performance event-based I/O layer, and
-`greenlets`_ to turn the callback programming style associated with event-based
-I/O into a traditional sequential programming style. 
+event-based I/O with a sequential programming model. Gruvi uses libuv_ (via
+pyuv_) as the underlying, high-performance event-based I/O layer, and fibers_
+to turn the callback programming style associated with event-based I/O into a
+traditional sequential programming style. 
 
-Gruvi is similar in concept to `gevent`_, `concurrence`_ and `eventlet`_.
-There are a few important differences however that distinguish Gruvi from these
-other frameworks.
+Gruvi is similar in concept to gevent_, concurrence_ and eventlet_. There are
+a few important differences however that distinguish Gruvi from these other
+frameworks.
 
 * Gruvi has excellent cross-platform support. This is mostly thanks to libuv.
   All supported platforms, Posix, Windows and Mac OSX, are first class citizens.
@@ -43,12 +43,12 @@ other frameworks.
   ``recv()``).
 
   Instead of monkey patching, Gruvi implements its own, custom API that has
-  been specifically designed to work well within the context of greenlets and
+  been specifically designed to work well within the context of fibers and
   libuv.
 
 .. _libuv: https://github.com/joyent/libuv
 .. _pyuv: http://pyuv.readthedocs.org/en/latest
-.. _greenlets: http://greenlet.readthedocs.org/en/latest
+.. _fibers: http://python-fibers.readthedocs.org/en/latest
 .. _gevent: http://gevent.org/
 .. _concurrence: http://opensource.hyves.org/concurrence
 .. _eventlet: http://eventlet.net/

@@ -13,7 +13,7 @@ import socket
 import collections
 import pyuv
 
-from . import hub, error, logging, greenlet, compat
+from . import hub, error, logging, fiber, compat
 from .hub import switchpoint
 from .pyuv import pyuv_exc, TCP, Pipe
 from .ssl import SSL
@@ -293,8 +293,8 @@ class RequestResponseProtocol(Protocol):
         transport._dispatcher = None
 
     def _start_dispatcher(self, transport):
-        transport._dispatcher = greenlet.Greenlet(self._dispatch)
-        transport._dispatcher.start(transport)
+        transport._dispatcher = fiber.Fiber(self._dispatch, args=(transport,))
+        transport._dispatcher.start()
 
     def _dispatch_fast_path(self, transport, message):
         """Fast path dispatch. This is run in the read callback."""
@@ -323,7 +323,7 @@ class RequestResponseProtocol(Protocol):
                 transport._logger.error('parse error: {0!s}'.format(e))
                 error = self._exception(errno.PARSE_ERROR, str(e))
         # Dispatch either to the fast path or to the slow path via the queue
-        # and the dispatcher (which runs in a separate greenlet).
+        # and the dispatcher (which runs in a separate fiber).
         while True:
             message = transport._parser.pop_message()
             if message is None:
@@ -344,7 +344,7 @@ class RequestResponseProtocol(Protocol):
 
     def _dispatch(self, transport):
         """Dispatch messages for a client or server. This method runs in its
-        own greenlet."""
+        own fiber."""
         while True:
             message = transport._queue.pop()
             if not message:
@@ -363,5 +363,5 @@ class RequestResponseProtocol(Protocol):
         transport._logger.debug('dispatcher exiting')
 
     def _dispatch_message(self, transport, message):
-        """Slow path dispatch. This is run in the dispatcher greenlet."""
+        """Slow path dispatch. This is run in the dispatcher fiber."""
         raise NotImplementedError

@@ -252,6 +252,6 @@ autodoc_member_order = 'bysource'
 
 intersphinx_mapping = {
     'pyuv': ('http://pyuv.readthedocs.org/en/latest', None),
-    'greenlet': ('http://greenlet.readthedocs.org/en/latest', None),
+    'fibers': ('http://python-fibers.readthedocs.org/en/latest', None),
     'python': ('http://docs.python.org/3', None)
 }

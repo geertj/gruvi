@@ -13,7 +13,7 @@
 
 .. autoclass:: assert_no_switchpoints
 
-.. autoclass:: gruvi.Greenlet
+.. autoclass:: gruvi.Fiber
    :members:
 
 .. autoclass:: gruvi.Hub()

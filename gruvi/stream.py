@@ -22,7 +22,7 @@ import pyuv
 from .hub import switchpoint
 from .pyuv import pyuv_exc
 from .util import docfrom, objref
-from . import greenlet, reader, protocols, error
+from . import fiber, reader, protocols, error
 
 
 __all__ = ['StreamError', 'StreamClient', 'StreamServer']
@@ -97,8 +97,9 @@ class StreamBase(protocols.Protocol):
         transport._stream = Stream(transport, self)
         if self._connection_handler is None:
             return
-        transport._dispatcher = greenlet.Greenlet(self._dispatch_connection)
-        transport._dispatcher.start(transport)
+        transport._dispatcher = fiber.Fiber(self._dispatch_connection,
+                                            args=(transport,))
+        transport._dispatcher.start()
 
     def _on_transport_readable(self, transport, data, error):
         if error == pyuv.errno.UV_EOF:

@@ -55,6 +55,10 @@ issue12641_, compilation of C extensions is currently broken for MinGW. If you
 feel determined, you can see `these instructions`_ from another Python module
 that explain how to unbreak this.
 
+**Update**: It appears that Python 2.7.6 and 3.3.3 will fix this bug! At the
+time of writing (11/2/2013), both versions have release candidates, but the
+final versions have not yet been released.
+
 
 .. _issue12641: http://bugs.python.org/issue12641
 .. _these instructions: http://docs.testmill.cc/en/latest/appendices.html#windows-installation

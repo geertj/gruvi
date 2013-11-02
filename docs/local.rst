@@ -1,6 +1,6 @@
-***********************************************
-:py:mod:`gruvi.local` -- Greenlet local storage
-***********************************************
+********************************************
+:py:mod:`gruvi.local` -- Fiber local storage
+********************************************
 
 .. autoclass:: gruvi.local.local
    :members:

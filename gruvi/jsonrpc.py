@@ -30,10 +30,10 @@ The return value of the message handler may be ``None``, or a dictionary
 containing the message to send back. This will typically be a reply to a method
 call, but this is not required.
 
-Message handlers runs in their own greenlet. This allows a message handler to
-call into a switchpoint. There will be one greenlet for every connection. So on
-the client side there will be at most one greenlet, and on the server side as
-many as there are connections.
+Message handlers runs in their own fiber. This allows a message handler to call
+into a switchpoint. There will be one fiber for every connection. So on the
+client side there will be at most one fiber, and on the server side as many as
+there are connections.
 """
 
 from __future__ import absolute_import, print_function

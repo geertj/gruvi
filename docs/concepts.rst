@@ -8,7 +8,7 @@ Concepts
 
 This section introduces the most important concepts in Gruvi. It is recommended
 to have a proper understanding of this chapter before going ahead with the API
-reference. If you are already familiar with greenlets and event based I/O, you
+reference. If you are already familiar with fibers and event based I/O, you
 can probably pass over this section rather quickly.
 
 Blocking I/O vs Callbacks
@@ -50,7 +50,7 @@ Blocking I/O has the advantage of being easy to understand and to program for.
 The disadvantage is that for all but the simplest program, you will need
 multiple concurrent execution contexts to handle all the I/O you need to do. And
 depending on the type of execution context (e.g. threads, processes, or
-greenlets) there could be a large overhead, or it could introduce the need for
+fibers) there could be a large overhead, or it could introduce the need for
 complicated locking.
 
 The second type of API that is frequently used is a *Callback API*. In a
@@ -121,44 +121,44 @@ completion based I/O machinery. And on Posix/Mac, it uses the native
 ready-based I/O primitives which can be efficiently transformed in completion
 based primitives.
 
-Greenlets
-*********
+Fibers
+******
 
-A greenlet is an user-mode execution context that is explicitly created and
-scheduled by application code. In a program without greenlets, you can
-visualize the execution state of a program as a single stack of function calls,
-starting from a ``main()`` function or equivalent, all the way down to the
-currently executing function. Calling a new function pushes a frame on the
-stack, returning from a function pops a frame from this stack.
+Fibers are user-mode execution contexts that are explicitly created and
+scheduled by application code. In a program without fibers, you can visualize
+the execution state of a program as a single stack of function calls, starting
+from a ``main()`` function or equivalent, all the way down to the currently
+executing function. Calling a new function pushes a frame on the stack,
+returning from a function pops a frame from this stack.
 
-In a program with greenlets, the execution state of the program is a
+In a program with fibers, the execution state of the program is a
 generalization of the picture above: rather than one stack, there are multiple
-stacks. The stack sit next to each other, and each stack corresponding to one
-execution context. In addition to calling a function and returning, a function
-can also create a new stack and/or switch to it. In other words, greenlets are
+stacks. The stack are independent, and each one corresponds to one execution
+context. In addition to calling a function and returning, a fiber can also
+create a new stack and/or switch to it. In other words, fibers are
 *coroutines*.
 
-Greenlets are similar to threads in the fact that both represent independent
+Fibers are similar to threads in the fact that both represent independent
 execution contexts. However there are two big differences:
 
-1. There is always exactly one greenlet that is executing at the same time,
+1. There is always exactly one fiber that is executing at the same time,
    even of multiple CPU cores.
-2. Switching between greenlets only happens when a ``switch()`` function is
+2. Switching between fibers only happens when a ``switch()`` function is
    called. In case of threads the switching may done implicitly by the OS or
    thread library scheduler at any time during program execution.
 
-This above differences result in two large advantages of greenlets when
+This above differences result in two large advantages of fibers when
 compared to threads:
 
-1. Because greenlets are scheduled in user mode, a technique called *stack
+1. Because fibers are scheduled in user mode, a technique called *stack
    splicing* can be used. This technique removes the need to preallocate
-   program stacks. Each greenlet will only use the stack space that is actually
+   program stacks. Each fiber will only use the stack space that is actually
    occupied. This is typically a few orders of magnitude smaller than the stack
    space allocated for threads. The direct consequence is that the number of
-   concurrent greenlets on a single system can be a few orders of magnitude
+   concurrent fibers on a single system can be a few orders of magnitude
    higher than the number of concurrent threads. This in turn makes it possible
    to write network servers where each connection is handled by a single
-   greenlet, greatly simplifying the architecture.
+   fiber, greatly simplifying the architecture.
 2. Because switching is explicit, usually it is possible to write programs that
    do not require locks. When using threads, switching is implicit i.e. it can
    happen anywhere in your program. This usually means that locks are required.
@@ -181,7 +181,7 @@ API deals with the specifics around protocol interactions. For example, the
 HTTP client protocol that is provided by Gruvi provides a function to issue an
 HTTP request. The protocol API is a blocking API. For the most part this is is
 fully transparent as protocol handlers are automatically run in their own
-greenlet.
+fiber.
 
 The protocol API is what you'd normally use as a programmer. Occasionally you
 might drop down to the transport API, for example if you want to create a new
@@ -191,22 +191,22 @@ The Gruvi API has this dual nature in order to combine the efficiencies of
 non-threaded, multiplexed I/O at the operating system level, with a traditional
 and easy to use blocking API at the protocol level.
 
-The Hub and Greenlet Scheduling
-*******************************
+The Hub and Fiber Scheduling
+****************************
 
 What happens when a function in the protocol API needs to block? In short, what
-happens is that the current greenlet's execution will be suspended, and that we
-switch to a central greenlet scheduler call the *Hub* (called after the name it
+happens is that the current fiber's execution will be suspended, and that we
+switch to a central fiber scheduler call the *Hub* (called after the name it
 has in gevent).
 
-The Hub runs in a separate greenlet. It maintains a libuv event loop into which
+The Hub runs in a separate fiber. It maintains a libuv event loop into which
 all wakeup conditions are registered as callbacks. The protocol implementations
 are responsible for setting up their own wakeup conditions. When a protocol
 operation needs to call a callback style transport API function, it will take
 the following three steps:
 
 1. It will ask the Hub for a special "switchback" callback. This is a callback
-   that, when called, will switch back to the current greenlet.
+   that, when called, will switch back to the current fiber.
 2. It will call the transport level API with the switchback callback as the
    callback. This operation returns immediately.
 3. It will switch to the Hub.
@@ -214,10 +214,10 @@ the following three steps:
 The Hub's main loop simply calls the libuv event loop repeatedly. Once the
 wakeup condition associated with a transport API call has become true, libuv
 will call the associated callback. This will be the "switchback" callback,
-which will resume execution in the greenlet just after it switched to the Hub.
+which will resume execution in the fiber just after it switched to the Hub.
 
 If it sounds pretty straightforward, that is because it is. The above is all
-that is required to make multiple greenlets work together cooperatively on top
+that is required to make multiple fibers work together cooperatively on top
 of an event based API.
 
 .. _lockless:
@@ -225,14 +225,14 @@ of an event based API.
 Lockless operation
 ******************
 
-One of the biggest advantages of greenlets is that with a some effort, it is
+One of the biggest advantages of fibers is that with a some effort, it is
 possible to write lockless concurrent programs. The idea behind lockless
-operation with greenlets is that there are no implicit context switches. All
+operation with fibers is that there are no implicit context switches. All
 switches happen at well defined points in time, namely when the
-:meth:`Greenlet.switch` function is called. This means that if we can prevent
-this method from being called (either directly or indirectly) when updating a
-shared state in a non-atomic way, then the update will be safe and we can do it
-without locks.
+:meth:`gruvi.Fiber.switch` function is called. This means that if we can
+prevent this method from being called (either directly or indirectly) when
+updating a shared state in a non-atomic way, then the update will be safe and
+we can do it without locks.
 
 A trivial way to achieve not calling ``switch()``, is to simply not call any
 functions when updating a shared state. While this is a fool proof way, it is

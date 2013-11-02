@@ -10,7 +10,7 @@ from __future__ import absolute_import, print_function
 
 import pyuv
 import signal
-import greenlet
+import fibers
 import collections
 import threading
 import inspect
@@ -63,7 +63,7 @@ def switchpoint(func):
     arglist = inspect.formatargspec(*argspec, formatvalue=lambda x: '')
     funcdef = _switchpoint_template.format(name=name, signature=signature,
                                            docstring=doc, arglist=arglist)
-    namespace = {'get_hub': get_hub, 'getcurrent': greenlet.getcurrent,
+    namespace = {'get_hub': get_hub, 'getcurrent': fibers.current,
                  '_{0}'.format(name): func}
     compat.exec_(funcdef, namespace)
     return namespace[name]
@@ -113,7 +113,7 @@ class Events(object):
         self._events = {}
 
     def wait(self, *events, **kwargs):
-        """Suspend the current greenlet and wait until a notification is sent
+        """Suspend the current fiber and wait until a notification is sent
         for any of the events in *events*.
         """
         if not events:
@@ -130,15 +130,18 @@ class Events(object):
             switch_back(*args)
         for event in events:
             self._events[event] = on_notify
-        ret = self._hub.switch(timeout)
-        return ret
+        args = self._hub.switch(timeout)
+        assert isinstance(args, tuple)
+        if len(args) == 1:
+            args = args[0]
+        return args
 
     def notify(self, event, *args):
-        """Notify the greenlet that is blocked on *event*, if any."""
-        switch_back = self._events.get(event)
-        if not switch_back:
+        """Notify the fiber that is blocked on *event*, if any."""
+        callback = self._events.get(event)
+        if not callback:
             return False
-        switch_back(*args)
+        callback(*args)
         return True
 
 
@@ -184,26 +187,26 @@ class Queue(object):
         return obj
 
 
-class Hub(greenlet.greenlet):
-    """The central greenlet scheduler.
+class Hub(fibers.Fiber):
+    """The central fiber scheduler.
 
-    The root greenlet will usually instantiate the Hub by calling the
+    The root fiber will usually instantiate the Hub by calling the
     :meth:`get` class method, and then start the main event loop by calling
     :meth:`switch`. Typically this loop will remain active during the entire
     life time of the application.
 
-    Non-root greenlets use the Hub to wait for certain conditions to become
+    Non-root fibers use the Hub to wait for certain conditions to become
     true. The condition is normally signalled  by firing a callback. To wait
-    until such a callback is fired, a non-root greenlet will take the following
+    until such a callback is fired, a non-root fiber will take the following
     steps:
 
     1. It will retrieve a new "switchback callback" using :meth:`switch_back`.
     2. It will register the switchback callback as the callback to the condition
-       the greenlet is interested in.
+       the fiber is interested in.
     3. It will call :meth:`switch` to switch to the Hub to allow other
-       greenlets to run.
+       fibers to run.
     4. When the condition happens, the switchback callback is called, which
-       will schedule a switch back of the current greenlet. The execution will
+       will schedule a switch back of the current fiber. The execution will
        resume just after the :meth:`switch` call.
     """
 
@@ -211,12 +214,10 @@ class Hub(greenlet.greenlet):
     _local = threading.local()
 
     def __init__(self, _loop=None):
-        current = greenlet.getcurrent()
-        if current.parent is not None:
-            raise RuntimeError('Hub must be created in the root greenlet')
-        super(Hub, self).__init__()
+        if self.current().parent is not None:
+            raise RuntimeError('Hub must be created in the root fiber')
+        super(Hub, self).__init__(target=self.run)
         self._loop = _loop or pyuv.Loop.default_loop()
-        self._greenlets = set()
         self._atomic = collections.deque()
         self._callbacks = collections.deque()
         from gruvi import logging, util
@@ -243,8 +244,7 @@ class Hub(greenlet.greenlet):
     def run(self):
         # Target of Hub.switch(). This runs the the event loop until there are
         # no more active events, and then switches back to the parent.
-        current = greenlet.getcurrent()
-        if current is not self:
+        if self.current() is not self:
             raise RuntimeError('run() may only be called from the Hub')
         while True:
             self._run_callbacks()
@@ -256,17 +256,16 @@ class Hub(greenlet.greenlet):
     def switch(self, timeout=None, interrupt=False):
         """Switch to the hub.
 
-        This method may be called from the root greenlet to start or switch to
-        the Hub, or from a non-root greenlet yield and wait for a switch back.
+        This method may be called from the root fiber to start or switch to
+        the Hub, or from a non-root fiber yield and wait for a switch back.
         The optional *timeout* argument specifies the maximum time to wait. If
         the timeout expires then a switch back is automatically performed.
 
-        If called from the root greenlet, then this method returns when there
+        If called from the root fiber, then this method returns when there
         are no more callbacks (see :meth:`run_callback`) and no more events in
         the event loop.
         """
-        current = greenlet.getcurrent()
-        if current is self:
+        if self.current() is self:
             raise RuntimeError('Cannot switch() to the Hub from the Hub')
         if timeout is not None:
             timer = pyuv.Timer(self.loop)
@@ -283,15 +282,16 @@ class Hub(greenlet.greenlet):
 
     def switch_back(self):
         """Return a callback that, when called, queues another callback that
-        will switch to the greenlet that called ``switch_back()``.
+        will switch to the fiber that called ``switch_back()``.
 
-        The callback is often used as the callback target to pyuv methods that
-        expect a callback parameter.
+        The callback is often used as the callback target to pyuv methods. At
+        the moment, the callback accepts positional arguments only, which are
+        returned in a tuple as the result of :meth:`Hub.switch`.
         """
-        current = greenlet.getcurrent()
+        current = self.current()
         def schedule_switch_back(*args):
             def do_switch_back():
-                current.switch(*args)
+                current.switch(args)
             self.run_callback(do_switch_back)
         return schedule_switch_back
 

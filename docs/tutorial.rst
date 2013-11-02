@@ -57,45 +57,44 @@ using ``geturlinfo``. The next line is special:
    :lines: 16
 
 This is the first time we call into a *switchpoint*. If you look up the
-documentation for :meth:`HttpClient.connect` you will see that it is marked as
-such. This means the following:
+documentation for :meth:`gruvi.http.HttpClient.connect` you will see that it is
+marked as such. This means the following:
 
 * The call will block from the application point of view, but not from the
-  operating system point of view. Other greenlets will be able to run while we
-  are blocked here.
-* While the connection is being made, the current greenlet will be switched
-  out, and transfer is controlled to the hub. This is the first time the hub is
-  accessed, and it will be created on the fly. Also we didn't create any
-  greenlets ourselves. This means that the current greenlet is the root
-  greenlet, which is the greenlet that corresponds to the program stack that is
-  created by the operating system. There is no difference in switching behavior
-  though: the root greenlet can be switched out just as user created greenlet
-  can be.
+  operating system point of view. Other fibers will be able to run while we are
+  blocked here.
+* While the connection is being made, the current fiber will be switched out,
+  and transfer is controlled to the hub. This is the first time the hub is
+  accessed, and it will be created on the fly. Also we didn't create any fibers
+  ourselves. This means that the current fiber is the root fiber, which is the
+  fiber that corresponds to the program stack that is created by the operating
+  system. There is no difference in switching behavior though: the root fiber
+  can be switched out just as user created fiber can be.
 * Once the connection is established, control will switch back to the point
   just after we got switched out.
 * If the connection could not be made, control will also be switched back to
   us, but rather than continue executing, an exception would be raised.
 
 The ``connect`` call is common across many protocol implementations. It
-supports TCP, TCPv6, and :class:`pyuv.Pipe` transports. To use a TCP or a TCPv6
+supports TCP, TCPv6, and :class:`pyuv.Pipe` transports (which are Unix domain
+sockets on Unix, and named pipes on Windows). To use a TCP or a TCPv6
 connection, pass the address as an ``(address, port)`` tuple. The address is
 resolved using :func:`gruvi.util.getaddrinfo`. Depending on the order of the
 return values and the OS configuration, this may result in either a TCP or a
-TCPv6 connection. To use a pipe, specify the address as a string. On Unix, a
-Pipe is a Unix domain socket. On Windows, it is a named pipe.
+TCPv6 connection. To use a pipe, specify the address as a string.
 
-The connect function also supports SSL. SSL can currently be used only in
+The ``connect`` function also supports SSL. SSL can currently be used only in
 conjunction with TCP and TCPv6. To use SSL, pass ``ssl=True``.
 
 .. literalinclude:: ../examples/curl.py
    :lines: 18-19
 
 Here, we see two protocol specific methods. Both are switchpoints. The first
-one, :meth:`HttpClient.request` issues an HTTP request, and will wait until the
-request is sent over the network. The second call,
+one, :meth:`gruvi.http.HttpClient.request` issues an HTTP request, and will
+wait until the request is sent over the network. The second call,
 :meth:`HttpClient.getresponse` will read the headers of a single response from
-the connection, and return a :class:`HttpResponse` object. These semantics have
-the following implications:
+the connection, and return a :class:`gruvi.http.HttpResponse` object. These
+semantics have the following implications:
 
 * You can easily tell Gruvi to pipeline HTTP requests by issuing multiple
   ``request()`` calls before calling ``getresponse``.
@@ -111,13 +110,13 @@ writes them to standard output. Two notes about this:
 
 * We specify a buffer size of 4096 bytes. In typical Python fashion, had we not
   specified the buffer size, the entire input would have be read.
-* The output is written to standard output using ``print``. Note that this
-  will be using blocking I/O. If the buffer we write is that can be displayed
-  on the terminal in one go, then the entire process will be blocked including
-  the current greenlet and all other greenlets. In this case this is OK,
-  because our curl program is a simple client with only one execution context.
-  In more complicated situation, you need to use asynchronous I/O to standard
-  output.  This can be done using the :class:`gruvi.pyuv.TTY` transport.
+* The output is written to standard output using ``print``. Note that this will
+  be using blocking I/O. If the standard output buffer gets full, then the
+  entire process will be blocked including the current fiber and all other
+  fibers. In this case this is OK, because our curl program is a simple client
+  with only one execution context. In more complicated situation, you need to
+  use asynchronous I/O to standard output. This can be done using the
+  :class:`gruvi.pyuv.TTY` transport.
 
 Tutorial 2: echo server
 ***********************
@@ -163,12 +162,12 @@ stream handler. Some notes about this function:
   instance. And the ``client`` argument is the transport that is connecting to
   the remote client. In this case it will be a :class:`gruvi.pyuv.TCP`
   instance.
-* The function will run in its own greenlet. This is automatically taken care
-  of by ``StreamServer``.
+* The function will run in its own fiber. This is automatically taken care of
+  by ``StreamServer``.
 * The function body contains a simple loop that reads a chunk from the client,
   and echoes its back. Note that both the ``stream.read()`` and
   ``stream.write()`` invocations are switchpoints. This is OK, because the
-  entire function runs in a separate greenlet.
+  entire function runs in a separate fiber.
 * There are two debugging ``print()`` statements. The first one shows the
   address of the remote peer. This uses :meth:`pyuv.TCP.getpeername` to get the
   remote name and then :meth:`gruvi.util.saddr` to format it to a string.

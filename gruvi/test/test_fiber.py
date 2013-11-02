@@ -13,15 +13,15 @@ import gruvi
 from gruvi.test import UnitTest
 
 
-class TestGreenlet(UnitTest):
+class TestFiber(UnitTest):
 
-    def test_run_greenlets(self):
+    def test_run_fibers(self):
         hub = gruvi.Hub.get()
         counter = [0]
         def worker():
             counter[0] += 1
         for i in range(10000):
-            gr = gruvi.Greenlet(worker)
+            gr = gruvi.Fiber(worker)
             gr.start()
         hub.switch()
         assert counter[0] == 10000
@@ -31,20 +31,18 @@ class TestGreenlet(UnitTest):
         result = []
         def target1(*args):
             result.extend(args)
-            switch_back = hub.switch_back()
-            args = switch_back(1, 2)
+            hub.switch_back()(1, 2)
             args = hub.switch()
             result.extend(args)
         def target2(*args):
             result.extend(args)
-            switch_back = hub.switch_back()
-            args = switch_back(3, 4)
+            hub.switch_back()(3, 4)
             args = hub.switch()
             result.extend(args)
-        gr1 = gruvi.Greenlet(target1)
-        gr2 = gruvi.Greenlet(target2)
-        gr1.start('a', 'b')
-        gr2.start('c', 'd')
+        gr1 = gruvi.Fiber(target1, args=('a', 'b'))
+        gr2 = gruvi.Fiber(target2, args=('c', 'd'))
+        gr1.start()
+        gr2.start()
         hub.switch()
         assert result == ['a', 'b', 'c', 'd', 1, 2, 3, 4]
 
@@ -52,6 +50,6 @@ class TestGreenlet(UnitTest):
         hub = gruvi.Hub.get()
         def target():
             raise ValueError
-        gr1 = gruvi.Greenlet(target)
+        gr1 = gruvi.Fiber(target)
         gr1.start()
         hub.switch()

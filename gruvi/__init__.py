@@ -11,6 +11,6 @@ from __future__ import absolute_import, print_function
 from ._version import *
 from .error import *
 from .hub import *
-from .greenlet import *
+from .fiber import *
 
 from . import local, util, http, jsonrpc, dbus, pyuv, ssl
