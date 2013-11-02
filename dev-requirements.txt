@@ -2,3 +2,5 @@ greenlet
 pyuv
 cffi
 six
+nose
+sphinx
