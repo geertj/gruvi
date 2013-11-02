@@ -69,9 +69,12 @@ class Pipe(pyuv.Pipe):
         super(Pipe, self).__init__(get_hub().loop, ipc)
 
     def connect(self, address, callback=None):
-        # Support for abstract sockets on Linux. Needed for D-BUS. These don't
-        # work with libuv/pyuv because libuv expects a zero terminated string.
-        # Work around this by opening the socket ourselves and then use
+        # Support for abstract sockets on Linux, which are needed for D-BUS.
+        # Abstract sockets don't work with libuv/pyuv Pipe because libuv
+        # expects the socket name to be a zero terminated string, while Linux
+        # identifies abstract sockets as those having a name starting with a
+        # null byte.
+        # We work around this by opening the socket ourselves and then use
         # Pipe.open to open the socket's descriptor.
         if not address.startswith('\x00'):
             super(Pipe, self).connect(address, callback)
@@ -87,6 +90,8 @@ class Pipe(pyuv.Pipe):
         else:
             error = 0
             self.open(self._sock.fileno())
+        # On Linux, connect() on a Unix domain socket never blocks. So we can
+        # notify success (or failure) immmediately.
         if callback:
             callback(self, error)
 
