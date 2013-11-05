@@ -37,7 +37,7 @@ class TestHandles(UnitTest):
 
     def test_pipe(self):
         server = StreamServer(echo_handler)
-        path = self.tempname('temp.sock')
+        path = self.pipename('temp.sock')
         server.listen(path)
         client = StreamClient()
         client.connect(path)

@@ -119,6 +119,13 @@ class UnitTest(object):
     def tempname(cls, name):
         return os.path.join(cls.__tmpdir, name)
 
+    @classmethod
+    def pipename(cls, name):
+        if sys.platform.startswith('win'):
+            return r'\\.\pipe\{0}-{1}'.format(name, os.getpid())
+        else:
+            return cls.tempname(name)
+
     def teardown(self):
         # Close all handlers so that we don't run out of file handlers when
         # running the entire suite. Also this prevents stray handles from
