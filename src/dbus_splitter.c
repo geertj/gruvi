@@ -11,7 +11,6 @@
  */
 
 #include <stdio.h>
-#include <unistd.h>
 
 #define OK 0
 #define INCOMPLETE 1

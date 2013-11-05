@@ -11,7 +11,6 @@
  */
 
 #include <stdio.h>
-#include <unistd.h>
 #include <ctype.h>
 
 #define OK 0
