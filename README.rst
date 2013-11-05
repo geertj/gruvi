@@ -37,7 +37,7 @@ The following operating systems are currently tested:
 
 * Posix (Only Linux is currently tested)
 * Mac OSX
-* Windows (currently untested)
+* Windows
 
 Download
 --------
