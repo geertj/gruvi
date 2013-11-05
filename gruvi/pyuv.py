@@ -65,7 +65,7 @@ class Pipe(pyuv.Pipe):
     address string with a null byte (``'\\x00'``).
     """
 
-    def __init__(self, ipc=True):
+    def __init__(self, ipc=False):
         super(Pipe, self).__init__(get_hub().loop, ipc)
 
     def connect(self, address, callback=None):
