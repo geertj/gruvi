@@ -2,6 +2,7 @@ Changes in version 0.9.1:
 
 * Remove dependency on six.
 * Switch from greenlet to python-fibers.
+* Fixed Windows support.
 
 Changes in version 0.9.0:
 
