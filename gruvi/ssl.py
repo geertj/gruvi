@@ -296,6 +296,7 @@ class SSL(pyuv.TCP):
                     self._sslargs.get('do_handshake_on_connect', True)
         self._read_callback = None
         self._read_handshake = False
+        self._reading = False
         # Note: the read and write backlog contain application level data
         # There is no backlog on the SSL side.
         self._read_backlog = collections.deque()
@@ -345,9 +346,12 @@ class SSL(pyuv.TCP):
 
     def _start_stop_reading(self):
         if self._read_handshake or self._read_callback:
-            super(SSL, self).start_read(self._on_transport_readable)
+            if not self._reading:
+                super(SSL, self).start_read(self._on_transport_readable)
+                self._reading = True
         else:
             super(SSL, self).stop_read()
+            self._reading = False
 
     def start_read(self, callback):
         # Server-side initialization is done on the first start_read() call.
