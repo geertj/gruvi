@@ -105,7 +105,7 @@ def create_connection(address, ssl=False, local_address=None,
     In this case, all other arguments are ignored.
     """
     from . import logging
-    logger = logging.get_logger('create_connection()')
+    log = logging.get_logger('create_connection()')
     if isinstance(address, (compat.binary_type, compat.text_type)):
         transport_type = Pipe
         addresses = [address]
@@ -120,7 +120,7 @@ def create_connection(address, ssl=False, local_address=None,
     else:
         raise TypeError('expecting a string, tuple, or transport')
     for addr in addresses:
-        logger.debug('trying address {0}'.format(saddr(addr)))
+        log.debug('trying address {0}'.format(saddr(addr)))
         transport = transport_type(**transport_args)
         try:
             transport.connect(addr, get_hub().switch_back())
@@ -131,9 +131,9 @@ def create_connection(address, ssl=False, local_address=None,
             error = pyuv.errno.UV_ETIMEDOUT if not result else result[1]
         if not error:
             break
-        logger.warning('connect() failed with error {0}'.format(error))
+        log.warning('connect() failed with error {0}'.format(error))
     if error:
-        logger.error('all addresses failed')
+        log.error('all addresses failed')
         raise pyuv_exc(transport, error)
     if local_address:
         transport.bind(*local_address)

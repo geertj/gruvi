@@ -129,9 +129,10 @@ class Fiber(fibers.Fiber):
         super(Fiber, self).__init__(target=self.run, parent=self._hub)
         self._target = target
         self._args = args or ()
-        self._logger = logging.get_logger(context=util.objref(self))
+        self._log = logging.get_logger(context=util.objref(self))
         self._done = Condition()
 
+    @property
     def target(self):
         """The fiber's target."""
         return self._target
@@ -153,7 +154,7 @@ class Fiber(fibers.Fiber):
         try:
             value = self._target(*self._args)
         except Exception as e:
-            self._logger.exception('uncaught exception in fiber')
+            self._log.exception('uncaught exception in fiber')
             exc = e
         self._done.notify()
 

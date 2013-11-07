@@ -8,74 +8,75 @@
 
 from __future__ import absolute_import, print_function
 
-import fibers
+import os
+import sys
 import logging
-from . import util, compat
+import fibers
+
+from . import compat
+
+__all__ = ['get_logger']
 
 
-# get_logger() / LoggingLogger() implement a small indirection on top of the
-# stdlib's logging implementation. It exists for a number of reasons:
-#
-# - It is used to prefix log messages with a common piece of context. This
-#   prevents us from having to write really long log messages every time.
-# - It allows us in the future to experiment with other logging modules.
+def get_logger(context, parent=None, name='gruvi'):
+    """Return a logger for *context*.
 
-def get_logger(context):
-    """Return a logger for *context*. The instance that is returned implements
-    the standard library's ``logging.Logger`` interface.
+    The *parent* argument specifies an optional parent. If it is provided, the
+    parent's context will be prepended to the context. The *name* argument
+    specifies the name of the logger.
+
+    Return a :cls:`ContextLogger` instance. The instance implements the
+    standard library's :cls:`logging.Logger` interface.
     """
-    return LoggingLogger(context)
+    logger = logging.getLogger(name)
+    if not logger.isEnabledFor(logging.DEBUG):
+        patch_logger(logger)
+    return ContextLogger(logger, context, parent)
 
 
-class LoggingLogger(object):
-    """Forward log messages to the Python logging system."""
+def patch_logger(logger):
+    """Replace the ``findCaller()`` method of *logger* with a nop.
 
-    _patched_logger = False
+    This method uses :func:`sys._getframe` to look up the name and line number
+    of its caller, causing a huge slowdown on PyPy.
+    
+    This function is used when debugging is not enabled.
+    """
+    if logger.findCaller is not logging.Logger.findCaller:
+        return
+    def findCaller(self, stack_info=False):
+        return ('(unknown file)', 0, '(unknown function)', None)
+    logger.findCaller = findCaller
 
-    def __init__(self, context):
-        self.context = context
-        self.logger = logging.getLogger('gruvi')
-        self._patch_logger()
 
-    def _patch_logger(self):
-        # Patch Logger.findCaller() so that it becomes a no-op. Finding out the
-        # caller uses sys._getframe() which is a huge slowdown on PyPy. We make
-        # sure that log messages are clear without identifying our caller.
-        if self._patched_logger:
-            return
-        self.logger.findCaller = lambda *args: \
-                        ('(unknown file)', 0, '(unknown function)')
-        type(self)._patched_logger = True
+class ContextLogger(logging.LoggerAdapter):
+    """A logger adapter that prepends a context string to log messages.
+    
+    It also supports passing arguments via '{}' format operations.
+    """
 
-    def _process(self, msg, args, kwargs):
+    def __init__(self, logger, context, parent=None):
+        super(ContextLogger, self).__init__(logger, {})
+        self.context = '{}: {}'.format(parent.context, context) \
+                            if parent else context
+        self._debug = logger.isEnabledFor(logging.DEBUG)
+
+    def log(self, level, msg, *args, **kwargs):
         current = fibers.current()
-        grname = getattr(current, 'name', util.objref(current))
-        target = getattr(current, 'target', None)
-        if target:
-            target = compat.getqualname(target)
-            grname = '{0}({1})'.format(grname, target)
-        prefix = '{0}: {1}'.format(grname, self.context)
+        from .util import objref
+        prefix = getattr(current, 'name', objref(current))
+        if self._debug:
+            target = getattr(current, 'target', None)
+            if target:
+                prefix += '{}()'.format(compat.getqualname(target))
+            elif current.parent is None:
+                prefix += '(root)'
+            f = sys._getframe(2)
+            fname = os.path.split(f.f_code.co_filename)[1]
+            prefix += '@{}:{}:{}'.format(fname, f.f_code.co_name, f.f_lineno)
+        if self.context:
+            prefix += '; {}'.format(self.context)
         if args or kwargs:
             msg = msg.format(*args, **kwargs)
-        msg = '[{0}] {1}'.format(prefix, msg)
-        return msg
-
-    def debug(self, msg, *args, **kwargs):
-        msg = self._process(msg, args, kwargs)
-        self.logger.debug(msg)
-
-    def info(self, msg, *args, **kwargs):
-        msg = self._process(msg, args, kwargs)
-        self.logger.info(msg)
-
-    def warning(self, msg, *args, **kwargs):
-        msg = self._process(msg, args, kwargs)
-        self.logger.warning(msg)
-
-    def error(self, msg, *args, **kwargs):
-        msg = self._process(msg, args, kwargs)
-        self.logger.error(msg)
-
-    def exception(self, msg, *args, **kwargs):
-        msg = self._process(msg, args, kwargs)
-        self.logger.exception(msg)
+        msg = '[{}] {}'.format(prefix, msg)
+        super(ContextLogger, self).log(level, msg)

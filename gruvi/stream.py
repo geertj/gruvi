@@ -25,7 +25,7 @@ from .util import docfrom, objref
 from . import fiber, reader, protocols, error
 
 
-__all__ = ['StreamError', 'StreamClient', 'StreamServer']
+__all__ = ['StreamError', 'Stream', 'StreamClient', 'StreamServer']
 
 
 class StreamError(error.Error):
@@ -33,6 +33,7 @@ class StreamError(error.Error):
 
 
 class Stream(io.BufferedIOBase):
+    """A byte stream."""
 
     def __init__(self, transport, protocol):
         self._transport = transport
@@ -115,7 +116,7 @@ class StreamBase(protocols.Protocol):
         try:
             self._connection_handler(transport._stream, self, transport)
         except Exception as e:
-            transport._logger.exception('exception in handler')
+            transport._log.exception('exception in handler')
             error = self._exception(protocols.errno.HANDLER_ERROR, str(e))
         else:
             error = None

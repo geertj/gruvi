@@ -416,13 +416,13 @@ class ErrorStream(object):
     """
 
     def __init__(self):
-        self._logger = logging.get_logger(objref(self))
+        self._log = logging.get_logger(objref(self))
 
     def flush(self):
         pass
     
     def write(self, data):
-        self._logger.error(data)
+        self._log.error(data)
 
     def writelines(self, seq):
         for line in seq:
@@ -622,7 +622,7 @@ class HttpServer(protocols.RequestResponseProtocol):
         env['SERVER_PORT'] = self._local_address[1]
         env['wsgi.version'] = (1, 0)
         errors = env['wsgi.errors'] = ErrorStream()
-        transport._logger.debug('logging to {0}'.format(objref(errors)))
+        transport._log.debug('logging to {0}', objref(errors))
         env['wsgi.multithread'] = True
         env['wsgi.multiprocess'] = True
         env['wsgi.run_once'] = False
@@ -685,7 +685,7 @@ class HttpServer(protocols.RequestResponseProtocol):
         return write
 
     def _dispatch_message(self, transport, message):
-        transport._logger.info('request: {0} {1}', message.method, message.url)
+        transport._log.info('request: {0} {1}', message.method, message.url)
         transport._version = message.version
         transport._keepalive = message.should_keep_alive
         environ = self._get_environ(transport, message)
@@ -705,9 +705,9 @@ class HttpServer(protocols.RequestResponseProtocol):
         finally:
             if hasattr(result, 'close'):
                 result.close()
-        transport._logger.info('response: {0}', transport._status)
+        transport._log.info('response: {0}', transport._status)
         if transport._keepalive:
-            transport._logger.debug('keeping connection alive')
+            transport._log.debug('keeping connection alive')
             self._reinit_request(transport)
         else:
             self._close_transport(transport)

@@ -54,7 +54,7 @@ class Protocol(object):
         self._timeout = timeout
         self._transport = None
         self._hub = hub.get_hub()
-        self._logger = logging.get_logger(objref(self))
+        self._log = logging.get_logger(objref(self))
         self._clients = set()
         self._client_factory = None
 
@@ -95,20 +95,20 @@ class Protocol(object):
         if isinstance(address, (compat.binary_type, compat.text_type)):
             transport = Pipe()
             transport.bind(address)
-            self._logger.debug('listen(): bound to {0}'.format(saddr(address)))
+            self._log.debug('bound to {0}', saddr(address))
             self._local_address = (address, '')
             self._client_factory = Pipe
         elif isinstance(address, tuple):
             transport = TCP() # even for SSL the listening socket is TCP
             result = getaddrinfo(address[0], address[1], socket.AF_UNSPEC,
                                  socket.SOCK_STREAM, socket.IPPROTO_TCP)
+            resolved = result[0][4]
             if len(result) > 1:
-                self._logger.warning('listen(): multiple addresses, '
-                                     'taking first one')
-            address = result[0][4]
-            transport.bind(address)
-            self._logger.debug('listen(): bound to {0}'.format(saddr(address)))
-            self._local_address = address
+                self._log.warning('multiple addresses for {0}, using {1}',
+                                     saddr(address), saddr(resolved))
+            transport.bind(resolved)
+            self._log.debug('bound to {0}', saddr(resolved))
+            self._local_address = resolved
             client_type = SSL if ssl else TCP
             if ssl:
                 transport_args['server_side'] = True
@@ -124,23 +124,22 @@ class Protocol(object):
             raise TypeError('expecting a string, a tuple or a transport')
         self._transport = transport
         self._transport.listen(self._on_new_connection)
-        self._logger.debug('listen(): transport is {0}'
-                                .format(objref(transport)))
+        self._log.debug('transport is {0}', objref(transport))
 
     def _on_new_connection(self, transport, error):
         """Callback that is called for new connections."""
         assert transport is self._transport
         if error:
-            self._logger.error('error {0} in listen callback'.format(error))
+            self._log.error('error {0} in listen callback', error)
             return
         client = self._client_factory()
         self._clients.add(client)
         transport.accept(client)
         if len(self._clients) >= self.max_connections:
-            self._logger.error('max connections reached, dropping connection')
+            self._log.error('max connections reached, dropping connection')
             self._close_transport(client, errno.SERVER_BUSY)
             return
-        self._logger.debug('new client on {0}'.format(objref(client)))
+        self._log.debug('new client on {0}', objref(client))
         self._init_transport(client)
 
     def _init_transport(self, transport):
@@ -149,7 +148,7 @@ class Protocol(object):
         transport._error = None
         transport._events = ConditionSet()
         transport._write_buffer = 0
-        transport._logger = logging.get_logger(objref(self))
+        transport._log = logging.get_logger(objref(self))
         transport.start_read(self._on_transport_readable)
 
     def _close_transport(self, transport, error=None):
@@ -223,11 +222,11 @@ class Protocol(object):
                  **transport_args):
         if self._transport is not None and not self._transport.closed:
             raise RuntimeError('already connected')
+        self._log.debug('connect to {0}', saddr(address))
         transport = create_connection(address, ssl, local_address,
                                       **transport_args)
         self._transport = transport
-        self._logger.debug('connect(): transport is {0}'
-                                .format(objref(transport)))
+        self._log.debug('transport is {0}', objref(transport))
         self._init_transport(self._transport)
 
     @switchpoint
@@ -307,21 +306,21 @@ class RequestResponseProtocol(Protocol):
             # This can be a half-close so continue processing the queue
             transport._eof = True
             if transport._parser.is_partial():
-                transport._logger.error('parse error: partial message')
+                transport._log.error('parse error: partial message')
                 error = self._exception(errno.PARSE_ERROR, 'partial message')
             else:
-                transport._logger.debug('got EOF')
+                transport._log.debug('got EOF')
                 error = None
         elif error:
             # Close immediately here, do not try to process the queue if any.
-            transport._logger.error('error {0} in read callback'.format(error))
+            transport._log.error('error {0} in read callback', error)
             self._close_transport(transport, pyuv_exc(transport, error))
             return
         else:
             try:
                 transport._parser.feed(data)
             except ParseError as e:
-                transport._logger.error('parse error: {0!s}'.format(e))
+                transport._log.error('parse error: {0!s}', e)
                 error = self._exception(errno.PARSE_ERROR, str(e))
         # Dispatch either to the fast path or to the slow path via the queue
         # and the dispatcher (which runs in a separate fiber).
@@ -357,11 +356,11 @@ class RequestResponseProtocol(Protocol):
             try:
                 self._dispatch_message(transport, message)
             except Exception as e:
-                transport._logger.exception('exception in handler')
+                transport._log.exception('exception in handler')
                 error = self._exception(errno.HANDLER_ERROR, str(e))
                 self._close_transport(transport, error)
                 break
-        transport._logger.debug('dispatcher exiting')
+        transport._log.debug('dispatcher exiting')
 
     def _dispatch_message(self, transport, message):
         """Slow path dispatch. This is run in the dispatcher fiber."""

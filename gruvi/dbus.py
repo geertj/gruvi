@@ -233,7 +233,7 @@ class DBusBase(protocols.RequestResponseProtocol):
         try:
             authdata = transport._authenticator.feed(line)
         except ValueError as e:
-            transport._logger.error('authentication error: {0!s}'.format(e))
+            transport._log.error('authentication error: {0!s}', e)
             error = DBusError(errno.AUTH_ERROR, str(e))
             self._close_transport(transport, error)
             return
@@ -252,7 +252,7 @@ class DBusBase(protocols.RequestResponseProtocol):
             if transport._events.notify(event, message):
                 return True
         if not self._message_handler:
-            transport._logger.debug('no handler, dropping incoming message')
+            transport._log.debug('no handler, dropping incoming message')
             return True
         return False
     

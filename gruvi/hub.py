@@ -140,7 +140,7 @@ class Hub(fibers.Fiber):
         self._atomic = collections.deque()
         self._callbacks = collections.deque()
         from gruvi import logging, util
-        self._logger = logging.get_logger(util.objref(self))
+        self._log = logging.get_logger(util.objref(self))
 
     @property
     def loop(self):
@@ -221,7 +221,7 @@ class Hub(fibers.Fiber):
             try:
                 callback(*args)
             except Exception:
-                self._logger.exception('Uncaught exception in callback.')
+                self._log.exception('Uncaught exception in callback.')
 
     def run_callback(self, callback, *args):
         """Queue a callback to be called when the event loop next runs.

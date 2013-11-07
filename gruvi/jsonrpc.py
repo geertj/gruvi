@@ -178,7 +178,7 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
             if transport._events.notify(event, message):
                 return True
         if not self._message_handler:
-            transport._logger.debug('no handler, dropping incoming message')
+            transport._log.debug('no handler, dropping incoming message')
             return True
         return False
 
