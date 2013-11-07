@@ -54,7 +54,7 @@ def saddr(address):
     elif isinstance(address, tuple) and len(address) == 2:
         return '{0}:{1}'.format(*address)
     elif isinstance(address, tuple) and len(address) == 4:
-        return '{0}/{1}/{2}/{3}'.format(*address)
+        return '[{0}]:{1}/{2}/{3}'.format(*address)
     else:
         raise TypeError('illegal address type')
 
