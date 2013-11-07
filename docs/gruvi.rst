@@ -16,5 +16,7 @@
 .. autoclass:: gruvi.Fiber
    :members:
 
-.. autoclass:: gruvi.Hub()
+.. autofunction:: gruvi.get_hub
+
+.. autoclass:: gruvi.Hub
    :members:

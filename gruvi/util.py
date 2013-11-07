@@ -86,14 +86,13 @@ def create_connection(address, ssl=False, local_address=None,
                       timeout=None, **transport_args):
     """Connect to *address*, and wait for the connection to be established.
 
-    The address may be either be a string, a (host, port) tuple, or an
-    already connected stream transport. If the address is a string, this
-    method connects to a named pipe using a ``pyuv.Pipe`` transport.  If
-    the address is a tuple, this method connects to a TCP/IP service, using
-    a ``pyuv.TCP`` or a ``ssl.SSL`` transport, depending on the value of
-    *ssl*. The host and port elements of the tuple may be DNS and service
-    names respectively, and will be resolved using
-    :func:`gruvi.util.getaddrinfo`.
+    The address may be either be a string, a (host, port) tuple, or an already
+    connected stream transport. If the address is a string, this method
+    connects to a named pipe using a :class:`.Pipe` transport.  If the address
+    is a tuple, this method connects to a TCP/IP service, using a :class:`.TCP`
+    or a :class:`.SSL` transport, depending on the value of *ssl*. The host and
+    port elements of the tuple may be DNS and service names respectively, and
+    will be resolved using :func:`~gruvi.util.getaddrinfo`.
 
     The *local_address* keyword argument is relevant only for TCP and SSL
     transports. If provided, it specifies the local address to bind to.

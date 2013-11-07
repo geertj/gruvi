@@ -53,5 +53,4 @@ tickets or suggenstions for improvements on Github_.
 .. _concurrence: http://opensource.hyves.org/concurrence
 .. _eventlet: http://eventlet.net/
 .. _http-parser: https://github.com/joyent/http-parser
-.. _txdbus: https://github.com/cocagne/txdbus
 .. _Github: https://github.com/geertj/gruvi
