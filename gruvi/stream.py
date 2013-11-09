@@ -22,7 +22,7 @@ import pyuv
 from .hub import switchpoint
 from .pyuv import pyuv_exc
 from .util import docfrom, objref
-from . import fiber, reader, protocols, error
+from . import fibers, reader, protocols, error
 
 
 __all__ = ['StreamError', 'Stream', 'StreamClient', 'StreamServer']
@@ -94,23 +94,25 @@ class StreamBase(protocols.Protocol):
                 transport.stop_read()
             elif newsize < self.max_buffer_size <= oldsize:
                 transport.start_read(self._on_transport_readable)
-        transport._reader = reader.Reader(on_size_change)
+        transport._buffers = reader.BufferList()
+        transport._buffers.size_changed.connect(on_size_change)
+        transport._reader = reader.Reader(transport._buffers)
         transport._stream = Stream(transport, self)
         if self._connection_handler is None:
             return
-        transport._dispatcher = fiber.Fiber(self._dispatch_connection,
-                                            args=(transport,))
+        transport._dispatcher = fibers.Fiber(self._dispatch_connection,
+                                             args=(transport,))
         transport._dispatcher.start()
 
     def _on_transport_readable(self, transport, data, error):
         if error == pyuv.errno.UV_EOF:
             transport._eof = True
-            transport._reader._feed(b'')
+            transport._buffers.feed_eof()
         elif error:
             transport._error = pyuv_exc(transport, error)
             self._close_transport(transport)
         else:
-            transport._reader._feed(data)
+            transport._buffers.feed(data)
 
     def _dispatch_connection(self, transport):
         try:

@@ -18,7 +18,7 @@ from gruvi.jsonrpc import *
 from gruvi.jsonrpc import JsonRpcParser
 from gruvi.protocols import ParseError, errno
 from gruvi.stream import StreamClient
-from gruvi.test import UnitTest, assert_raises
+from support import UnitTest
 
 
 _keepalive = None
@@ -41,62 +41,62 @@ class TestJsonRpcFFI(UnitTest):
     def test_simple(self):
         r = b'{ "foo": "bar" }'
         ctx = split_string(r)
-        assert ctx.error == 0
-        assert ctx.offset == len(r)
+        self.assertEqual(ctx.error, 0)
+        self.assertEqual(ctx.offset, len(r))
 
     def test_leading_whitespace(self):
         r = b' { "foo": "bar" }'
         ctx = split_string(r)
-        assert ctx.error == 0
-        assert ctx.offset == len(r)
+        self.assertEqual(ctx.error, 0)
+        self.assertEqual(ctx.offset, len(r))
         r = b' \t\n{ "foo": "bar" }'
         ctx = split_string(r)
-        assert ctx.error == 0
-        assert ctx.offset == len(r)
+        self.assertEqual(ctx.error, 0)
+        self.assertEqual(ctx.offset, len(r))
 
     def test_trailing_whitespace(self):
         r = b'{ "foo": "bar" } '
         ctx = split_string(r)
-        assert ctx.error == 0
-        assert ctx.offset == len(r)-1
+        self.assertEqual(ctx.error, 0)
+        self.assertEqual(ctx.offset, len(r)-1)
         error = jsonrpc_ffi.lib.split(ctx)
-        assert error == ctx.error == jsonrpc_ffi.lib.INCOMPLETE
-        assert ctx.offset == len(r)
+        self.assertEqual(error, ctx.error) == jsonrpc_ffi.lib.INCOMPLETE
+        self.assertEqual(ctx.offset, len(r))
 
     def test_brace_in_string(self):
         r = b'{ "foo": "b{r" }'
         ctx = split_string(r)
-        assert ctx.error == 0
-        assert ctx.offset == len(r)
+        self.assertEqual(ctx.error, 0)
+        self.assertEqual(ctx.offset, len(r))
         r = b'{ "foo": "b}r" }'
         ctx = split_string(r)
-        assert ctx.error == 0
-        assert ctx.offset == len(r)
+        self.assertEqual(ctx.error, 0)
+        self.assertEqual(ctx.offset, len(r))
 
     def test_string_escape(self):
         r = b'{ "foo": "b\\"}" }'
         ctx = split_string(r)
-        assert ctx.error == 0
-        assert ctx.offset == len(r)
+        self.assertEqual(ctx.error, 0)
+        self.assertEqual(ctx.offset, len(r))
 
     def test_error(self):
         r = b' x { "foo": "bar" }'
         ctx = split_string(r)
-        assert ctx.error == jsonrpc_ffi.lib.ERROR
-        assert ctx.offset == 1
+        self.assertEqual(ctx.error, jsonrpc_ffi.lib.ERROR)
+        self.assertEqual(ctx.offset, 1)
         r = b'[ { "foo": "bar" } ]'
         ctx = split_string(r)
-        assert ctx.error == jsonrpc_ffi.lib.ERROR
-        assert ctx.offset == 0
+        self.assertEqual(ctx.error, jsonrpc_ffi.lib.ERROR)
+        self.assertEqual(ctx.offset, 0)
 
     def test_multiple(self):
         r = b'{ "foo": "bar" } { "baz": "qux" }'
         ctx = split_string(r)
-        assert ctx.error == 0
-        assert ctx.offset == 16
+        self.assertEqual(ctx.error, 0)
+        self.assertEqual(ctx.offset, 16)
         error = jsonrpc_ffi.lib.split(ctx)
-        assert error == ctx.error == 0
-        assert ctx.offset == len(r)
+        self.assertEqual(error, ctx.error) == 0
+        self.assertEqual(ctx.offset, len(r))
 
     def test_incremental(self):
         r = b'{ "foo": "bar" }'
@@ -105,13 +105,13 @@ class TestJsonRpcFFI(UnitTest):
         for i in range(len(r)-1):
             set_buffer(ctx, r[i:i+1])
             error = jsonrpc_ffi.lib.split(ctx)
-            assert error == ctx.error == jsonrpc_ffi.lib.INCOMPLETE
-            assert ctx.offset == 1
+            self.assertEqual(error, ctx.error) == jsonrpc_ffi.lib.INCOMPLETE
+            self.assertEqual(ctx.offset, 1)
         buf = ctx.buf = jsonrpc_ffi.ffi.new('char[]', r[-1:])
         ctx.buflen = 1; ctx.offset = 0
         error = jsonrpc_ffi.lib.split(ctx)
-        assert error == ctx.error == 0
-        assert ctx.offset == 1
+        self.assertEqual(error, ctx.error) == 0
+        self.assertEqual(ctx.offset, 1)
 
     def test_performance(self):
         chunk = b'{' + b'x' * 100 + b'}'
@@ -126,7 +126,7 @@ class TestJsonRpcFFI(UnitTest):
             set_buffer(ctx, buf)
             while ctx.offset != len(buf):
                 error = jsonrpc_ffi.lib.split(ctx)
-                assert error == ctx.error == 0
+                self.assertEqual(error, ctx.error) == 0
             nbytes += len(buf)
         throughput = nbytes / (1024 * 1024 * (t2 - t1))
         print('Throughput: {0:.2f} MiB/sec'.format(throughput))
@@ -139,10 +139,10 @@ class TestJsonRpcParser(UnitTest):
         parser = JsonRpcParser()
         parser.feed(m)
         msg = parser.pop_message()
-        assert isinstance(msg, dict)
-        assert msg == { 'id': '1', 'method': 'foo' }
+        self.assertIsInstance(msg, dict)
+        self.assertEqual(msg, { 'id': '1', 'method': 'foo' })
         msg = parser.pop_message()
-        assert msg is None
+        self.assertIsNone(msg)
 
     def test_multiple(self):
         m = b'{ "id": "1", "method": "foo" }' \
@@ -150,11 +150,11 @@ class TestJsonRpcParser(UnitTest):
         parser = JsonRpcParser()
         parser.feed(m)
         msg = parser.pop_message()
-        assert msg == { 'id': '1', 'method': 'foo' }
+        self.assertEqual(msg, { 'id': '1', 'method': 'foo' })
         msg = parser.pop_message()
-        assert msg == { 'id': '2', 'method': 'bar' }
+        self.assertEqual(msg, { 'id': '2', 'method': 'bar' })
         msg = parser.pop_message()
-        assert msg is None
+        self.assertIsNone(msg)
 
     def test_whitespace(self):
         m = b'  { "id": "1", "method": "foo" }' \
@@ -162,61 +162,61 @@ class TestJsonRpcParser(UnitTest):
         parser = JsonRpcParser()
         parser.feed(m)
         msg = parser.pop_message()
-        assert msg == { 'id': '1', 'method': 'foo' }
+        self.assertEqual(msg, { 'id': '1', 'method': 'foo' })
         msg = parser.pop_message()
-        assert msg == { 'id': '2', 'method': 'bar' }
+        self.assertEqual(msg, { 'id': '2', 'method': 'bar' })
         msg = parser.pop_message()
-        assert msg is None
+        self.assertIsNone(msg)
 
     def test_incremental(self):
         m = b'{ "id": "1", "method": "foo" }'
         parser = JsonRpcParser()
         for i in range(len(m)-1):
             parser.feed(m[i:i+1])
-            assert parser.pop_message() is None
-            assert parser.is_partial()
+            self.assertIsNone(parser.pop_message())
+            self.assertTrue(parser.is_partial())
         parser.feed(m[-1:])
         msg = parser.pop_message()
-        assert not parser.is_partial()
-        assert msg == { 'id': '1', 'method': 'foo' }
+        self.assertFalse(parser.is_partial())
+        self.assertEqual(msg, { 'id': '1', 'method': 'foo' })
 
     def test_framing_error(self):
         m = b'xxx'
         parser = JsonRpcParser()
-        exc = assert_raises(ParseError, parser.feed, m)
-        assert exc.args[0] == errno.FRAMING_ERROR
+        exc = self.assertRaises(ParseError, parser.feed, m)
+        self.assertEqual(exc.args[0], errno.FRAMING_ERROR)
 
     def test_encoding_error(self):
         m = b'{ xxx\xff }'
         parser = JsonRpcParser()
-        exc = assert_raises(ParseError, parser.feed, m)
-        assert exc.args[0] == errno.PARSE_ERROR
+        exc = self.assertRaises(ParseError, parser.feed, m)
+        self.assertEqual(exc.args[0], errno.PARSE_ERROR)
 
     def test_illegal_json(self):
         m = b'{ "xxxx" }'
         parser = JsonRpcParser()
-        exc = assert_raises(ParseError, parser.feed, m)
-        assert exc.args[0] == errno.PARSE_ERROR
+        exc = self.assertRaises(ParseError, parser.feed, m)
+        self.assertEqual(exc.args[0], errno.PARSE_ERROR)
 
     def test_illegal_jsonrpc(self):
         m = b'{ "xxxx": "yyyy" }'
         parser = JsonRpcParser()
-        exc = assert_raises(ParseError, parser.feed, m)
-        assert exc.args[0] == errno.PARSE_ERROR
+        exc = self.assertRaises(ParseError, parser.feed, m)
+        self.assertEqual(exc.args[0], errno.PARSE_ERROR)
  
     def test_maximum_message_size_exceeded(self):
         parser = JsonRpcParser()
         parser.max_message_size = 100
         message = '{{ "{0}": "{1}" }}'.format('x' * 100, 'y' * 100)
         message = message.encode('ascii')
-        exc = assert_raises(ParseError, parser.feed, message)
-        assert exc.args[0] == errno.MESSAGE_TOO_LARGE
+        exc = self.assertRaises(ParseError, parser.feed, message)
+        self.assertEqual(exc.args[0], errno.MESSAGE_TOO_LARGE)
 
 
 def echo_app(message, endpoint, transport):
     if message.get('method') != 'echo':
         return create_error(message, 'no such method')
-    return create_response(message, *message['params'])
+    return create_response(message, message['params'])
 
 def reflect_app(message, endpoint, transport):
     if message.get('method') != 'echo':
@@ -243,7 +243,7 @@ class TestJsonRpc(UnitTest):
         client = JsonRpcClient()
         client.connect(addr)
         result = client.call_method('echo', 'foo')
-        assert result == 'foo'
+        self.assertEqual(result, ['foo'])
 
     def test_call_method_no_args(self):
         server = JsonRpcServer(echo_app)
@@ -252,7 +252,7 @@ class TestJsonRpc(UnitTest):
         client = JsonRpcClient()
         client.connect(addr)
         result = client.call_method('echo')
-        assert result is None
+        self.assertEqual(result, [])
 
     def test_call_method_multiple_args(self):
         server = JsonRpcServer(echo_app)
@@ -261,7 +261,7 @@ class TestJsonRpc(UnitTest):
         client = JsonRpcClient()
         client.connect(addr)
         result = client.call_method('echo', 'foo', 'bar')
-        assert result == ['foo', 'bar']
+        self.assertEqual(result, ['foo', 'bar'])
     
     def test_call_method_error(self):
         server = JsonRpcServer(echo_app)
@@ -269,8 +269,8 @@ class TestJsonRpc(UnitTest):
         addr = server.transport.getsockname()
         client = JsonRpcClient()
         client.connect(addr)
-        exc = assert_raises(JsonRpcError, client.call_method, 'echo2')
-        assert exc.args[0] == errno.INVALID_REQUEST
+        exc = self.assertRaises(JsonRpcError, client.call_method, 'echo2')
+        self.assertEqual(exc.args[0], errno.INVALID_REQUEST)
  
     def test_send_notification(self):
         server = JsonRpcServer(notification_app())
@@ -280,8 +280,7 @@ class TestJsonRpc(UnitTest):
         client.connect(addr)
         client.send_notification('notify_foo', 'foo')
         notifications = client.call_method('get_notifications')
-        assert len(notifications) == 1
-        assert notifications[0] == ['notify_foo', ['foo']]
+        self.assertEqual(notifications, [['notify_foo', ['foo']]])
  
     def test_call_method_ping_pong(self):
         server = JsonRpcServer(reflect_app)
@@ -290,7 +289,7 @@ class TestJsonRpc(UnitTest):
         client = JsonRpcClient(echo_app)
         client.connect(addr)
         result = client.call_method('echo', 'foo')
-        assert result == 'foo'
+        self.assertEqual(result, ['foo'])
 
     def test_performance(self):
         server = JsonRpcServer(echo_app)
@@ -305,7 +304,7 @@ class TestJsonRpc(UnitTest):
             if t2 - t1 > 0.5:
                 break
             result = client.call_method('echo', 'foo')
-            assert result == 'foo'
+            self.assertEqual(result, ['foo'])
             nrequests += 1
         print('Throughput: {0:.0f} requests/sec'.format(nrequests/(t2-t1)))
 
@@ -324,7 +323,7 @@ class TestJsonRpc(UnitTest):
             if e.args[0] != pyuv.errno.UV_EMFILE:
                 raise
             print('maximum number of file descriptors reached')
-        assert len(server.clients) <= 100
+        self.assertLessEqual(len(server.clients), 100)
         for client in clients:
             client.close()
         server.close()
@@ -342,8 +341,8 @@ class TestJsonRpc(UnitTest):
                 client.write(chunk)
         except pyuv.error.TCPError as e:
             error = e
-        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE,
-                                 pyuv.errno.UV_ECANCELED)
+        self.assertIn(error.args[0], (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE,
+                                      pyuv.errno.UV_ECANCELED))
 
     def test_send_whitespace(self):
         server = JsonRpcServer(echo_app)
@@ -358,8 +357,8 @@ class TestJsonRpc(UnitTest):
                 client.write(chunk)
         except pyuv.error.TCPError as e:
             error = e
-        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE,
-                                 pyuv.errno.UV_ECANCELED)
+        self.assertIn(error.args[0], (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE,
+                                      pyuv.errno.UV_ECANCELED))
 
     def test_send_random(self):
         server = JsonRpcServer(echo_app)
@@ -374,5 +373,8 @@ class TestJsonRpc(UnitTest):
                 client.write(chunk)
         except pyuv.error.TCPError as e:
             error = e
-        assert error.args[0] in (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE,
-                                 pyuv.errno.UV_ECANCELED)
+        self.assertIn(error.args[0], (pyuv.errno.UV_ECONNRESET, pyuv.errno.UV_EPIPE,
+                                      pyuv.errno.UV_ECANCELED))
+
+if __name__ == '__main__':
+    unittest.main(buffer=True)

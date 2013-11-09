@@ -9,8 +9,8 @@
 from __future__ import absolute_import, print_function
 
 import gruvi
-from gruvi.test import UnitTest
 from gruvi.stream import StreamClient, StreamServer
+from support import *
 
 
 def echo_handler(stream, protocol, client):
@@ -32,7 +32,7 @@ class TestHandles(UnitTest):
         buf = b'x' * 1024
         client.write(buf)
         result = client.read(1024)
-        assert result == buf
+        self.assertEqual(result, buf)
         client.close()
 
     def test_pipe(self):
@@ -44,5 +44,9 @@ class TestHandles(UnitTest):
         buf = b'x' * 1024
         client.write(buf)
         result = client.read(1024)
-        assert result == buf
+        self.assertEqual(result, buf)
         client.close()
+
+
+if __name__ == '__main__':
+    unittest.main(buffer=True)

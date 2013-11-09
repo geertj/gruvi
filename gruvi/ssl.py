@@ -122,23 +122,21 @@ class SSLPipe(object):
             # Python 2.x needs this extra indirection to fill in some
             # platform specific functionality..
             self._sockets = (socket._socketobject(_sock=self._sockets[0]),
-                    socket._socketobject(_sock=self._sockets[1]))
+                             socket._socketobject(_sock=self._sockets[1]))
         for sock in self._sockets:
             sock.setblocking(False)
 
     def _create_sslsock(self):
         """Create the SSL socket."""
         if self._context:
-            self._sslsock = self._context.wrap_socket(self._sockets[1], 
-                                                      **self._sslargs)
+            self._sslsock = self._context.wrap_socket(self._sockets[1], **self._sslargs)
         else:
             self._sslsock = ssl.wrap_socket(self._sockets[1], **self._sslargs)
 
     def start_handshake(self, callback=None):
         """Start the SSL handshake. Return a list of ssldata."""
         if self._state != self.s_unwrapped:
-            raise RuntimeError('wrong state for start_handshake(): {0}'
-                                    .format(self._state))
+            raise RuntimeError('illegal state: {0}'.format(self._state))
         self._create_sslsock()
         self._state = self.s_handshake
         self._handshake_callback = callback
@@ -149,8 +147,7 @@ class SSLPipe(object):
     def start_shutdown(self, callback=None):
         """Start the SSL shutdown sequence. Return a list of ssldata."""
         if self._state != self.s_wrapped:
-            raise RuntimeError('wrong state for start_shutdown(): {0}'
-                                    .format(self._state))
+            raise RuntimeError('illegal state: {0}'.format(self._state))
         self._state = self.s_shutdown
         self._shutdown_callback = callback
         ssldata, appdata = self.feed_ssldata(b'')
@@ -360,8 +357,7 @@ class SSL(pyuv.TCP):
         # into the C-level structure below us.
         if self._server_side is None:
             # I've been bitten by this...
-            raise RuntimeError('You forgot to add server_side=True to a '
-                               'server-side socket.')
+            raise RuntimeError('Need to specify server_side=True for a server socket.')
         if self._server_side and self._do_handshake_on_connect:
             self.do_handshake()
         self._read_callback = callback

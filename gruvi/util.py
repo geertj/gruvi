@@ -13,11 +13,12 @@ import socket
 from weakref import WeakKeyDictionary
 
 from . import compat
-from .hub import switchpoint, get_hub
+from .hub import switchpoint, get_hub, switch_back
 from .pyuv import pyuv_exc, TCP, Pipe
 from .ssl import SSL
+from .error import Timeout
 
-__all__ = ['sleep', 'saddr', 'getaddrinfo', 'create_connection']
+__all__ = ['sleep', 'saddr', 'getaddrinfo', 'create_connection', 'getsockname']
 
 
 _objrefs = WeakKeyDictionary()  # obj -> objref
@@ -47,44 +48,65 @@ def docfrom(base):
 def sleep(secs):
     """Sleep for *secs* seconds."""
     hub = get_hub()
-    hub.switch(secs)
+    try:
+        with switch_back(secs):
+            hub.switch()
+    except Timeout:
+        pass
 
 
 def saddr(address):
     """Return a family specific string representation for a socket address."""
-    if isinstance(address, (compat.binary_type, compat.text_type)):
+    if isinstance(address, compat.binary_type) and compat.PY3:
+        return address.decode('utf8')
+    elif isinstance(address, compat.string_types):
         return address
-    elif isinstance(address, tuple) and len(address) == 2:
+    elif isinstance(address, tuple) and ':' in address[0]:
+        return '[{0}]:{1}'.format(address[0], address[1])
+    elif isinstance(address, tuple):
         return '{0}:{1}'.format(*address)
-    elif isinstance(address, tuple) and len(address) == 4:
-        return '[{0}]:{1}/{2}/{3}'.format(*address)
+    elif isinstance(address, pyuv.Handle):
+        return '{0!r}'.format(address)
     else:
-        raise TypeError('illegal address type')
+        raise TypeError('illegal address type: {!s}'.format(type(address)))
+
+
+def paddr(address):
+    """The inverse of saddr."""
+    if address.startswith('['):
+        p1 = address.find(']:')
+        if p1 == -1:
+            raise ValueError
+        return (address[1:p1], int(address[p1+2:]))
+    elif ':' in address:
+        p1 = address.find(':')
+        return (address[:p1], int(address[p1+1:]))
+    else:
+        return address
 
 
 @switchpoint
-def getaddrinfo(host, port=0, family=0, socktype=0, protocol=0, flags=0,
-                timeout=30):
+def getaddrinfo(host, port=0, family=0, socktype=0, protocol=0, flags=0, timeout=30):
     """A cooperative version of :py:func:`socket.getaddrinfo`.
 
     The address resolution is performed in the libuv thread pool. 
     """
     hub = get_hub()
-    request = pyuv.util.getaddrinfo(hub.loop, hub.switch_back(), host, port,
-                                    family, socktype, protocol, flags)
-    result = hub.switch(timeout)
-    request.cancel()
-    if not result:
-        raise pyuv_exc(None, pyuv.errno.UV_TIMEDOUT)
-    elif result[1]:
-        raise pyuv_exc(None, result[1])
-    return result[0]
+    with switch_back(timeout) as switcher:
+        request = pyuv.util.getaddrinfo(hub.loop, switcher, host, port, family,
+                                        socktype, protocol, flags)
+        result = hub.switch()
+    args, kwargs = result
+    if args[1]:
+        raise pyuv_exc(None, args[1])
+    return args[0]
 
 
 @switchpoint
 def create_connection(address, ssl=False, local_address=None,
                       timeout=None, **transport_args):
-    """Connect to *address*, and wait for the connection to be established.
+    """Connect to *address*, wait for the connection to be established, and
+    return the connected transport.
 
     The address may be either be a string, a (host, port) tuple, or an already
     connected stream transport. If the address is a string, this method
@@ -104,6 +126,7 @@ def create_connection(address, ssl=False, local_address=None,
     Finally, *address* may also be an already connected stream transport.
     In this case, all other arguments are ignored.
     """
+    hub = get_hub()
     from . import logging
     log = logging.get_logger('create_connection()')
     if isinstance(address, (compat.binary_type, compat.text_type)):
@@ -122,13 +145,16 @@ def create_connection(address, ssl=False, local_address=None,
     for addr in addresses:
         log.debug('trying address {0}'.format(saddr(addr)))
         transport = transport_type(**transport_args)
-        try:
-            transport.connect(addr, get_hub().switch_back())
-        except pyuv.error.UVError as e:
-            error = e[0]
-        else:
-            result = get_hub().switch(timeout)
-            error = pyuv.errno.UV_ETIMEDOUT if not result else result[1]
+        with switch_back(timeout) as switcher:
+            try:
+                transport.connect(addr, switcher)
+                hub.switch()
+            except pyuv.error.UVError as e:
+                error = e[0]
+            except Timeout:
+                error = pyuv.errno.UV_ETIMEDOUT
+            else:
+                error = None
         if not error:
             break
         log.warning('connect() failed with error {0}'.format(error))
@@ -138,3 +164,14 @@ def create_connection(address, ssl=False, local_address=None,
     if local_address:
         transport.bind(*local_address)
     return transport
+
+
+def getsockname(transport):
+    """Return the socket name of a transport."""
+    if hasattr(transport, 'getsockname'):
+        return transport.getsockname()
+    elif hasattr(transport, 'address'):
+        return transport.address
+    else:
+        raise TypeError('cannot get address for type "{0}"'
+                            .format(type(transport).__name__))

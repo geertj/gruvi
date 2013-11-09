@@ -53,7 +53,8 @@ class JsonRpcError(error.Error):
     """Exception that is raised in case of JSON-RPC protocol errors."""
 
 
-_allowed_message_keys = frozenset(('id', 'method', 'params', 'result', 'error'))
+_allowed_message_keys = frozenset(('jsonrpc', 'id', 'method', 'params',
+                                   'result', 'error'))
 
 def check_message(message):
     """Validate a JSON-RPC message.
@@ -88,14 +89,19 @@ def check_message(message):
     return True
 
 
-def create_response(message, *args):
+def create_response(message, result):
     """Create a JSON-RPC response message."""
-    msg = { 'id': message['id'], 'result': args }
+    msg = { 'id': message['id'], 'result': result, 'jsonrpc': '2.0' }
     return msg
 
 def create_error(message, error):
     """Create a JSON-RPC error response message."""
-    msg = { 'id': message['id'], 'error': error }
+    msg = { 'id': message['id'], 'error': error, 'jsonrpc': '2.0' }
+    return msg
+
+def create_notification(method, *args):
+    """Create a JSON-RPC notification message."""
+    msg = { 'id': None, 'method': method, 'params': args, 'jsonrpc': '2.0' }
     return msg
 
 
@@ -121,12 +127,10 @@ class JsonRpcParser(protocols.Parser):
         while offset != len(buf):
             error = jsonrpc_ffi.lib.split(self._context)
             if error and error != jsonrpc_ffi.lib.INCOMPLETE:
-                raise ParseError(errno.FRAMING_ERROR,
-                                 'JSON-RPC framing error {0}'.format(error))
+                raise ParseError(errno.FRAMING_ERROR, 'framing error {0}'.format(error))
             nbytes = self._context.offset - offset
             if len(self._buffer) + nbytes > self.max_message_size:
-                raise ParseError(errno.MESSAGE_TOO_LARGE,
-                                 'JSON-RPC message exceeds maximum size')
+                raise ParseError(errno.MESSAGE_TOO_LARGE, 'message exceeds maximum size')
             if error == jsonrpc_ffi.lib.INCOMPLETE:
                 self._buffer.extend(buf[offset:])
                 return
@@ -138,16 +142,14 @@ class JsonRpcParser(protocols.Parser):
             try:
                 chunk = chunk.decode('utf8')
             except UnicodeDecodeError as e:
-                raise ParseError(errno.PARSE_ERROR,
-                                 'encoding error: {0!s}'.format(str(e)))
+                raise ParseError(errno.PARSE_ERROR, 'encoding error: {0!s}'.format(str(e)))
             try:
                 message = json.loads(chunk)
             except ValueError as e:
-                raise ParseError(errno.PARSE_ERROR,
-                                 'invalid JSON: {0!s}'.format(e))
+                raise ParseError(errno.PARSE_ERROR, 'invalid JSON: {0!s}'.format(e))
             if not check_message(message):
-                raise ParseError(errno.PARSE_ERROR,
-                                 'invalid JSON-RPC message')
+                print(message)
+                raise ParseError(errno.PARSE_ERROR, 'invalid JSON-RPC message')
             self._messages.append(message)
             offset = self._context.offset
 
@@ -157,7 +159,7 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
     
     _exception = JsonRpcError
 
-    def __init__(self, message_handler=None, timeout=None):
+    def __init__(self, message_handler=None, timeout=None, _trace=False):
         """The constructor takes the following arguments. The *message_handler*
         argument specifies an optional message handler. See the notes at the
         top for more information on the message handler.
@@ -167,6 +169,7 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
         """
         super(JsonRpcBase, self).__init__(JsonRpcParser, timeout)
         self._message_handler = message_handler
+        self._trace = _trace
 
     def _init_transport(self, transport):
         super(JsonRpcBase, self)._init_transport(transport)
@@ -175,7 +178,7 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
     def _dispatch_fast_path(self, transport, message):
         if 'result' in message or 'error' in message:
             event = 'MethodResponse:{0}'.format(message['id'])
-            if transport._events.notify(event, message):
+            if transport._events.emit(event, message):
                 return True
         if not self._message_handler:
             transport._log.debug('no handler, dropping incoming message')
@@ -193,33 +196,28 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
         if transport is None or transport.closed:
             raise RuntimeError('not connected')
         message = { 'id': 'gruvi.{0}'.format(transport._next_message_id),
-                    'method': method, 'params': args }
+                    'method': method, 'params': args, 'jsonrpc': '2.0' }
         transport._next_message_id += 1
         self._send_message(transport, message)
-        channels = ('MethodResponse:{0}'.format(message['id']),
-                    'HandleError')
-        response = transport._events.wait(*channels, timeout=self._timeout)
-        if not response:
-            raise JsonRpcError(errno.TIMEOUT, 'timeout waiting for reply')
-        elif isinstance(response, Exception):
+        events = ('MethodResponse:{0}'.format(message['id']), 'HandleError')
+        try:
+            event, response = transport._events.wait(self._timeout, waitfor=events)
+        except Timeout:
+            raise JsonRpcError(PROTO_TIMEOUT, 'timeout waiting for reply')
+        if isinstance(response, Exception):
             raise response
         assert isinstance(response, dict)
         assert check_message(response)
         error = response.get('error')
         if error:
             raise JsonRpcError(errno.INVALID_REQUEST, error)
-        result = response.get('result')
-        if not result:
-            result = None
-        elif len(result) == 1:
-            result = result[0]
-        return result
+        return response.get('result')
 
     @switchpoint
     def _send_notification(self, transport, method, *args):
         if transport is None or transport.closed:
             raise RuntimeError('not connected')
-        message = { 'id': None, 'method': method, 'params': args }
+        message = create_notification(method, *args)
         self._send_message(transport, message)
 
     @switchpoint
@@ -230,6 +228,15 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
             raise ValueError('illegal JSON-RPC message')
         serialized = json.dumps(message, ensure_ascii=True).encode('ascii')
         self._write(transport, serialized)
+        self._log_response(message)
+
+    def _log_request(self, message):
+        if self._trace:
+            self._log.debug('Incoming message: {!s}', message)
+
+    def _log_response(self, message):
+        if self._trace:
+            self._log.debug('Outgoing message: {!s}', message)
 
 
 class JsonRpcClient(JsonRpcBase):
@@ -237,8 +244,7 @@ class JsonRpcClient(JsonRpcBase):
 
     @switchpoint
     @docfrom(JsonRpcBase._connect)
-    def connect(self, address, ssl=False, local_address=None,
-                **transport_args):
+    def connect(self, address, ssl=False, local_address=None, **transport_args):
         self._connect(address, ssl, local_address, **transport_args)
 
     @switchpoint

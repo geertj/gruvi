@@ -241,7 +241,7 @@ class DBusBase(protocols.RequestResponseProtocol):
             transport.write(authdata)
         if transport._authenticator.username:
             transport._authenticated = True
-            transport._events.notify('AuthenticationComplete')
+            transport._events.emit('AuthenticationComplete')
             super(DBusBase, self)._on_transport_readable(transport,
                                         self._buffer, 0)
             self._buffer = b''
@@ -249,7 +249,7 @@ class DBusBase(protocols.RequestResponseProtocol):
     def _dispatch_fast_path(self, transport, message):
         if isinstance(message, txdbus.MethodReturnMessage):
             event = 'MethodResponse:{0}'.format(message.reply_serial)
-            if transport._events.notify(event, message):
+            if transport._events.emit(event, message):
                 return True
         if not self._message_handler:
             transport._log.debug('no handler, dropping incoming message')
@@ -301,8 +301,8 @@ class DBusClient(DBusBase):
         else:
             raise DBusError('could not connect to any address')
         self._start_authentication(self._transport)
-        self._transport._events.wait('AuthenticationComplete', 'HandleError',
-                                     timeout=self._timeout)
+        events = ('AuthenticationComplete', 'HandleError')
+        self._transport._events.wait(self._timeout, waitfor=events)
         if self._transport._error:
             raise self._transport._error
         elif not self._transport._authenticated:
@@ -351,19 +351,17 @@ class DBusClient(DBusBase):
                                            expectReply=not no_reply,
                                            autoStart=auto_start)
         self.send_message(message)
-        events = ('MethodResponse:{0}'.format(message.serial),
-                  'HandleError')
-        response = self._transport._events.wait(*events, timeout=self._timeout)
-        if not response:
-            raise DBusError(errno.TIMEOUT, 'timeout waiting for reply')
-        elif isinstance(response, Exception):
-            raise response
+        events = ('MethodResponse:{0}'.format(message.serial), 'HandleError')
+        response = self._transport._events.wait(self._timeout, waitfor=events)
+        if response == 'HandleError':
+            raise self._transport._error
+        event, response = response
         assert isinstance(response, txdbus.DBusMessage)
         assert response.reply_serial == message.serial
         if isinstance(response, txdbus.ErrorMessage):
             raise DBusError(errno.REQUEST_ERROR, response)
         body = response.body
-        if len(body) == 0:
+        if body is None or len(body) == 0:
             body = None
         elif len(body) == 1:
             body = body[0]

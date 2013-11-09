@@ -10,81 +10,119 @@ import io
 import collections
 
 from .hub import switchpoint
-from .fiber import ConditionSet
+from .sync import Signal
 
 
-class Reader(io.BufferedIOBase):
-    """A buffered, blocking reader.
+class BufferList(object):
+    """A list of buffers.
 
-    Data is fed into the reader with the :meth:`_feed` method. It can the be
-    read back again using the :meth:`read`, :meth:`readline` and related
-    methods. The methods that read data are all switchpoints and will block in
-    case a read cannot be satisified.
+    This tries to be efficient and copy as little data as needed. A buffer is
+    added to the buffer list using :meth:`feed`, and retreived using
+    :meth:`get`. Unless requested otherwise by using the *size* argument to
+    :meth:`get`, the bufers are added and removed from the buffer list without
+    any copying or slicing.
     """
 
-    def __init__(self, on_size_change=None):
-        """Create a new reader."""
-        super(Reader, self).__init__()
+    def __init__(self):
+        """Create a new buffer."""
         self._buffers = collections.deque()
         self._offset = 0
         self._eof = False
         self._error = None
-        self._buffer_size = 0
-        self._on_size_change = on_size_change
-        self._events = ConditionSet()
+        self._size = 0
+        self._events = Signal()
+        self._size_changed = Signal()
 
-    def _adjust_size(self, delta):
-        """Adjust the buffer size and fire the callback if any."""
-        oldsize = self._buffer_size
-        if delta:
-            self._buffer_size += delta
-        else:
-            self._buffer_size = 0
-        if self._on_size_change:
-            self._on_size_change(oldsize, self._buffer_size)
+    @property
+    def size(self):
+        """The total size of all chunks."""
+        return self._size
 
-    def _feed(self, data):
-        """Feed *data* into the reader."""
-        if data:
-            self._buffers.append(data)
-            self._adjust_size(len(data))
-            self._events.notify('InputReceived')
-        else:
-            self._eof = True
-            self._events.notify('EOF')
+    @property
+    def eof(self):
+        """Whether EOF has been received.
+        
+        Note that there may still be unread data in the buffer.
+        """
+        return self._eof
 
-    def _set_error(self, error):
-        """Set an error state on the reader."""
+    @property
+    def error(self):
+        """The error condition, if any."""
+        return self._error
+
+    @property
+    def events(self):
+        """Signal that is emitted when an event occurs.
+
+        Signal arguments: ``event(event_name)``.The event name will be one of
+        ``'InputReceived'``, ``'EOF'``, or ``'Error'``.
+        """
+        return self._events
+
+    @property
+    def size_changed(self):
+        """Signal that is emitted when the buffer size changed.
+        
+        Signal arguments: ``size_changed(oldsize, newsize)``
+        """
+        return self._size_changed
+
+    def feed(self, buf):
+        """Append a new buffer to the buffer list."""
+        if not buf:
+            self.feed_eof()
+            return
+        self._buffers.append(buf)
+        oldsize, self._size = self._size, self._size+len(buf)
+        self.events.emit('InputReceived')
+        self.size_changed.emit(oldsize, self._size)
+
+    def feed_eof(self):
+        """Feed an EOF into the buffer."""
+        self._eof = True
+        self.events.emit('EOF')
+
+    def feed_error(self, error):
+        """Set an error condition on the buffer."""
         self._error = error
-        self._events.notify('Error')
+        self.evens.emit('Error')
 
-    def _get(self, size=None):
+    def get(self, size=None):
         """Get one buffer, of length no more than *size*."""
         if not self._buffers:
             return b''
-        if size is None:
-            size = len(self._buffers[0])
-        buf = self._buffers[0][self._offset:self._offset+size]
-        self._offset += size
-        if self._offset >= len(self._buffers[0]):
-            self._offset = 0
-            self._buffers.popleft()
-        self._adjust_size(-len(buf))
+        if size is None or size > len(self._buffers[0])-self._offset:
+            buf = self._buffers.popleft()
+            if self._offset:
+                buf = buf[self._offset:]
+                self._offset = 0
+        else:
+            buf = self._buffers[0][self._offset:self._offset+size]
+            self._offset += size
+            if self._offset >= len(self._buffers[0]):
+                self._buffers.popleft()
+                self._offset = 0
+        oldsize, self._size = self._size, self._size-len(buf)
+        self.events.emit('InputReceived')
+        self.size_changed.emit(oldsize, self._size)
         return buf
 
-    def _getall(self):
-        """Return all buffers."""
-        if not self._buffers:
-            return b''
+    def getall(self):
+        """Return all sequence containing all buffers."""
+        bufs = []
         if self._offset:
-            self._buffers[0] = self._buffers[0][self._offset:]
-        bufs = self._buffers
-        self._buffers = collections.deque()
-        self._adjust_size(-self._buffer_size)
+            assert len(self._buffers) > 0
+            buf = self._buffers.popleft()
+            bufs.append(buf[self._offset:])
+            self._offset = 0
+        while self._buffers:
+            buf = self._buffers.popleft()
+            bufs.append(buf)
         return bufs
 
-    def _find(self, s):
-        """Find the string *s* in the buffers."""
+    def find(self, s):
+        """Find the string *s* in the buffer list."""
         pos = 0
         offset = self._offset
         for buf in self._buffers:
@@ -98,29 +136,44 @@ class Reader(io.BufferedIOBase):
             pos = -1
         return pos
 
+
+class Reader(io.BufferedIOBase):
+    """A buffered, blocking reader.
+
+    This implements an :class:`io.BufferedIOBase` interface on top of a
+    :class:`BufferList`.
+    """
+
+    def __init__(self, buffers):
+        """Create a new reader."""
+        super(Reader, self).__init__()
+        self._buffers = buffers
+
     @switchpoint
     def read(self, size=None):
         """Read up to *size* bytes.
         
         If *size* is not specified, read until EOF.
         """
-        if not self._buffers:
-            if self._eof:
+        bufs = self._buffers
+        if bufs.size == 0:
+            if bufs.eof:
                 return b''
-            elif self._error:
-                raise self._error
+            elif bufs.error:
+                raise bufs.error
         if size is None:
-            if not self._eof and not self._error:
-                self._events.wait('EOF', 'Error')
-            if self._error:
-                raise self._error
-            buf = b''.join(self._getall())
+            if not bufs.eof and not bufs.error:
+                bufs.events.wait(waitfor=('EOF', 'Error'))
+            assert bufs.eof or bufs.error
+            if bufs.size == 0 and bufs.error:
+                raise bufs.error
+            buf = b''.join(bufs.getall())
         else:
-            if len(self._buffers) == 0:
-                self._events.wait('InputReceived', 'EOF', 'Error')
-            if self._error:
-                raise self._error
-            buf = self._get(size)
+            if bufs.size == 0:
+                bufs.events.wait()
+            if bufs.size == 0 and bufs.error:
+                raise bufs.error
+            buf = bufs.get(size)
         return buf
 
     @switchpoint
@@ -131,20 +184,22 @@ class Reader(io.BufferedIOBase):
         returned. If *limit* is specified, at most *limit* bytes will be read.
         """
         chunks = []
+        bufs = self._buffers
         while True:
-            pos = self._find('\n')
+            pos = bufs.find('\n')
             if pos != -1:
                 nbytes = pos+1
                 while nbytes > 0:
-                    chunks.append(self._get(nbytes))
+                    chunk = bufs.get(nbytes)
+                    chunks.append(chunk)
                     nbytes -= len(chunk)
                 break
-            chunks.extend(self._getall())
-            if self._eof or self._error:
+            chunks.extend(bufs.getall())
+            if bufs.eof or bufs.error:
                 break
-            self._wait('InputReceived', 'EOF')
-        if not chunks and self._error:
-            raise self._error
+            bufs.events.wait()
+        if not chunks and bufs.error:
+            raise bufs.error
         return b''.join(chunks)
 
     @switchpoint

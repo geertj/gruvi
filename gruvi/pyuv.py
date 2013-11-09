@@ -78,6 +78,7 @@ class Pipe(pyuv.Pipe):
         # Pipe.open to open the socket's descriptor.
         if not address.startswith('\x00'):
             super(Pipe, self).connect(address, callback)
+            self.address = address
             return
         if sys.platform != 'linux2':
             raise RuntimeError('abstract sockets are Linux only')
@@ -90,6 +91,7 @@ class Pipe(pyuv.Pipe):
         else:
             error = 0
             self.open(self._sock.fileno())
+        self.address = address
         # On Linux, connect() on a Unix domain socket never blocks. So we can
         # notify success (or failure) immmediately.
         if callback:

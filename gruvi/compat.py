@@ -57,14 +57,5 @@ else:
 
     exec_('def reraise(tp, value, tb=None):\n  raise tp, value, tb\n')
 
-
-def getqualname(obj):
-    if hasattr(obj, '__qualname__'):
-        name = obj.__qualname__
-    elif inspect.ismethod(obj):
-        name = '{0}.{1}'.format(obj.im_self.__class__.__name__, obj.__name__)
-    elif hasattr(obj, '__name__'):
-        name = obj.__name__
-    else:
-        name = repr(obj)
-    return name
+    import threading
+    threading.get_ident = threading._get_ident

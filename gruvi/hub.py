@@ -14,13 +14,15 @@ import threading
 import inspect
 import textwrap
 import itertools
+import weakref
 
 import pyuv
 import fibers
 
 from . import compat
+from .error import Timeout
 
-__all__ = ['switchpoint', 'assert_no_switchpoints', 'get_hub', 'Hub']
+__all__ = ['assert_no_switchpoints', 'get_hub', 'switchpoint', 'switch_back', 'Hub']
 
 
 # The @switchpoint decorator dynamically compiles the wrapping code at import
@@ -32,7 +34,7 @@ _switchpoint_template = textwrap.dedent("""\
         '''{docstring}'''
         hub = get_hub()
         if getcurrent() is hub:
-            raise RuntimeError('cannot call switchpoint from the Hub')
+            raise RuntimeError('cannot call switchpoint "{name}" from the Hub')
         if hub._atomic:
             raise RuntimeError('switchpoint called from atomic section')
         return _{name}{arglist}
@@ -42,11 +44,11 @@ def switchpoint(func):
     """Mark *func* as a switchpoint.
 
     Use this function as a decorator to mark any method or function that may
-    call :meth:`Hub.switch`::
+    call :meth:`Hub.switch`, as follows::
 
         @switchpoint
         def myfunc():
-            # May call Hub.switch here
+            # May call Hub.switch() here
             pass
     
     You only need to mark methods and functions that invoke :meth:`Hub.switch`
@@ -71,7 +73,7 @@ def switchpoint(func):
 
 
 class assert_no_switchpoints(object):
-    """Context manager to define a block in which no switch points may occur.
+    """Context manager to define a block in which no switchpoints may occur.
 
     Use this method in case you need to modify a shared state in a non-atomic
     way, and when you're not sure that you're not calling out indirectly to a
@@ -87,132 +89,207 @@ class assert_no_switchpoints(object):
     This context manager should not be overused. Normally you should know which
     functions are switchpoints or may end up calling switchpoints. Or
     alternatively you could refactor your code to make sure that a global state
-    modification is done in a single function and without calling to other
-    functions with potentially unknown switching behavior.
+    modification is done in a single leaf function.
     """
 
+    def __init__(self, hub=None):
+        self._hub = hub or get_hub()
+
     def __enter__(self):
-        self._hub = get_hub()
         self._hub._atomic.append(self)
 
     def __exit__(self, *exc_info):
         assert len(self._hub._atomic) > 0
         ctx = self._hub._atomic.pop()
         assert ctx is self
+        self._hub = None
+
+
+class switch_back(object):
+    """A switch back object.
+
+    A switch back object is a callable object that can be used to switch back
+    to the current fiber after it has switched to the hub via
+    :meth:`Hub.switch`.
+
+    Idiomatic use of a switchback instance is as follows::
+
+      with switch_back(timeout) as switcher:
+          start_async_job(job, callback=switcher)
+          hub.switch()
+
+    In this code fragment, ``start_async_job`` is a function that starts an
+    asynchronous job that calls the passed callback when it is done.  After the
+    job started, the fiber switches to the hub using :meth:`Hub.switch`. This
+    will cause the event loop to run. Once the asynchronous job is done, the
+    switchback instance is called, which schedules a switch back, which in turn
+    makes :meth:`Hub.switch` return.
+    """
+
+    def __init__(self, timeout=None, interrupt=False, hub=None):
+        """
+        The a *timeout* argument of can be used to force a timeout after this
+        many seconds. If a timeout happens, :meth:`Hub.switch` will raise a
+        :class:`Timeout` exception. The default is None, meaning there is no
+        timeout.
+
+        The *interrupt* argument is a flag that allows to you interrupt the hub
+        via CTRL-C or similar. In this case, :meth:`Hub.switch` will raise a
+        :class:`KeyboardInterrupt`. The default is false, meaning CTRL-C will
+        not interrupt the hub.
+
+        The *hub* argument can be used to specfiy an alternate hub to use for
+        the timeout and interrupt handles, and to schedule the switchback. By
+        default, the hub of the current thread is used.
+        """
+        self._timeout = timeout
+        self._interrupt = interrupt
+        self._hub = hub or get_hub()
+        self._fiber = fibers.current()
+        self._cancelled = False
+
+    fiber = property(lambda self: self._fiber)
+    timeout = property(lambda self: self._timeout)
+    interrupt = property(lambda self: self._interrupt)
+    cancelled = property(lambda self: self._cancelled)
+
+    def __enter__(self):
+        if self._timeout is not None:
+            self._timer = pyuv.Timer(self._hub.loop)
+            self._timer.start(self, self._timeout, 0)
+        if self._interrupt:
+            self._signal = pyuv.Signal(self._hub.loop)
+            self._signal.start(self, signal.SIGINT)
+        return self
+
+    def __exit__(self, *exc_info):
+        if self._timeout is not None:
+            self._timer.close()
+            self._timer = None
+        if self._interrupt:
+            self._signal.close()
+            self._signal = None
+        self._cancelled = True
+        self._hub = None
+        self._fiber = None
+
+    cancel = __exit__
+
+    def __call__(self, *args, **kwargs):
+        if self.cancelled or not self.fiber.is_alive():
+            return
+        if self._timeout is not None and args == (self._timer,):
+            value = Timeout('Timeout in switch_back() block')
+        elif self._interrupt and args == (self._signal,):
+            value = KeyboardInterrupt('CTRL-C pressed in switch_back() block')
+        else:
+            value = (args, kwargs)
+        self._hub.run_callback(self.fiber.switch, value)
 
 
 def get_hub():
-    """Return the singleton instance of the hub."""
+    """Return the singleton instance of the hub.
+    
+    By default there is one Hub per thread.
+    This method is equivalent to :meth:`Hub.get`.
+    """
     return Hub.get()
 
 
 class Hub(fibers.Fiber):
     """The central fiber scheduler.
 
-    The root fiber will usually instantiate the Hub by calling the
-    :meth:`get` class method, and then start the main event loop by calling
-    :meth:`switch`. Typically this loop will remain active during the entire
-    life time of the application.
+    The hub is created automatically the first time it is needed, so it is not
+    necessary to instantiate this class yourself.
 
-    Non-root fibers use the Hub to wait for certain conditions to become
-    true. The condition is normally signalled  by firing a callback. To wait
-    until such a callback is fired, a non-root fiber will take the following
-    steps:
+    There is always one hub per thread. To access the per thread instance, use
+    :meth:`Hub.get` or the function :func:`get_hub` which is an alias.
 
-    1. It will retrieve a new "switchback callback" using :meth:`switch_back`.
-    2. It will register the switchback callback as the callback to the condition
-       the fiber is interested in.
-    3. It will call :meth:`switch` to switch to the Hub to allow other
-       fibers to run.
-    4. When the condition happens, the switchback callback is called, which
-       will schedule a switch back of the current fiber. The execution will
-       resume just after the :meth:`switch` call.
+    The hub is used by fibers to wait for certain conditions to become true.
+    See the documentation for :class:`switch_back` for details.
+
+    Callbacks can be run in the hub's fiber by using :meth:`run_callback`.
+
+    The hub also manages a thread pool that can be used for performing blocking
+    IO or CPU intensive tasks. See :meth:`run_in_threadpool`.
     """
 
-    # By default there is one hub per thread
-    _local = threading.local()
-
-    def __init__(self, _loop=None):
-        if self.current().parent is not None:
+    def __init__(self):
+        if self.parent is not None:
             raise RuntimeError('Hub must be created in the root fiber')
         super(Hub, self).__init__(target=self.run)
-        self._loop = _loop or pyuv.Loop.default_loop()
+        self._loop = pyuv.Loop()
         self._atomic = collections.deque()
         self._callbacks = collections.deque()
+        self._thread = threading.get_ident()
+        self._stop_loop = pyuv.Async(self.loop, lambda h: self.loop.stop())
         from gruvi import logging, util
         self._log = logging.get_logger(util.objref(self))
+        self._log.debug('new Hub for thread {0:#x}'.format(self._thread))
 
     @property
     def loop(self):
         """The pyuv event loop used by this hub instance."""
         return self._loop
 
+    _local = threading.local()
+
     @classmethod
     def get(cls):
-        """Return the instance of the hub.
-
-        If no instance exists yet, it will be created. By default, there will
-        be one hub instance per Python thread.
-        """
+        """Return the thread specific instance of the Hub."""
         try:
             hub = cls._local.hub
         except AttributeError:
-            hub = cls._local.hub = cls()
-        return hub
+            cls._local.hub = Hub()
+        return cls._local.hub
+
+    def close(self):
+        """Stop the hub."""
+        if not self.is_alive():
+            raise RuntimeError('hub has already been stopped')
+        if self.current() is self or self.current().parent is not None:
+            raise RuntimeError('close() must be called from the root fiber')
+        # Close all the handles, and then let the loop exit. This gives the
+        # loop the opportunity to process all the asynchronous close() calls.
+        def closer(h):
+            if not h.closed:
+                h.close()
+        self.loop.walk(closer)
+        self.switch()  # will terminate self.run(), and switch back to us
+        if hasattr(self._local, 'hub'):
+            del self._local.hub
+        self._loop = None
+        self._callbacks.clear()
+        self._log.debug('hub terminated via close()')
 
     def run(self):
-        # Target of Hub.switch(). This runs the the event loop until there are
-        # no more active events, and then switches back to the parent.
+        # Target of Hub.switch().
         if self.current() is not self:
             raise RuntimeError('run() may only be called from the Hub')
+        self._log.debug('starting event loop')
         while True:
             self._run_callbacks()
-            with assert_no_switchpoints():
-                active = self.loop.run(pyuv.UV_RUN_ONCE)
-            if not active and not self._callbacks:
-                self.parent.switch()
+            with assert_no_switchpoints(self):
+                active = self.loop.run()
+            if not active:
+                break
+        self._log.debug('event loop terminated')
 
-    def switch(self, timeout=None, interrupt=False):
+    def switch(self):
         """Switch to the hub.
 
-        This method may be called from the root fiber to start or switch to
-        the Hub, or from a non-root fiber yield and wait for a switch back.
-        The optional *timeout* argument specifies the maximum time to wait. If
-        the timeout expires then a switch back is automatically performed.
+        This method pauses the current fiber and runs the event loop. The
+        calling fiber should ensure that it has set up appropriate switchbacks
+        using :class:`switch_back`.
 
-        If called from the root fiber, then this method returns when there
-        are no more callbacks (see :meth:`run_callback`) and no more events in
-        the event loop.
+        Return value is the ``value`` argument passed to :meth:`Fiber.switch`.
         """
-        if self.current() is self:
-            raise RuntimeError('Cannot switch() to the Hub from the Hub')
-        if timeout is not None:
-            timer = pyuv.Timer(self.loop)
-            timer.start(self.switch_back(), timeout, 0)
-        if interrupt:
-            sigh = pyuv.Signal(self.loop)
-            sigh.start(self.switch_back(), signal.SIGINT)
-        ret = super(Hub, self).switch()
-        if timeout is not None:
-            timer.close()
-        if interrupt:
-            sigh.close()
-        return ret
-
-    def switch_back(self):
-        """Return a callback that, when called, queues another callback that
-        will switch to the fiber that called ``switch_back()``.
-
-        The callback is often used as the callback target to pyuv methods. At
-        the moment, the callback accepts positional arguments only, which are
-        returned in a tuple as the result of :meth:`Hub.switch`.
-        """
-        current = self.current()
-        def schedule_switch_back(*args):
-            def do_switch_back():
-                current.switch(args)
-            self.run_callback(do_switch_back)
-        return schedule_switch_back
+        if threading.get_ident() != self._thread:
+            raise RuntimeError('cannot switch form a different thread')
+        value = super(Hub, self).switch()
+        if isinstance(value, Exception):
+            raise value
+        return value
 
     def _run_callbacks(self):
         """Run registered callbacks."""
@@ -226,9 +303,16 @@ class Hub(fibers.Fiber):
     def run_callback(self, callback, *args):
         """Queue a callback to be called when the event loop next runs.
 
-        The *callback* will be called with *args* in the next iteration of the
-        event loop. If you add multiple callbacks, they will be called in the
-        order that you added them.
+        The *callback* will be called with positional arguments *args* in the
+        next iteration of the event loop. If you add multiple callbacks, they
+        will be called in the order that you added them. The callback will run
+        in the Hub's fiber.
+
+        This method is thread-safe. It is allowed to queue a callback from a
+        different thread than the one running the Hub.
         """
-        self._callbacks.append((callback, args))
-        self.loop.stop()
+        self._callbacks.append((callback, args))  # atomic
+        if threading.get_ident() == self._thread:
+            self.loop.stop()
+        else:
+            self._stop_loop.send()

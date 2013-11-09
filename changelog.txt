@@ -1,5 +1,9 @@
 Changes in version 0.9.1:
 
+* Add thread-safe synchronization primitives.
+* Add gruvi.futures.
+* Test suite now uses unittest.
+* Lots of smaller refactorings to make the API cleaner.
 * Remove dependency on six.
 * Switch from greenlet to python-fibers.
 * Fixed Windows support.

@@ -9,14 +9,6 @@
    Base class for all exceptions in Gruvi. This is an alias of
    :exc:`pyuv.UVError`.
 
-.. autofunction:: switchpoint
+.. autoclass:: gruvi.Timeout
 
-.. autoclass:: assert_no_switchpoints
-
-.. autoclass:: gruvi.Fiber
-   :members:
-
-.. autofunction:: gruvi.get_hub
-
-.. autoclass:: gruvi.Hub
-   :members:
+.. autoclass:: gruvi.Cancelled

@@ -19,19 +19,17 @@ Some general notes:
 * Any headers that are passed in by application code must not be "Hop by hop"
   headers. These headers may only be used by HTTP implementations themselves,
   such as the client and server in this module.
-* All strings that are used in the APIs in this module must be ``str``
-  instances in Python 3.x, and either ``bytes`` or ``str`` instances in Python
-  2.x.
-* There is one relaxation of the above rule: strings that are part of the HTTP
-  body may also be ``bytes`` instances in Python 3.x.
-* String may only contain code points that are in ISO-8859-1. This is the
-  default encoding used by HTTP. There are no exceptions.
-* The only place where non-ISO-8859-1 code points may be relevant is in an HTTP
-  body. In this case, you must encode the string yourself, and set the encoding
-  through the "charset" parameter of the "Content-Type" header. See `section
-  3.4 <http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.4>`_ of the
-  HTTP RFC for more information about encodings. A good default encoding to use
-  would be UTF-8.
+* Strings passed into the API, other than those that end up in the HTTP body,
+  must be of a text type (str or unicode in Python 2.x, str in Python 3.x).
+  These strings must only contain code points that are in ISO-8859-1. This is
+  the default encoding for HTTP as per RFC2606.
+* Strings passed into the API that will end up in the HTTP body can be either
+  of a binary or a text type. If they are of a text type, then they must only
+  contain code points that are in ISO-8859-1.
+* To include a text in a body that contains code points outside ISO-8859-1,
+  encode it yourself in a suitable encoding (UTF-8 is a good choice), set the
+  "charset" parameter to the "Content-Type" header to the encoding you used,
+  and pass the body as a binary type.
 """
 
 from __future__ import absolute_import, print_function
@@ -41,7 +39,7 @@ import collections
 
 from . import hub, protocols, error, reader, http_ffi, logging, compat
 from .hub import switchpoint
-from .util import objref, docfrom
+from .util import objref, docfrom, getsockname
 from ._version import __version__
 
 try:
@@ -49,8 +47,7 @@ try:
 except ImportError:
     from urlparse import urlsplit
 
-__all__ = ['HttpError', 'HttpClient', 'HttpServer', 'HttpResponse',
-           'geturlinfo']
+__all__ = ['HttpError', 'HttpClient', 'HttpServer', 'HttpResponse', 'geturlinfo']
 
 
 # The "Hop by Hop" headers as defined in RFC 2616. These may not be set by the
@@ -102,12 +99,12 @@ def create_chunk(buf):
     """Create a chunk for the HTTP "chunked" transfer encoding."""
     chunk = bytearray()
     chunk.extend(_s2b('{0:X}\r\n'.format(len(buf))))
-    chunk.extend(buf)
+    chunk.extend(_s2b(buf))
     chunk.extend(b'\r\n')
     return chunk
 
 
-def last_chunk(trailers):
+def last_chunk(trailers=[]):
     """Return the last chunk."""
     chunk = bytearray()
     chunk.extend(b'0\r\n')
@@ -171,12 +168,13 @@ class HttpMessage(object):
         self.parsed_url = None
         self.headers = []
         self.trailers = []
-        self.body = reader.Reader()
+        self.buffers = reader.BufferList()
+        self.body = reader.Reader(self.buffers)
 
     def __len__(self):
         # Use a fixed header size of 400. This is for flow control purposes
         # only, this does not need to be exact.
-        return 400 + self.body._buffer_size
+        return 400 + self.buffers.size
 
     def get_wsgi_environ(self):
         """Return a WSGI environment dictionary for the current message."""
@@ -187,8 +185,16 @@ class HttpMessage(object):
         env['SERVER_PROTOCOL'] = 'HTTP/{0}.{1}'.format(*self.version)
         env['REQUEST_URI'] = self.url
         env['SCRIPT_NAME'] = ''
-        env['PATH_INFO'] = self.parsed_url[0]
-        env['QUERY_STRING'] = self.parsed_url[1]
+        # XXX: fix
+        #env['PATH_INFO'] = self.parsed_url[0]
+        #env['QUERY_STRING'] = self.parsed_url[1]
+        pos = self.url.rfind('?')
+        if pos == -1:
+            env['PATH_INFO'] = self.url
+            env['QUERY_STRING'] = ''
+        else:
+            env['PATH_INFO'] = self.url[:pos]
+            env['QUERY_STRING'] = self.url[pos+1:]
         for field,value in self.headers:
             if field.title() == 'Content-Length':
                 env['CONTENT_LENGTH'] = value
@@ -256,7 +262,11 @@ class HttpResponse(object):
 
 
 class HttpParser(protocols.Parser):
-    """A HTTP parser."""
+    """A HTTP parser.
+
+    This is a class based interface on top of the node.js http-parser (accessed
+    via CFFI).
+    """
 
     s_header_field, s_header_value = range(2)
 
@@ -279,6 +289,13 @@ class HttpParser(protocols.Parser):
         return self._requests
 
     def push_request(self, method):
+        """Inform the parser that a request for *method* has been made.
+
+        This information is required by the parser because needs to know if a
+        response was caused by a HEAD request or not. A HEAD response is
+        special because it never has a response entity, even if it includes
+        a Content-Length that suggests otherwise.
+        """
         if self._kind == self.HTTP_REQUEST:
             raise RuntimeError('push_request() is for response parsers only')
         self._requests.append(method)
@@ -388,6 +405,9 @@ class HttpParser(protocols.Parser):
         else:
             msg.status_code = parser.status_code
         msg.should_keep_alive = http_ffi.lib.http_should_keep_alive(parser)
+        # The message is made available immediately after the headers are
+        # complete. We keep a reference to it, so that we can append the entity
+        # if and when we receive it.
         self._messages.append(msg)
         self._headers_complete = True
         request_method = self._requests and self._requests.popleft()
@@ -395,7 +415,7 @@ class HttpParser(protocols.Parser):
 
     def _on_body(self, parser, at, length):
         buf = http_ffi.ffi.buffer(at, length)[:]  # -> bytes
-        self._message.body._feed(buf)
+        self._message.buffers.feed(buf)
         return 0
 
     def _on_message_complete(self, parser):
@@ -405,7 +425,7 @@ class HttpParser(protocols.Parser):
             dest = self._message.trailers if self._headers_complete \
                         else self._message.headers
             dest.append((self._header_name, header_value))
-        self._message.body._feed(b'')
+        self._message.buffers.feed(b'')
         return 0
 
 
@@ -433,7 +453,7 @@ class HttpClient(protocols.RequestResponseProtocol):
     """An HTTP/1.1 client."""
 
     _exception = HttpError
-    user_agent = 'gruvi.http/{0}'.format(__version__)
+    user_agent = 'Gruvi/{0}'.format(__version__)
 
     def __init__(self, timeout=None):
         """The optional *timeout* argument can be used to specify a timeout for
@@ -455,14 +475,25 @@ class HttpClient(protocols.RequestResponseProtocol):
 
     def _init_transport(self, transport):
         super(HttpClient, self)._init_transport(transport)
+        # HTTP is a non-interactive protocol, so set TCP_NODELAY by default
+        # The client makes sure to coalesce small writes itself.
         if hasattr(transport, 'nodelay'):
             transport.nodelay(True)
 
     def _dispatch_fast_path(self, transport, message):
-        transport._queue.put(message)
+        # When the user reads data from the HTTP body, or when the parser feeds
+        # body data into it, the total number of bytes buffered in the queue
+        # changes, even though no element was added or removed. Whenever this
+        # happens, use the semi-private _adjust_size() method to adjust the
+        # queue size. This ensurs that transport._queue.size() is always an
+        # accurate reflection of how many bytes are buffered, and we can use it
+        # for flow control.
         def on_size_change(oldsize, newsize):
             transport._queue._adjust_size(newsize-oldsize)
-        message.body._on_size_change = on_size_change
+        message.buffers.size_changed.connect(on_size_change)
+        # Do not go through the dispatcher in the client. Put the message
+        # straight into the queue, and complete the fast path.
+        transport._queue.put(message)
         return True
 
     @switchpoint
@@ -506,26 +537,31 @@ class HttpClient(protocols.RequestResponseProtocol):
             headers.append(('Host', self._default_host))
         if body is None:
             body = b''
-        if not isinstance(body, (compat.binary_type, compat.text_type)) \
-                    and not hasattr(body, 'read') \
-                    and not hasattr(body, '__iter__'):
+        if hasattr(body, 'read') or hasattr(body, '__iter__'):
+            headers.append(('Transfer-Encoding', 'chunked'))
+        elif isinstance(body, (compat.binary_type, compat.text_type)):
+            body = _s2b(body)
+            headers.append(('Content-Length', str(len(body))))
+        else:
             raise TypeError('body: expecting a bytes or str instance, ' \
                             'a file-like object, or an iterable')
+        self._transport._parser.push_request(method)
         header = create_request(method, url, headers)
         self._transport.write(header)
         if hasattr(body, 'write'):
             while True:
-                chunk = body.read(chunksize)
+                chunk = body.read(4096)
                 if not chunk:
                     break
-                self._write(self._transport, chunk)
+                self._write(self._transport, create_chunk(chunk))
+            self._write(self._transport, last_chunk())
         elif hasattr(body, '__iter__'):
             for chunk in body:
-                self._write(self._transport, chunk)
-        else:
+                self._write(self._transport, create_chunk(chunk))
+            self._write(self._transport, last_chunk())
+        elif body:
             self._write(self._transport, body)
         self._flush(self._transport)
-        self._transport._parser.push_request(method)
 
     @switchpoint
     def getresponse(self):
@@ -603,7 +639,7 @@ class HttpServer(protocols.RequestResponseProtocol):
     def _dispatch_fast_path(self, transport, message):
         def on_size_change(oldsize, newsize):
             transport._queue._adjust_size(newsize-oldsize)
-        message.body._on_size_change = on_size_change
+        message.buffers.size_changed.connect(on_size_change)
         return False
 
     def _close_transport(self, transport, error=None):
@@ -618,8 +654,11 @@ class HttpServer(protocols.RequestResponseProtocol):
 
     def _get_environ(self, transport, message):
         env = message.get_wsgi_environ()
-        env['SERVER_NAME'] = self._server_name or self._local_address[0]
-        env['SERVER_PORT'] = self._local_address[1]
+        addr = getsockname(self.transport)
+        if isinstance(addr, (compat.binary_type, compat.text_type)):
+            addr = (addr, None)
+        env['SERVER_NAME'] = self._server_name or addr[0]
+        env['SERVER_PORT'] = addr[1]
         env['wsgi.version'] = (1, 0)
         errors = env['wsgi.errors'] = ErrorStream()
         transport._log.debug('logging to {0}', objref(errors))

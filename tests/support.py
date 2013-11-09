@@ -15,27 +15,28 @@ import tempfile
 import logging
 import subprocess
 
-import pyuv
-import gruvi
+if sys.version_info[:2] >= (2,7):
+    import unittest
+else:
+    import unittest2 as unittest
+
+SkipTest = unittest.SkipTest
+
+__all__ = ['UnitTest', 'SkipTest', 'unittest']
 
 
-def assert_raises(exc, func, *args, **kwargs):
-    """Like nose.tools.assert_raises but returns the exception."""
-    try:
-        func(*args, **kwargs)
-    except Exception as e:
-        if not isinstance(e, exc):
-            print(e)
-        assert isinstance(e, exc)
-        return e
-    raise AssertionError('no exception raised')
+def setup_logger(logger):
+    """Configure a logger to output to stdout."""
+    logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler(sys.stdout)
+    template = '%(levelname)s %(name)s: %(message)s'
+    handler.setFormatter(logging.Formatter(template))
+    logger.addHandler(handler)
 
 
 def create_ssl_certificate(fname):
     """Create a new SSL private key and self-signed certificate, and store
     them both in the file *fname*."""
-    if os.access(fname, os.R_OK):
-        return
     try:
         openssl = subprocess.Popen(['openssl', 'req', '-new',
                         '-newkey', 'rsa:1024', '-x509', '-subj', '/CN=test/',
@@ -52,56 +53,23 @@ def create_ssl_certificate(fname):
         sys.stderr.write('openssl stderr: {0}\n'.format(stderr))
 
 
-def setup():
-    """Package-level setup."""
-    dirname, fname = os.path.split(__file__)
-    certname = os.path.join(dirname, 'server.pem')
-    create_ssl_certificate(certname)
-
-
-def setup_logger(logger):
-    """Configure a logger to output to stdout."""
-    logger.setLevel(logging.DEBUG)
-    handler = logging.StreamHandler(sys.stdout)
-    template = '%(levelname)s %(name)s: %(message)s'
-    handler.setFormatter(logging.Formatter(template))
-    logger.addHandler(handler)
-
-
-_close_objects = []
-
-def closign(obj):
-    """Call obj.close() in test teardown."""
-    _close_objects.append(obj)
-
-def close_all():
-    """Close all objects referenced by ``closing()``."""
-    for obj in _close_objects:
-        try:
-            obj.close()
-        except IOError:
-            pass
-    del _close_objects[:]
-
-
-class UnitTest(object):
+class UnitTest(unittest.TestCase):
     """Base class for unit tests."""
 
     @classmethod
-    def setup_class(cls):
+    def setUpClass(cls):
         cls.__tmpdir = tempfile.mkdtemp('gruvi-test')
         logger = logging.getLogger('gruvi')
         if not logger.handlers:
             setup_logger(logger)
         testdir = os.path.abspath(os.path.split(__file__)[0])
         os.chdir(testdir)
-        if os.access('server.pem', os.R_OK):
-            cls.certname = 'server.pem'
-        else:
-            cls.certname = None
+        if not os.access('server.pem', os.R_OK):
+            create_ssl_certificate('server.pem')
+        cls.certname = 'server.pem'
 
     @classmethod
-    def teardown_class(cls):
+    def tearDownClass(cls):
         # Some paranoia checks to make me feel better when calling
         # shutil.rmtree()..
         assert '/..' not in cls.__tmpdir and '\\..' not in cls.__tmpdir
@@ -126,14 +94,14 @@ class UnitTest(object):
         else:
             return cls.tempname(name)
 
-    def teardown(self):
-        # Close all handlers so that we don't run out of file handlers when
-        # running the entire suite. Also this prevents stray handles from
-        # changing the behavior of a subsequent Hub.switch().
-        hub = gruvi.get_hub()
-        def close_handle(h):
-            try:
-                h.close()
-            except pyuv.error.UVError:
-                pass
-        hub.loop.walk(close_handle)
+    def assertRaises(self, exc, func, *args, **kwargs):
+        # Like unittest.assertRaises, but returns the exception.
+        try:
+            func(*args, **kwargs)
+        except exc as e:
+            exc = e
+        except Exception as e:
+            self.fail('Wrong exception raised: {0!s}'.format(e))
+        else:
+            self.fail('Exception not raised: {0!s}'.format(exc))
+        return exc

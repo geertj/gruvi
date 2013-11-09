@@ -13,8 +13,6 @@ import sys
 import logging
 import fibers
 
-from . import compat
-
 __all__ = ['get_logger']
 
 
@@ -25,8 +23,8 @@ def get_logger(context, parent=None, name='gruvi'):
     parent's context will be prepended to the context. The *name* argument
     specifies the name of the logger.
 
-    Return a :cls:`ContextLogger` instance. The instance implements the
-    standard library's :cls:`logging.Logger` interface.
+    Return a :class:`ContextLogger` instance. The instance implements the
+    standard library's :class:`logging.Logger` interface.
     """
     logger = logging.getLogger(name)
     if not logger.isEnabledFor(logging.DEBUG):
@@ -69,18 +67,18 @@ class ContextLogger(object):
             return
         current = fibers.current()
         from .util import objref
-        prefix = getattr(current, 'name', objref(current))
+        prefix = ''
         if self.logger.isEnabledFor(logging.DEBUG):
-            target = getattr(current, 'target', None)
-            if target:
-                prefix += '{0}()'.format(compat.getqualname(target))
-            elif current.parent is None:
-                prefix += '(root)'
+            if current.parent or hasattr(current, 'loop'):
+                prefix = objref(current)
+            else:
+                prefix = '(root)'
             f = sys._getframe(2)
             fname = os.path.split(f.f_code.co_filename)[1]
-            prefix += '@{0}:{1}:{2}'.format(fname, f.f_code.co_name, f.f_lineno)
+            funcname = f.f_code.co_name
+            prefix += '@{0}:{1}():L{2} '.format(fname, funcname, f.f_lineno)
         if self.context:
-            prefix += '; {0}'.format(self.context)
+            prefix += self.context
         if args or kwargs:
             msg = msg.format(*args, **kwargs)
         msg = '[{0}] {1}'.format(prefix, msg)

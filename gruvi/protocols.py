@@ -14,8 +14,9 @@ import collections
 import pyuv
 
 from . import hub, error, logging, compat
-from .hub import switchpoint
-from .fiber import ConditionSet, Queue, Fiber
+from .hub import switchpoint, switch_back
+from .fibers import Fiber
+from .sync import Signal, Queue
 from .pyuv import pyuv_exc, TCP, Pipe
 from .ssl import SSL
 from .util import objref, saddr, getaddrinfo, create_connection, docfrom
@@ -37,9 +38,16 @@ class errno(object):
     FRAMING_ERROR = 9
     PARSE_ERROR = 10
 
+errlist = {}
+
 
 class ProtocolError(error.Error):
     """Protocol error."""
+
+    def __init__(self, errno, message=None):
+        if message is None:
+            message = errlist.get(errno, 'Unknown error')
+        super(ProtocolError, self).__init__(errno, message)
 
 
 class Protocol(object):
@@ -57,6 +65,7 @@ class Protocol(object):
         self._log = logging.get_logger(objref(self))
         self._clients = set()
         self._client_factory = None
+        self._client_disconnected = Signal()
 
     @property
     def timeout(self):
@@ -67,6 +76,11 @@ class Protocol(object):
     def transport(self):
         """The underlying transport."""
         return self._transport
+
+    @property
+    def client_disconnected(self):
+        """Signal raised when a client disconnected."""
+        return self._client_disconnected
 
     def _listen(self, address, ssl=False, **transport_args):
         """Start listening for new connections on *address*.
@@ -96,7 +110,6 @@ class Protocol(object):
             transport = Pipe()
             transport.bind(address)
             self._log.debug('bound to {0}', saddr(address))
-            self._local_address = (address, '')
             self._client_factory = Pipe
         elif isinstance(address, tuple):
             transport = TCP() # even for SSL the listening socket is TCP
@@ -105,20 +118,15 @@ class Protocol(object):
             resolved = result[0][4]
             if len(result) > 1:
                 self._log.warning('multiple addresses for {0}, using {1}',
-                                     saddr(address), saddr(resolved))
+                                  saddr(address), saddr(resolved))
             transport.bind(resolved)
             self._log.debug('bound to {0}', saddr(resolved))
-            self._local_address = resolved
             client_type = SSL if ssl else TCP
             if ssl:
                 transport_args['server_side'] = True
             self._client_factory = lambda: client_type(**transport_args)
         elif hasattr(address, 'listen'):
             transport = address
-            if hasattr(transport, 'getsockname'):
-                self._local_address = transport.getsockname()
-            else:
-                self._local_address = ('<unknown address>', 0)
             self._client_factory = type(transport)
         else:
             raise TypeError('expecting a string, a tuple or a transport')
@@ -146,7 +154,7 @@ class Protocol(object):
         """Initialize a client or server transport."""
         transport._eof = False
         transport._error = None
-        transport._events = ConditionSet()
+        transport._events = Signal()
         transport._write_buffer = 0
         transport._log = logging.get_logger(objref(self))
         transport.start_read(self._on_transport_readable)
@@ -156,11 +164,12 @@ class Protocol(object):
         def on_transport_closed(transport):
             if transport in self._clients:
                 self._clients.remove(transport)
+                self.client_disconnected.emit(self)
             # _init_transport() has not been called if the transport is closed in
             # _on_new_connection()
             if error and hasattr(transport, '_events'):
                 transport._error = error
-                transport._events.notify('HandleError')
+                transport._events.emit('HandleError')
         transport.close(on_transport_closed)
 
     def _on_transport_readable(self, transport, data, error):
@@ -178,18 +187,19 @@ class Protocol(object):
             if error:
                 error = pyuv_exc(transport, error)
                 transport._error = error
-                transport._events.notify('HandleError')
+                transport._events.emit('HandleError')
                 return
             oldsize = transport._write_buffer
             transport._write_buffer -= nbytes
             if transport._write_buffer < self.max_buffer_size <= oldsize:
-                transport._events.notify('BufferBelowThreshold')
+                transport._events.emit('BufferBelowThreshold')
             if transport._write_buffer == 0:
-                transport._events.notify('BufferEmpty')
+                transport._events.emit('BufferEmpty')
         transport._write_buffer += nbytes
         transport.write(data, on_write_complete)
         if transport._write_buffer > self.max_buffer_size:
-            transport._events.wait('BufferBelowThreshold', 'HandleError')
+            events = ('BufferBelowThreshold', 'HandleError')
+            transport._events.wait(waitfor=events)
         if transport._error:
             raise transport._error
         return nbytes
@@ -206,25 +216,24 @@ class Protocol(object):
         if not transport._write_buffer:
             return
         if not transport._error:
-            transport._events.wait('BufferEmpty', 'HandleError')
+            transport._events.wait(waitfor=('BufferEmpty', 'HandleError'))
         if transport._error:
             raise transport._error
 
     @switchpoint
     def _shutdown(self, transport):
         """Close the transport in the write direction."""
-        transport.shutdown(self._hub.switch_back())
-        self._hub.switch(self.timeout)
+        with switch_back(self.timeout) as switcher:
+            transport.shutdown(switcher)
+            self._hub.switch()
 
     @switchpoint
     @docfrom(create_connection)
-    def _connect(self, address, ssl=False, local_address=None,
-                 **transport_args):
+    def _connect(self, address, ssl=False, local_address=None, **transport_args):
         if self._transport is not None and not self._transport.closed:
             raise RuntimeError('already connected')
         self._log.debug('connect to {0}', saddr(address))
-        transport = create_connection(address, ssl, local_address,
-                                      **transport_args)
+        transport = create_connection(address, ssl, local_address, **transport_args)
         self._transport = transport
         self._log.debug('transport is {0}', objref(transport))
         self._init_transport(self._transport)
@@ -232,21 +241,19 @@ class Protocol(object):
     @switchpoint
     def close(self):
         """Close the underlying transport. """
-        if self._clients:
-            def on_client_close(transport):
-                self._clients.remove(transport)
-                if not self._clients:
-                    switch_back()
-            for client in self._clients:
-                if not client.closed:
-                    client.close(on_client_close)
-            switch_back = self._hub.switch_back()
-            self._hub.switch(self._timeout)
-        if not self._transport.closed:
-            self._transport.close(self._hub.switch_back())
-            self._hub.switch(self._timeout)
-
-    _close = close  # XXX: migration aid
+        with switch_back(self.timeout) as switcher:
+            if self._clients:
+                def on_client_close(transport):
+                    self._clients.remove(transport)
+                    if not self._clients:
+                        switcher()
+                for client in self._clients:
+                    if not client.closed:
+                        client.close(on_client_close)
+                self._hub.switch()
+            if not self._transport.closed:
+                self._transport.close(switcher)
+                self._hub.switch()
 
 
 class ParseError(ProtocolError):
@@ -271,7 +278,12 @@ class Parser(object):
 
 
 class RequestResponseProtocol(Protocol):
-    """Abstract base class for request/response protocols."""
+    """Abstract base class for request/response protocols.
+
+    Messages are parsed from the transport using a parser. Parsed messages are
+    then either dispatched by :meth:`_dispatch_fast_path`, or put in a queue to
+    be handled asynchronously by :meth:`_dispatch_message`.
+    """
 
     def __init__(self, parser_factory, timeout=None):
         """Create a new protocol endpoint."""
@@ -282,6 +294,7 @@ class RequestResponseProtocol(Protocol):
         """Initialize a client or server transport."""
         super(RequestResponseProtocol, self)._init_transport(transport)
         transport._parser = self._parser_factory()
+        transport._queue = Queue()
         def on_queue_size_change(oldsize, newsize):
             if self.max_buffer_size is None:
                 return
@@ -289,7 +302,7 @@ class RequestResponseProtocol(Protocol):
                 transport.stop_read()
             elif oldsize >= self.max_buffer_size > newsize:
                 transport.start_read(self._on_transport_readable)
-        transport._queue = Queue(on_queue_size_change)
+        transport._queue.size_changed.connect(on_queue_size_change)
         transport._dispatcher = None
 
     def _start_dispatcher(self, transport):
@@ -328,6 +341,7 @@ class RequestResponseProtocol(Protocol):
             message = transport._parser.pop_message()
             if message is None:
                 break
+            self._log_request(message)
             if self._dispatch_fast_path(transport, message):
                 continue
             if transport._dispatcher is None:
@@ -335,7 +349,7 @@ class RequestResponseProtocol(Protocol):
             transport._queue.put(message)
         # Do we need to close the connection?
         if transport._eof or error:
-            if not transport._dispatcher or transport._queue.qsize() == 0:
+            if not transport._dispatcher or not transport._queue:
                 # Close the connection right away
                 self._close_transport(transport, error)
             else:
@@ -365,3 +379,9 @@ class RequestResponseProtocol(Protocol):
     def _dispatch_message(self, transport, message):
         """Slow path dispatch. This is run in the dispatcher fiber."""
         raise NotImplementedError
+
+    def _log_request(self, message):
+        """Log a request. To be implemented in a subclass."""
+
+    def _log_response(self, message):
+        """Log a response. To be implemented in a subclass."""
