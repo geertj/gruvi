@@ -369,7 +369,7 @@ def parseMessage( rawMessage ):
             pass
         
     if m.signature:
-        nbytes, m.body = marshal.unmarshal(m.signature, m.rawBody)
+        nbytes, m.body = marshal.unmarshal(m.signature, m.rawBody, lendian = lendian)
 
     return m
 
