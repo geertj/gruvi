@@ -2,9 +2,9 @@
 Tutorial
 ********
 
-This section contains a brief tutorial for those of you who want to "dive in"
+This section contains a brief tutorial for those of you who want to dive in
 right away. Not all concepts are thoroughly explained here. If something is not
-clear considering reading :ref:`Concepts` first.
+clear consider reading :ref:`Concepts` first.
 
 .. highlight:: python
    :linenothreshold: 10
