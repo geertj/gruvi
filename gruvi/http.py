@@ -185,16 +185,8 @@ class HttpMessage(object):
         env['SERVER_PROTOCOL'] = 'HTTP/{0}.{1}'.format(*self.version)
         env['REQUEST_URI'] = self.url
         env['SCRIPT_NAME'] = ''
-        # XXX: fix
-        #env['PATH_INFO'] = self.parsed_url[0]
-        #env['QUERY_STRING'] = self.parsed_url[1]
-        pos = self.url.rfind('?')
-        if pos == -1:
-            env['PATH_INFO'] = self.url
-            env['QUERY_STRING'] = ''
-        else:
-            env['PATH_INFO'] = self.url[:pos]
-            env['QUERY_STRING'] = self.url[pos+1:]
+        env['PATH_INFO'] = self.parsed_url[3]
+        env['QUERY_STRING'] = self.parsed_url[4]
         for field,value in self.headers:
             if field.title() == 'Content-Length':
                 env['CONTENT_LENGTH'] = value
@@ -376,10 +368,12 @@ class HttpParser(protocols.Parser):
         if error:
             raise ValueError('url parse error')
         parsed_url = []
-        for field in (http_ffi.lib.UF_PATH, http_ffi.lib.UF_QUERY):
-            if result.field_set & field:
+        m = http_ffi.lib
+        for field in (m.UF_SCHEMA, m.UF_HOST, m.UF_PORT, m.UF_PATH, m.UF_QUERY,
+                      m.UF_FRAGMENT, m.UF_USERINFO):
+            if result.field_set & (1 << field):
                 data = result.field_data[field]
-                component = msg.url[data.off:data.off+data.len]
+                component = _ba2str(url[data.off:data.off+data.len])
             else:
                 component = ''
             parsed_url.append(component)

@@ -139,6 +139,27 @@ class TestHttpParser(UnitTest):
             self.assertEqual(msg.headers, [('Host', 'example.com'), ('Content-Length', '4')])
             self.assertEqual(msg.body.read(), 'Foo{0}'.format(i).encode('ascii'))
 
+    def test_request_url(self):
+        r = b'GET http://user:pass@example.com:80/foo/bar?baz=qux#quux HTTP/1.1\r\n' \
+            b'Host: example.com\r\n\r\n'
+        parser = HttpParser()
+        nbytes = parser.feed(r)
+        self.assertEqual(nbytes, len(r))
+        msg = parser.pop_message()
+        parsed_url = msg.parsed_url
+        self.assertEqual(parsed_url, ['http', 'example.com', '80', '/foo/bar',
+                                      'baz=qux', 'quux', 'user:pass'])
+
+    def test_short_request_url(self):
+        r = b'GET /foo/bar HTTP/1.1\r\n' \
+            b'Host: example.com\r\n\r\n'
+        parser = HttpParser()
+        nbytes = parser.feed(r)
+        self.assertEqual(nbytes, len(r))
+        msg = parser.pop_message()
+        parsed_url = msg.parsed_url
+        self.assertEqual(parsed_url, ['', '', '', '/foo/bar', '', '', ''])
+
     def test_simple_response(self):
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n'
         parser = HttpParser()
