@@ -24,6 +24,7 @@ if PY3:
     binary_type = bytes
     text_type = str
     string_types = (str,)
+    integer_types = (int,)
 
     next = next
 
@@ -39,6 +40,7 @@ else:
     binary_type = str
     text_type = unicode
     string_types = (basestring,)
+    integer_types = (int, long)
 
     def next(it):
         return it.next()
