@@ -9,6 +9,7 @@
 from __future__ import absolute_import, print_function
 
 import time
+import gruvi
 from gruvi.http import HttpParser, HttpMessage, HttpServer, HttpClient
 from support import *
 
@@ -368,6 +369,18 @@ class TestHttp(UnitTest):
         ctype = response.get_header('Content-Type')
         self.assertEqual(ctype, 'text/plain')
         self.assertEqual(response.read(), b'Hello!')
+
+    def test_header_argument_not_changed(self):
+        server = HttpServer(hello_app)
+        server.listen(('localhost', 0))
+        addr = gruvi.getsockname(server.transport)
+        client = HttpClient()
+        client.connect(addr)
+        headers = []
+        client.request('GET', '/', headers)
+        self.assertEqual(headers, [])
+        client.close()
+        server.close()
 
 
 if __name__ == '__main__':

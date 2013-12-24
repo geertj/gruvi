@@ -518,8 +518,7 @@ class HttpClient(protocols.RequestResponseProtocol):
         """
         if self._transport is None or self._transport.closed:
             raise RuntimeError('not connected')
-        if headers is None:
-            headers = []
+        headers = [] if headers is None else headers[:]
         for name,value in headers:
             if name in hop_by_hop:
                 raise ValueError('header {0} is hop-by-hop'.format(name))
