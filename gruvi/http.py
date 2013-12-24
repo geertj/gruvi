@@ -530,18 +530,20 @@ class HttpClient(protocols.RequestResponseProtocol):
             headers.append(('Host', self._default_host))
         if body is None:
             body = b''
-        if hasattr(body, 'read') or hasattr(body, '__iter__'):
-            headers.append(('Transfer-Encoding', 'chunked'))
-        elif isinstance(body, (compat.binary_type, compat.text_type)):
+        if isinstance(body, (compat.binary_type, compat.text_type)):
             body = _s2b(body)
             headers.append(('Content-Length', str(len(body))))
+        elif hasattr(body, 'read') or hasattr(body, '__iter__'):
+            headers.append(('Transfer-Encoding', 'chunked'))
         else:
             raise TypeError('body: expecting a bytes or str instance, ' \
                             'a file-like object, or an iterable')
         self._transport._parser.push_request(method)
         header = create_request(method, url, headers)
         self._transport.write(header)
-        if hasattr(body, 'write'):
+        if isinstance(body, bytes):
+            self._write(self._transport, body)
+        elif hasattr(body, 'read'):
             while True:
                 chunk = body.read(4096)
                 if not chunk:
@@ -552,8 +554,6 @@ class HttpClient(protocols.RequestResponseProtocol):
             for chunk in body:
                 self._write(self._transport, create_chunk(chunk))
             self._write(self._transport, last_chunk())
-        elif body:
-            self._write(self._transport, body)
         self._flush(self._transport)
 
     @switchpoint

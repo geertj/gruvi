@@ -352,6 +352,13 @@ def hello_app(environ, start_response):
     return ['Hello!']
 
 
+def echo_app(environ, start_response):
+    headers = [('Content-Type', 'text/plain')]
+    body = environ['wsgi.input'].read()
+    start_response('200 OK', headers)
+    return [body]
+
+
 class TestHttp(UnitTest):
 
     def test_simple(self):
@@ -370,7 +377,7 @@ class TestHttp(UnitTest):
         self.assertEqual(ctype, 'text/plain')
         self.assertEqual(response.read(), b'Hello!')
 
-    def test_header_argument_not_changed(self):
+    def test_request_headers_not_changed(self):
         server = HttpServer(hello_app)
         server.listen(('localhost', 0))
         addr = gruvi.getsockname(server.transport)
@@ -381,6 +388,50 @@ class TestHttp(UnitTest):
         self.assertEqual(headers, [])
         client.close()
         server.close()
+
+    def test_request_body_bytes(self):
+        server = HttpServer(echo_app)
+        server.listen(('localhost', 0))
+        addr = gruvi.getsockname(server.transport)
+        client = HttpClient()
+        client.connect(addr)
+        client.request('POST', '/', body=b'foo')
+        response = client.getresponse()
+        body = response.read()
+        self.assertEqual(body, b'foo')
+
+    def test_request_body_string(self):
+        server = HttpServer(echo_app)
+        server.listen(('localhost', 0))
+        addr = gruvi.getsockname(server.transport)
+        client = HttpClient()
+        client.connect(addr)
+        client.request('POST', '/', body='foo')
+        response = client.getresponse()
+        body = response.read()
+        self.assertEqual(body, b'foo')
+
+    def test_request_body_bytes_sequence(self):
+        server = HttpServer(echo_app)
+        server.listen(('localhost', 0))
+        addr = gruvi.getsockname(server.transport)
+        client = HttpClient()
+        client.connect(addr)
+        client.request('POST', '/', body=[b'foo', b'bar'])
+        response = client.getresponse()
+        body = response.read()
+        self.assertEqual(body, b'foobar')
+
+    def test_request_body_string_sequence(self):
+        server = HttpServer(echo_app)
+        server.listen(('localhost', 0))
+        addr = gruvi.getsockname(server.transport)
+        client = HttpClient()
+        client.connect(addr)
+        client.request('POST', '/', body=['foo', 'bar'])
+        response = client.getresponse()
+        body = response.read()
+        self.assertEqual(body, b'foobar')
 
 
 if __name__ == '__main__':
