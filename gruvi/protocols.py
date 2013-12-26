@@ -26,28 +26,51 @@ __all__ = ['errno', 'ProtocolError', 'Protocol']
 
 class errno(object):
     """Errno values for ProtocolError."""
+
     OK = 0
     TIMEOUT = 1
-    PARSE_ERROR = 2
-    SERVER_BUSY = 3
-    SERVER_ERROR = 4
-    HANDLER_ERROR = 5
-    AUTH_ERROR = 6
-    INVALID_REQUEST = 7
-    MESSAGE_TOO_LARGE = 8
-    FRAMING_ERROR = 9
-    PARSE_ERROR = 10
+    SERVER_BUSY = 2
+    SERVER_ERROR = 3
+    FRAMING_ERROR = 4
+    MESSAGE_TOO_LARGE = 5
+    ENCODING_ERROR = 6
+    PARSE_ERROR = 7
+    INVALID_REQUEST = 8
+    HANDLER_ERROR = 9
+    AUTHENTICATION_ERROR = 10
 
-errlist = {}
+    errlist = {
+        OK: 'No error',
+        TIMEOUT: 'A timeout occurred',
+        SERVER_BUSY: 'The server is currently busy',
+        SERVER_ERROR: 'Internal server error',
+        FRAMING_ERROR: 'Framing error',
+        MESSAGE_TOO_LARGE: 'Message is too large',
+        ENCODING_ERROR: 'Character encoding error',
+        PARSE_ERROR: 'Parse error',
+        INVALID_REQUEST: 'Invalid request',
+        HANDLER_ERROR: 'Request handler error',
+        AUTHENTICATION_ERROR: 'Authentication failed'
+    }
+
+    errorcode = dict((k,v) for k,v in locals().items() if k.isupper())
+
+    @classmethod
+    def strerror(cls, code):
+        return cls.errlist.get(code, 'Unknown error')
 
 
 class ProtocolError(error.Error):
     """Protocol error."""
 
-    def __init__(self, errno, message=None):
+    def __init__(self, code, message=None):
         if message is None:
-            message = errlist.get(errno, 'Unknown error')
-        super(ProtocolError, self).__init__(errno, message)
+            message = errno.strerror(errno)
+        super(ProtocolError, self).__init__(code, message)
+
+    def __str__(self):
+        errname = errno.errorcode.get(self.args[0], 'UNKNOWN')
+        return '{0} ({1}) ({2})'.format(self.args[0], errname, self.args[1])
 
 
 class Protocol(object):
@@ -256,15 +279,21 @@ class Protocol(object):
                 self._hub.switch()
 
 
-class ParseError(ProtocolError):
-    """Raised by parser.feed()."""
-
-
 class Parser(object):
     """Abstract base class for request/response parsers."""
 
     def __init__(self):
         self._messages = collections.deque()
+        self._error = None
+        self._error_message = None
+
+    @property
+    def error(self):
+        return self._error
+
+    @property
+    def error_message(self):
+        return self._error_message
 
     def feed(self, buf):
         raise NotImplementedError
@@ -272,9 +301,6 @@ class Parser(object):
     def pop_message(self):
         if self._messages:
             return self._messages.popleft()
-
-    def is_partial(self):
-        raise NotImplementedError
 
 
 class RequestResponseProtocol(Protocol):
@@ -316,25 +342,19 @@ class RequestResponseProtocol(Protocol):
     def _on_transport_readable(self, transport, data, error):
         """Callback that is called when a transport has data available."""
         if error == pyuv.errno.UV_EOF:
-            # This can be a half-close so continue processing the queue
             transport._eof = True
-            if transport._parser.is_partial():
-                transport._log.error('parse error: partial message')
-                error = self._exception(errno.PARSE_ERROR, 'partial message')
-            else:
-                transport._log.debug('got EOF')
-                error = None
+            error = None
+            data = b''  # feed empty string into parser to mark EOF
         elif error:
             # Close immediately here, do not try to process the queue if any.
             transport._log.error('error {0} in read callback', error)
             self._close_transport(transport, pyuv_exc(transport, error))
             return
-        else:
-            try:
-                transport._parser.feed(data)
-            except ParseError as e:
-                transport._log.error('parse error: {0!s}', e)
-                error = self._exception(errno.PARSE_ERROR, str(e))
+        nbytes = transport._parser.feed(data)
+        if nbytes != len(data):
+            error = self._exception(transport._parser.error,
+                                    transport._parser.error_message)
+            transport._log.error('protocol error: {0!s}', error)
         # Dispatch either to the fast path or to the slow path via the queue
         # and the dispatcher (which runs in a separate fiber).
         while True:

@@ -85,6 +85,20 @@ def _s2b(s):
         s = s.encode('iso-8859-1')
     return s
 
+def _ba2str(ba):
+    """Convert a byte-array to a "str" type."""
+    if compat.PY3:
+        return ba.decode('iso-8859-1')
+    else:
+        return bytes(ba)
+
+def _cp2str(cd):
+    """Convert a cffi cdata('char *') to a str."""
+    s = http_ffi.ffi.string(cd)
+    if compat.PY3:
+        s = s.decode('iso-8859-1')
+    return s
+
 
 def get_header(headers, name, default=None):
     """Return a header value from a header list."""
@@ -132,22 +146,6 @@ def create_response(version, status, headers):
         message.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
     message.extend(b'\r\n')
     return message
-
-
-def _ba2str(ba):
-    """Convert a byte-array to a "str" type."""
-    if compat.PY3:
-        return ba.decode('iso-8859-1')
-    else:
-        return bytes(ba)
-
-
-def _cp2str(cd):
-    """Convert a cffi cdata('char *') to a str."""
-    s = http_ffi.ffi.string(cd)
-    if compat.PY3:
-        s = s.decode('iso-8859-1')
-    return s
 
 
 class HttpError(error.Error):
@@ -293,18 +291,11 @@ class HttpParser(protocols.Parser):
         self._requests.append(method)
 
     def feed(self, s):
-        nbytes = http_ffi.lib.http_parser_execute(self._parser, self._settings,
-                                                  s, len(s))
-        self.bytes_parsed = nbytes
+        nbytes = http_ffi.lib.http_parser_execute(self._parser, self._settings, s, len(s))
         if nbytes != len(s):
-            errno = http_ffi.lib.http_errno(self._parser)
-            errname = _cp2str(http_ffi.lib.http_errno_name(errno))
-            raise ValueError('http-parser error {0} ({1})'
-                                .format(errno, errname))
+            self._error = http_ffi.lib.http_errno(self._parser)
+            self._error_message = _cp2str(http_ffi.lib.http_errno_name(errno))
         return nbytes
-
-    def is_partial(self):
-        return http_ffi.lib.http_body_is_final(self._parser)
 
     def _setup_callbacks(self):
         settings = http_ffi.ffi.new('http_parser_settings *')

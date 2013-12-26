@@ -14,7 +14,7 @@ import functools
 
 import gruvi
 from gruvi import dbus_ffi, txdbus, compat
-from gruvi.protocols import errno, ParseError
+from gruvi.protocols import errno
 from gruvi.dbus import DBusParser, DBusBase, DBusClient
 
 from support import *
@@ -279,24 +279,24 @@ class TestDBusParser(UnitTest):
         for i in range(len(m)-1):
             parser.feed(m[i:i+1])
             self.assertIsNone(parser.pop_message())
-            self.assertTrue(parser.is_partial())
         parser.feed(m[-1:])
         msg = parser.pop_message()
         self.assertIsInstance(msg, txdbus.DBusMessage)
-        self.assertFalse(parser.is_partial())
 
     def test_illegal_message(self):
         m = b'l\1\0\2\0\0\0\0\1\0\0\0\0\0\0\0'
         parser = DBusParser()
-        exc = self.assertRaises(ParseError, parser.feed, m)
-        self.assertEqual(exc.args[0], errno.FRAMING_ERROR)
+        nbytes = parser.feed(m)
+        self.assertNotEqual(nbytes, len(m))
+        self.assertEqual(parser.error, errno.FRAMING_ERROR)
 
     def test_maximum_message_size_exceeded(self):
         parser = DBusParser()
         parser.max_message_size = 100
         m = b'l\1\0\1\0\1\0\0\1\0\0\0\0\0\0\0' + b'x' * 256
-        exc = self.assertRaises(ParseError, parser.feed, m)
-        self.assertEqual(exc.args[0], errno.MESSAGE_TOO_LARGE)
+        nbytes = parser.feed(m)
+        self.assertNotEqual(nbytes, len(m))
+        self.assertEqual(parser.error, errno.MESSAGE_TOO_LARGE)
 
 
 def uses_host_dbus(test):

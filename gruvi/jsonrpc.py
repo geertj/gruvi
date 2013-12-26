@@ -43,13 +43,12 @@ import json
 from . import hub, error, protocols, jsonrpc_ffi, compat
 from .hub import switchpoint
 from .util import docfrom
-from .protocols import errno, ParseError
+from .protocols import errno, ProtocolError
 
-__all__ = ['check_message', 'create_response', 'create_error',
-           'JsonRpcError', 'JsonRpcClient', 'JsonRpcServer']
+__all__ = ['JsonRpcError', 'JsonRpcClient', 'JsonRpcServer']
 
 
-class JsonRpcError(error.Error):
+class JsonRpcError(ProtocolError):
     """Exception that is raised in case of JSON-RPC protocol errors."""
 
 
@@ -115,10 +114,14 @@ class JsonRpcParser(protocols.Parser):
         self._buffer = bytearray()
         self._context = jsonrpc_ffi.ffi.new('struct context *')
 
-    def is_partial(self):
-        return len(self._buffer) > 0
-
     def feed(self, buf):
+        # len(buf) == 0 means EOF received
+        if len(buf) == 0:
+            if len(self._buffer) > 0:
+                self._error = errno.FRAMING_ERROR
+                self._error_message = 'partial message'
+                return -1
+            return 0
         # "struct context" is a C object and does *not* take a reference
         # Therefore use a Python variable to keep the cdata object alive
         cdata = self._context.buf = jsonrpc_ffi.ffi.new('char[]', buf)
@@ -127,10 +130,13 @@ class JsonRpcParser(protocols.Parser):
         while offset != len(buf):
             error = jsonrpc_ffi.lib.split(self._context)
             if error and error != jsonrpc_ffi.lib.INCOMPLETE:
-                raise ParseError(errno.FRAMING_ERROR, 'framing error {0}'.format(error))
+                self._error = errno.FRAMING_ERROR
+                self._error_message = 'jsonrpc_ffi.split(): error {0}'.format(error)
+                break
             nbytes = self._context.offset - offset
             if len(self._buffer) + nbytes > self.max_message_size:
-                raise ParseError(errno.MESSAGE_TOO_LARGE, 'message exceeds maximum size')
+                self._error = errno.MESSAGE_TOO_LARGE
+                break
             if error == jsonrpc_ffi.lib.INCOMPLETE:
                 self._buffer.extend(buf[offset:])
                 return
@@ -142,16 +148,24 @@ class JsonRpcParser(protocols.Parser):
             try:
                 chunk = chunk.decode('utf8')
             except UnicodeDecodeError as e:
-                raise ParseError(errno.PARSE_ERROR, 'encoding error: {0!s}'.format(str(e)))
+                self._error = errno.ENCODING_ERROR
+                self._error_message = 'UTF-8 decoding error: {0!s}'.format(e)
+                break
             try:
                 message = json.loads(chunk)
             except ValueError as e:
-                raise ParseError(errno.PARSE_ERROR, 'invalid JSON: {0!s}'.format(e))
+                self._error = errno.PARSE_ERROR
+                self._error_message = 'invalid JSON: {0!s}'.format(e)
+                break
             if not check_message(message):
-                print(message)
-                raise ParseError(errno.PARSE_ERROR, 'invalid JSON-RPC message')
+                self._error = errno.PARSE_ERROR
+                self._error_message = 'invalid JSON-RPC message'
+                break
             self._messages.append(message)
             offset = self._context.offset
+        if self._error and offset == len(buf):
+            offset = 0
+        return offset
 
 
 class JsonRpcBase(protocols.RequestResponseProtocol):

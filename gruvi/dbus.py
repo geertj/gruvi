@@ -45,12 +45,12 @@ import struct
 from . import hub, error, txdbus, protocols, dbus_ffi, compat
 from .hub import switchpoint
 from .util import objref
-from .protocols import errno, ParseError
+from .protocols import errno, ProtocolError
 
 __all__ = ['DBusError', 'DBusClient']
 
 
-class DBusError(error.Error):
+class DBusError(ProtocolError):
     """Exception that is raised in case of D-BUS protocol errors."""
 
 
@@ -118,10 +118,14 @@ class DBusParser(protocols.Parser):
         self._buffer = bytearray()
         self._context = dbus_ffi.ffi.new('struct context *')
 
-    def is_partial(self):
-        return len(self._buffer) > 0
-
     def feed(self, buf):
+        # len(buf) == 0 means EOF received
+        if len(buf) == 0:
+            if len(self._buffer) > 0:
+                self._error = errno.FRAMING_ERROR
+                self._error_message = 'partial message'
+                return -1
+            return 0
         # "struct context" is a C object and does *not* take a reference
         # Therefore use a Python variable to keep the cdata object alive
         cdata = self._context.buf = dbus_ffi.ffi.new('char[]', buf)
@@ -130,12 +134,15 @@ class DBusParser(protocols.Parser):
         while offset != len(buf):
             error = dbus_ffi.lib.split(self._context)
             if error and error != dbus_ffi.lib.INCOMPLETE:
-                raise ParseError(errno.FRAMING_ERROR,
-                                 'D-BUS framing error {0}'.format(error))
+                self._error = errno.FRAMING_ERROR
+                self._error_message = 'dbus_ffi.split(): error {0}'.format(error)
+                offset = self._context.offset
+                break
             nbytes = self._context.offset - offset
             if len(self._buffer) + nbytes > self.max_message_size:
-                raise ParseError(errno.MESSAGE_TOO_LARGE,
-                                'D-BUS message exceeds maximum size')
+                self._error = errno.MESSAGE_TOO_LARGE
+                self._offset = 0
+                break
             if error == dbus_ffi.lib.INCOMPLETE:
                 self._buffer.extend(buf[offset:])
                 return
@@ -147,8 +154,10 @@ class DBusParser(protocols.Parser):
             try:
                 message = txdbus.parseMessage(chunk)
             except (txdbus.MarshallingError, struct.error) as e:
-                raise ParseError(errno.PARSE_ERROR,
-                                 'invalid D-BUS message {0!s}'.format(e))
+                self._error = errno.PARSE_ERROR
+                self._error_message = 'txdbus.parseMessage(): {0!s}'.format(e)
+                offset = 0
+                break
             self._messages.append(message)
             offset = self._context.offset
         return offset

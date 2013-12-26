@@ -15,8 +15,8 @@ import pyuv
 import gruvi
 from gruvi import jsonrpc_ffi
 from gruvi.jsonrpc import *
-from gruvi.jsonrpc import JsonRpcParser
-from gruvi.protocols import ParseError, errno
+from gruvi.jsonrpc import create_response, create_error, JsonRpcParser
+from gruvi.protocols import errno
 from gruvi.stream import StreamClient
 from support import UnitTest
 
@@ -174,43 +174,46 @@ class TestJsonRpcParser(UnitTest):
         for i in range(len(m)-1):
             parser.feed(m[i:i+1])
             self.assertIsNone(parser.pop_message())
-            self.assertTrue(parser.is_partial())
         parser.feed(m[-1:])
         msg = parser.pop_message()
-        self.assertFalse(parser.is_partial())
         self.assertEqual(msg, { 'id': '1', 'method': 'foo' })
 
     def test_framing_error(self):
         m = b'xxx'
         parser = JsonRpcParser()
-        exc = self.assertRaises(ParseError, parser.feed, m)
-        self.assertEqual(exc.args[0], errno.FRAMING_ERROR)
+        nbytes = parser.feed(m)
+        self.assertNotEqual(nbytes, len(m))
+        self.assertEqual(parser.error, errno.FRAMING_ERROR)
 
     def test_encoding_error(self):
         m = b'{ xxx\xff }'
         parser = JsonRpcParser()
-        exc = self.assertRaises(ParseError, parser.feed, m)
-        self.assertEqual(exc.args[0], errno.PARSE_ERROR)
+        nbytes = parser.feed(m)
+        self.assertNotEqual(nbytes, len(m))
+        self.assertEqual(parser.error, errno.ENCODING_ERROR)
 
     def test_illegal_json(self):
         m = b'{ "xxxx" }'
         parser = JsonRpcParser()
-        exc = self.assertRaises(ParseError, parser.feed, m)
-        self.assertEqual(exc.args[0], errno.PARSE_ERROR)
+        nbytes = parser.feed(m)
+        self.assertNotEqual(nbytes, len(m))
+        self.assertEqual(parser.error, errno.PARSE_ERROR)
 
     def test_illegal_jsonrpc(self):
         m = b'{ "xxxx": "yyyy" }'
         parser = JsonRpcParser()
-        exc = self.assertRaises(ParseError, parser.feed, m)
-        self.assertEqual(exc.args[0], errno.PARSE_ERROR)
+        nbytes = parser.feed(m)
+        self.assertNotEqual(nbytes, len(m))
+        self.assertEqual(parser.error, errno.PARSE_ERROR)
  
     def test_maximum_message_size_exceeded(self):
         parser = JsonRpcParser()
         parser.max_message_size = 100
         message = '{{ "{0}": "{1}" }}'.format('x' * 100, 'y' * 100)
         message = message.encode('ascii')
-        exc = self.assertRaises(ParseError, parser.feed, message)
-        self.assertEqual(exc.args[0], errno.MESSAGE_TOO_LARGE)
+        nbytes = parser.feed(message)
+        self.assertNotEqual(nbytes, len(message))
+        self.assertEqual(parser.error, errno.MESSAGE_TOO_LARGE)
 
 
 def echo_app(message, endpoint, transport):
