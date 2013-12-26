@@ -43,17 +43,42 @@ import json
 from . import hub, error, protocols, jsonrpc_ffi, compat
 from .hub import switchpoint
 from .util import docfrom
-from .protocols import errno, ProtocolError
+from .protocols import ProtocolError
 
 __all__ = ['JsonRpcError', 'JsonRpcClient', 'JsonRpcServer']
+
+
+class errno(object):
+    """JSON-RPC v2.0 error codes."""
+
+    PARSE_ERROR = -32700
+    INVALID_REQUEST = -32600
+    METHOD_NOT_FOUND = -32601
+    INVALID_PARAMS = -32602
+    INTERNAL_ERROR = -32603
+    SERVER_ERROR = -32000
+
+    errlist = {
+        PARSE_ERROR: 'Parse error',
+        INVALID_REQUEST: 'Invalid request',
+        METHOD_NOT_FOUND: 'Method not found',
+        INVALID_PARAMS: 'Invalid params',
+        INTERNAL_ERROR: 'Internal error',
+        SERVER_ERROR: 'Server error'
+    }
+
+    errorcode = dict((k,v) for k,v in locals().items() if k.isupper())
+
+    @classmethod
+    def strerror(cls, code):
+        return cls.errlist.get(code, 'Unknown error')
 
 
 class JsonRpcError(ProtocolError):
     """Exception that is raised in case of JSON-RPC protocol errors."""
 
 
-_allowed_message_keys = frozenset(('jsonrpc', 'id', 'method', 'params',
-                                   'result', 'error'))
+_allowed_keys = frozenset(('jsonrpc', 'id', 'method', 'params', 'result', 'error'))
 
 def check_message(message):
     """Validate a JSON-RPC message.
@@ -63,7 +88,7 @@ def check_message(message):
     """
     if not isinstance(message, dict):
         return False
-    if 'id' not in message:
+    if 'jsonrpc' in message and message['jsonrpc'] != '2.0':
         return False
     if 'method' in message:
         # Request or notification
@@ -75,7 +100,7 @@ def check_message(message):
             return False
     else:
         # Success or error response
-        if message['id'] is None:
+        if message.get('id') is None:
             return False
         if 'result' not in message and 'error' not in message or \
                     message.get('result') is not None and \
@@ -83,24 +108,60 @@ def check_message(message):
             return False
         if 'params' in message:
             return False
-    if set(message) - _allowed_message_keys:
+    if set(message) - _allowed_keys:
         return False
     return True
 
 
-def create_response(message, result):
+_last_request_id = 0
+
+def _get_request_id():
+    global _last_request_id
+    _last_request_id += 1
+    reqid = 'gruvi.{0}'.format(_last_request_id)
+    return reqid
+
+
+def create_request(method, args, version='1.0'):
+    """Create a JSON-RPC request."""
+    msg = { 'id': _get_request_id(), 'method': method, 'params': args }
+    if version == '2.0':
+        msg['jsonrpc'] = version
+    return msg
+
+def create_response(request, result):
     """Create a JSON-RPC response message."""
-    msg = { 'id': message['id'], 'result': result, 'jsonrpc': '2.0' }
+    msg = { 'id': request['id'], 'result': result }
+    if 'jsonrpc' not in request:
+        msg['error'] = None
+    elif request['jsonrpc'] == '2.0':
+        msg['jsonrpc'] = request['jsonrpc']
     return msg
 
-def create_error(message, error):
+def create_error(request, code=None, message=None, data=None, error=None):
     """Create a JSON-RPC error response message."""
-    msg = { 'id': message['id'], 'error': error, 'jsonrpc': '2.0' }
+    if code is None and error is None:
+        raise ValueError('either "code" or "error" must be set')
+    msg = { 'id': request['id'] }
+    if code:
+        error = { 'code': code }
+        error['message'] = errno.strerror(code)
+        if data:
+            error['data'] = data
+    msg['error'] = error
+    if 'jsonrpc' not in request:
+        msg['result'] = None
+    elif request['jsonrpc'] == '2.0':
+        msg['jsonrpc'] = version
     return msg
 
-def create_notification(method, *args):
+def create_notification(method, args, version='1.0'):
     """Create a JSON-RPC notification message."""
-    msg = { 'id': None, 'method': method, 'params': args, 'jsonrpc': '2.0' }
+    msg = { 'method': method, 'params': args }
+    if version == '1.0':
+        msg['id'] = None
+    elif version == '2.0':
+        msg['jsonrpc'] = version
     return msg
 
 
@@ -118,7 +179,7 @@ class JsonRpcParser(protocols.Parser):
         # len(buf) == 0 means EOF received
         if len(buf) == 0:
             if len(self._buffer) > 0:
-                self._error = errno.FRAMING_ERROR
+                self._error = protocols.errno.FRAMING_ERROR
                 self._error_message = 'partial message'
                 return -1
             return 0
@@ -130,16 +191,17 @@ class JsonRpcParser(protocols.Parser):
         while offset != len(buf):
             error = jsonrpc_ffi.lib.split(self._context)
             if error and error != jsonrpc_ffi.lib.INCOMPLETE:
-                self._error = errno.FRAMING_ERROR
+                self._error = protocols.errno.FRAMING_ERROR
                 self._error_message = 'jsonrpc_ffi.split(): error {0}'.format(error)
                 break
             nbytes = self._context.offset - offset
             if len(self._buffer) + nbytes > self.max_message_size:
-                self._error = errno.MESSAGE_TOO_LARGE
+                self._error = protocols.errno.MESSAGE_TOO_LARGE
                 break
             if error == jsonrpc_ffi.lib.INCOMPLETE:
                 self._buffer.extend(buf[offset:])
-                return
+                offset = self._context.offset
+                break
             chunk = buf[offset:self._context.offset]
             if self._buffer:
                 self._buffer.extend(chunk)
@@ -148,17 +210,17 @@ class JsonRpcParser(protocols.Parser):
             try:
                 chunk = chunk.decode('utf8')
             except UnicodeDecodeError as e:
-                self._error = errno.ENCODING_ERROR
+                self._error = protocols.errno.ENCODING_ERROR
                 self._error_message = 'UTF-8 decoding error: {0!s}'.format(e)
                 break
             try:
                 message = json.loads(chunk)
             except ValueError as e:
-                self._error = errno.PARSE_ERROR
+                self._error = protocols.errno.PARSE_ERROR
                 self._error_message = 'invalid JSON: {0!s}'.format(e)
                 break
             if not check_message(message):
-                self._error = errno.PARSE_ERROR
+                self._error = protocols.errno.PARSE_ERROR
                 self._error_message = 'invalid JSON-RPC message'
                 break
             self._messages.append(message)
@@ -172,6 +234,7 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
     """Base class for the JSON-RPC client and server implementations."""
     
     _exception = JsonRpcError
+    default_version = '1.0'
 
     def __init__(self, message_handler=None, timeout=None, _trace=False):
         """The constructor takes the following arguments. The *message_handler*
@@ -184,10 +247,6 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
         super(JsonRpcBase, self).__init__(JsonRpcParser, timeout)
         self._message_handler = message_handler
         self._trace = _trace
-
-    def _init_transport(self, transport):
-        super(JsonRpcBase, self)._init_transport(transport)
-        transport._next_message_id = 1
 
     def _dispatch_fast_path(self, transport, message):
         if 'result' in message or 'error' in message:
@@ -209,29 +268,25 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
     def _call_method(self, transport, method, *args):
         if transport is None or transport.closed:
             raise RuntimeError('not connected')
-        message = { 'id': 'gruvi.{0}'.format(transport._next_message_id),
-                    'method': method, 'params': args, 'jsonrpc': '2.0' }
-        transport._next_message_id += 1
+        message = create_request(method, args, version=self.default_version)
         self._send_message(transport, message)
         events = ('MethodResponse:{0}'.format(message['id']), 'HandleError')
-        try:
-            event, response = transport._events.wait(self._timeout, waitfor=events)
-        except Timeout:
-            raise JsonRpcError(PROTO_TIMEOUT, 'timeout waiting for reply')
-        if isinstance(response, Exception):
-            raise response
+        response = transport._events.wait(self._timeout, waitfor=events)
+        if response == 'HandleError':
+            raise self._transport._error
+        event, response = response
         assert isinstance(response, dict)
         assert check_message(response)
         error = response.get('error')
         if error:
-            raise JsonRpcError(errno.INVALID_REQUEST, error)
+            raise JsonRpcError(protocols.errno.INVALID_REQUEST, error)
         return response.get('result')
 
     @switchpoint
     def _send_notification(self, transport, method, *args):
         if transport is None or transport.closed:
             raise RuntimeError('not connected')
-        message = create_notification(method, *args)
+        message = create_notification(method, args, version=self.default_version)
         self._send_message(transport, message)
 
     @switchpoint
@@ -240,7 +295,7 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
             raise RuntimeError('not connected')
         if not check_message(message):
             raise ValueError('illegal JSON-RPC message')
-        serialized = json.dumps(message, ensure_ascii=True).encode('ascii')
+        serialized = json.dumps(message).encode('utf8')
         self._write(transport, serialized)
         self._log_response(message)
 

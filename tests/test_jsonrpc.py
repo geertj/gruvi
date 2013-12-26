@@ -18,7 +18,7 @@ from gruvi.jsonrpc import *
 from gruvi.jsonrpc import create_response, create_error, JsonRpcParser
 from gruvi.protocols import errno
 from gruvi.stream import StreamClient
-from support import UnitTest
+from support import *
 
 
 _keepalive = None
