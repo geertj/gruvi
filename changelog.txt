@@ -1,3 +1,5 @@
+Changes in version 0.9.2:
+
 Changes in version 0.9.1:
 
 * Add thread-safe synchronization primitives.
