@@ -6,7 +6,7 @@ Rationale
 
 This section gives a technical overview of Gruvi and explains some of its
 design decisions and their rationale. To get started immediately, skip to the
-:ref:`introduction` section.
+:ref:`installation` and :ref:`tutorial` sections.
 
 Gruvi is a network library for Python. It combines the efficiencies of evented
 I/O with a sequential programming model. Gruvi uses libuv_ (via pyuv_) as the
