@@ -11,6 +11,7 @@ from __future__ import absolute_import, print_function
 import os
 import sys
 import logging
+import threading
 import fibers
 
 __all__ = ['get_logger']
@@ -62,21 +63,29 @@ class ContextLogger(object):
         self.context = '{0}: {1}'.format(parent.context, context) \
                             if parent else context
 
+    def thread_info(self):
+        from .util import objref
+        tid = objref(threading.current_thread())
+        current = fibers.current()
+        if current.parent or hasattr(current, 'loop'):
+            fid = objref(current)
+        else:
+            fid = '(root)'
+        return '{0}:{1}'.format(tid, fid)
+
+    def stack_info(self):
+        f = sys._getframe(3)
+        fname = os.path.split(f.f_code.co_filename)[1]
+        funcname = f.f_code.co_name
+        return '{0}:{1}()#L{2} '.format(fname, funcname, f.f_lineno)
+
     def log(self, level, exc, msg, *args, **kwargs):
         if not self.logger.isEnabledFor(level):
             return
-        current = fibers.current()
-        from .util import objref
         prefix = ''
         if self.logger.isEnabledFor(logging.DEBUG):
-            if current.parent or hasattr(current, 'loop'):
-                prefix = objref(current)
-            else:
-                prefix = '(root)'
-            f = sys._getframe(2)
-            fname = os.path.split(f.f_code.co_filename)[1]
-            funcname = f.f_code.co_name
-            prefix += '@{0}:{1}():L{2} '.format(fname, funcname, f.f_lineno)
+            parts = [self.thread_info(), self.stack_info()]
+            prefix += '@'.join(filter(None, parts))
         if self.context:
             prefix += self.context
         if args or kwargs:

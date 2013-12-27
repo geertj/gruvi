@@ -29,7 +29,7 @@ def setup_logger(logger):
     """Configure a logger to output to stdout."""
     logger.setLevel(logging.DEBUG)
     handler = logging.StreamHandler(sys.stdout)
-    template = '%(levelname)s %(name)s: %(message)s'
+    template = '%(levelname)s %(message)s'
     handler.setFormatter(logging.Formatter(template))
     logger.addHandler(handler)
 

@@ -179,7 +179,7 @@ class Protocol(object):
         transport._error = None
         transport._events = Signal()
         transport._write_buffer = 0
-        transport._log = logging.get_logger(objref(self))
+        transport._log = logging.get_logger(self)
         transport.start_read(self._on_transport_readable)
 
     def _close_transport(self, transport, error=None):
