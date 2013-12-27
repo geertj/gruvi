@@ -11,7 +11,7 @@ from __future__ import absolute_import, print_function
 import fibers
 import threading
 
-from . import logging, util
+from . import logging
 from .hub import get_hub, switchpoint
 from .sync import Signal, Queue
 from .error import Cancelled
@@ -40,7 +40,7 @@ class Fiber(fibers.Fiber):
         self._hub = get_hub()
         super(Fiber, self).__init__(self.run, args, kwargs, self._hub)
         self._target = target
-        self._log = logging.get_logger(context=util.objref(self))
+        self._log = logging.get_logger(self)
         self._done = Signal()
         self._thread = threading.get_ident()
 
@@ -60,7 +60,7 @@ class Fiber(fibers.Fiber):
     def start(self):
         """Schedule the fiber to be started in the next iteration of the
         event loop."""
-        self._log.debug('starting fiber, target = {0!s}'.format(self._target))
+        self._log.debug('starting fiber, target = {!s}', self._target)
         self._hub.run_callback(self.switch)
 
     def switch(self, value=None):

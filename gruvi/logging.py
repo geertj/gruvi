@@ -13,6 +13,9 @@ import sys
 import logging
 import threading
 import fibers
+import re
+
+from . import compat
 
 __all__ = ['get_logger']
 
@@ -27,6 +30,9 @@ def get_logger(context, parent=None, name='gruvi'):
     Return a :class:`ContextLogger` instance. The instance implements the
     standard library's :class:`logging.Logger` interface.
     """
+    if not isinstance(context, compat.string_types):
+        from .util import objref
+        context = objref(context)
     logger = logging.getLogger(name)
     if not logger.isEnabledFor(logging.DEBUG):
         patch_logger(logger)
@@ -46,6 +52,22 @@ def patch_logger(logger):
     def findCaller(self, stack_info=False):
         return ('(unknown file)', 0, '(unknown function)', None)
     logger.findCaller = findCaller
+
+
+# Support Python 2.7+ implictly indexed format strings also on Python 2.6
+
+PY26 = sys.version_info[:2] <= (2,6)
+# {{ and }} are escape characters. Use negative lookbehind/ahead to ensure
+# an odd number of braces on either side.
+re_fmt = re.compile(r'(?<!\{)((?:\{\{)*\{)([:!][^}]+)?(\}(?:\}\})*)(?!\})')
+
+def replace_fmt(msg):
+    count = [0]
+    def replace(mobj):
+        replaced = mobj.group(1) + str(count[0]) + (mobj.group(2) or '') + mobj.group(3)
+        count[0] += 1
+        return replaced
+    return re_fmt.sub(replace, msg)
 
 
 class ContextLogger(object):
@@ -89,6 +111,8 @@ class ContextLogger(object):
         if self.context:
             prefix += self.context
         if args or kwargs:
+            if PY26:
+                msg = replace_fmt(msg)
             msg = msg.format(*args, **kwargs)
         msg = '[{0}] {1}'.format(prefix, msg)
         self.logger._log(level, msg, (), exc_info=exc)

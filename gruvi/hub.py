@@ -19,7 +19,7 @@ import weakref
 import pyuv
 import fibers
 
-from . import compat
+from . import compat, logging
 from .error import Timeout
 
 __all__ = ['assert_no_switchpoints', 'get_hub', 'switchpoint', 'switch_back', 'Hub']
@@ -223,9 +223,8 @@ class Hub(fibers.Fiber):
         self._callbacks = collections.deque()
         self._thread = threading.get_ident()
         self._stop_loop = pyuv.Async(self.loop, lambda h: self.loop.stop())
-        from gruvi import logging, util
-        self._log = logging.get_logger(util.objref(self))
-        self._log.debug('new Hub for thread {0:#x}'.format(self._thread))
+        self._log = logging.get_logger(self)
+        self._log.debug('new Hub for thread {:#x}', self._thread)
 
     @property
     def loop(self):

@@ -13,7 +13,7 @@ import threading
 import collections
 import heapq
 
-from . import logging, util, local
+from . import logging, local
 from .hub import switchpoint, get_hub, switch_back
 from .error import Cancelled
 
@@ -121,7 +121,7 @@ class Signal(object):
     """
 
     def __init__(self, lock=None):
-        self._log = logging.get_logger(util.objref(self))
+        self._log = logging.get_logger(self)
         self._lock = lock or Lock()
         self._callbacks = collections.deque()
 
@@ -174,7 +174,7 @@ class Signal(object):
                 except Cancelled:
                     rearm = False
                 except Exception as e:
-                    self._log.exception('Uncaught exception in callback')
+                    self._log.exception('uncaught exception in callback')
             if rearm or not match:
                 self._callbacks.append((callback, waitfor, rearm))
 

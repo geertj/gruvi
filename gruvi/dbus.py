@@ -242,7 +242,7 @@ class DBusBase(protocols.RequestResponseProtocol):
         try:
             authdata = transport._authenticator.feed(line)
         except ValueError as e:
-            transport._log.error('authentication error: {0!s}', e)
+            transport._log.error('authentication error: {!s}', e)
             error = DBusError(errno.AUTH_ERROR, str(e))
             self._close_transport(transport, error)
             return

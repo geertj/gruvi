@@ -143,7 +143,7 @@ def create_connection(address, ssl=False, local_address=None,
     else:
         raise TypeError('expecting a string, tuple, or transport')
     for addr in addresses:
-        log.debug('trying address {0}'.format(saddr(addr)))
+        log.debug('trying address {}', saddr(addr))
         transport = transport_type(**transport_args)
         with switch_back(timeout) as switcher:
             try:
@@ -157,7 +157,7 @@ def create_connection(address, ssl=False, local_address=None,
                 error = None
         if not error:
             break
-        log.warning('connect() failed with error {0}'.format(error))
+        log.warning('connect() failed with error {}', error)
     if error:
         log.error('all addresses failed')
         raise pyuv_exc(transport, error)

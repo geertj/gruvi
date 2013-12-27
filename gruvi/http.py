@@ -645,7 +645,7 @@ class HttpServer(protocols.RequestResponseProtocol):
         env['SERVER_PORT'] = addr[1]
         env['wsgi.version'] = (1, 0)
         errors = env['wsgi.errors'] = ErrorStream()
-        transport._log.debug('logging to {0}', objref(errors))
+        transport._log.debug('logging to {}', objref(errors))
         env['wsgi.multithread'] = True
         env['wsgi.multiprocess'] = True
         env['wsgi.run_once'] = False
@@ -708,7 +708,7 @@ class HttpServer(protocols.RequestResponseProtocol):
         return write
 
     def _dispatch_message(self, transport, message):
-        transport._log.info('request: {0} {1}', message.method, message.url)
+        transport._log.info('request: {} {}', message.method, message.url)
         transport._version = message.version
         transport._keepalive = message.should_keep_alive
         environ = self._get_environ(transport, message)
@@ -728,7 +728,7 @@ class HttpServer(protocols.RequestResponseProtocol):
         finally:
             if hasattr(result, 'close'):
                 result.close()
-        transport._log.info('response: {0}', transport._status)
+        transport._log.info('response: {}', transport._status)
         if transport._keepalive:
             transport._log.debug('keeping connection alive')
             self._reinit_request(transport)

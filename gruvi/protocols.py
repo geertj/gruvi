@@ -13,13 +13,13 @@ import socket
 import collections
 import pyuv
 
-from . import hub, error, logging, compat
+from . import hub, error, logging, compat, util
 from .hub import switchpoint, switch_back
 from .fibers import Fiber
 from .sync import Signal, Queue
 from .pyuv import pyuv_exc, TCP, Pipe
 from .ssl import SSL
-from .util import objref, saddr, getaddrinfo, create_connection, docfrom
+from .util import docfrom, objref
 
 __all__ = ['errno', 'ProtocolError', 'Protocol']
 
@@ -85,7 +85,7 @@ class Protocol(object):
         self._timeout = timeout
         self._transport = None
         self._hub = hub.get_hub()
-        self._log = logging.get_logger(objref(self))
+        self._log = logging.get_logger(self)
         self._clients = set()
         self._client_factory = None
         self._client_disconnected = Signal()
@@ -132,18 +132,18 @@ class Protocol(object):
         if isinstance(address, (compat.binary_type, compat.text_type)):
             transport = Pipe()
             transport.bind(address)
-            self._log.debug('bound to {0}', saddr(address))
+            self._log.debug('bound to {}', util.saddr(address))
             self._client_factory = Pipe
         elif isinstance(address, tuple):
             transport = TCP() # even for SSL the listening socket is TCP
-            result = getaddrinfo(address[0], address[1], socket.AF_UNSPEC,
-                                 socket.SOCK_STREAM, socket.IPPROTO_TCP)
+            result = util.getaddrinfo(address[0], address[1], socket.AF_UNSPEC,
+                                      socket.SOCK_STREAM, socket.IPPROTO_TCP)
             resolved = result[0][4]
             if len(result) > 1:
-                self._log.warning('multiple addresses for {0}, using {1}',
-                                  saddr(address), saddr(resolved))
+                self._log.warning('multiple addresses for {}, using {}',
+                                  util.saddr(address), util.saddr(resolved))
             transport.bind(resolved)
-            self._log.debug('bound to {0}', saddr(resolved))
+            self._log.debug('bound to {}', util.saddr(resolved))
             client_type = SSL if ssl else TCP
             if ssl:
                 transport_args['server_side'] = True
@@ -155,13 +155,13 @@ class Protocol(object):
             raise TypeError('expecting a string, a tuple or a transport')
         self._transport = transport
         self._transport.listen(self._on_new_connection)
-        self._log.debug('transport is {0}', objref(transport))
+        self._log.debug('transport is {}', objref(transport))
 
     def _on_new_connection(self, transport, error):
         """Callback that is called for new connections."""
         assert transport is self._transport
         if error:
-            self._log.error('error {0} in listen callback', error)
+            self._log.error('error {} in listen callback', error)
             return
         client = self._client_factory()
         self._clients.add(client)
@@ -170,7 +170,7 @@ class Protocol(object):
             self._log.error('max connections reached, dropping connection')
             self._close_transport(client, errno.SERVER_BUSY)
             return
-        self._log.debug('new client on {0}', objref(client))
+        self._log.debug('new client on {}', objref(client))
         self._init_transport(client)
 
     def _init_transport(self, transport):
@@ -251,14 +251,14 @@ class Protocol(object):
             self._hub.switch()
 
     @switchpoint
-    @docfrom(create_connection)
+    @docfrom(util.create_connection)
     def _connect(self, address, ssl=False, local_address=None, **transport_args):
         if self._transport is not None and not self._transport.closed:
             raise RuntimeError('already connected')
-        self._log.debug('connect to {0}', saddr(address))
-        transport = create_connection(address, ssl, local_address, **transport_args)
+        self._log.debug('connect to {}', util.saddr(address))
+        transport = util.create_connection(address, ssl, local_address, **transport_args)
         self._transport = transport
-        self._log.debug('transport is {0}', objref(transport))
+        self._log.debug('transport is {}', objref(transport))
         self._init_transport(self._transport)
 
     @switchpoint
@@ -347,14 +347,14 @@ class RequestResponseProtocol(Protocol):
             data = b''  # feed empty string into parser to mark EOF
         elif error:
             # Close immediately here, do not try to process the queue if any.
-            transport._log.error('error {0} in read callback', error)
+            transport._log.error('error {} in read callback', error)
             self._close_transport(transport, pyuv_exc(transport, error))
             return
         nbytes = transport._parser.feed(data)
         if nbytes != len(data):
             error = self._exception(transport._parser.error,
                                     transport._parser.error_message)
-            transport._log.error('protocol error: {0!s}', error)
+            transport._log.error('protocol error: {!s}', error)
         # Dispatch either to the fast path or to the slow path via the queue
         # and the dispatcher (which runs in a separate fiber).
         while True:
