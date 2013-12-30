@@ -179,7 +179,7 @@ class Signal(object):
                 self._callbacks.append((callback, waitfor, rearm))
 
     @switchpoint
-    def wait(self, timeout=None, waitfor=None):
+    def wait(self, timeout=None, interrupt=False, waitfor=None):
         """Wait for the signal to be emitted.
 
         The optional *timeout* argument specifies the number of seconds to
@@ -203,7 +203,7 @@ class Signal(object):
         lock_count = self.lock.locked
         unlocked = False
         try:
-            with switch_back(timeout) as switcher:
+            with switch_back(timeout, interrupt) as switcher:
                 self._callbacks.append((switcher, waitfor, False))
                 # See the comment in Lock.acquire() why it is OK to release the
                 # lock here before calling hub.switch().
