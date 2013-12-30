@@ -20,12 +20,8 @@ from . import compat
 __all__ = ['get_logger']
 
 
-def get_logger(context, parent=None, name='gruvi'):
+def get_logger(context, name='gruvi'):
     """Return a logger for *context*.
-
-    The *parent* argument specifies an optional parent. If it is provided, the
-    parent's context will be prepended to the context. The *name* argument
-    specifies the name of the logger.
 
     Return a :class:`ContextLogger` instance. The instance implements the
     standard library's :class:`logging.Logger` interface.
@@ -36,7 +32,7 @@ def get_logger(context, parent=None, name='gruvi'):
     logger = logging.getLogger(name)
     if not logger.isEnabledFor(logging.DEBUG):
         patch_logger(logger)
-    return ContextLogger(logger, context, parent)
+    return ContextLogger(logger, context)
 
 
 def patch_logger(logger):
@@ -80,10 +76,9 @@ class ContextLogger(object):
     # implementations differ quite a bit, which means we would need to
     # reimplement almost the entire thing anyway.
 
-    def __init__(self, logger, context, parent=None):
+    def __init__(self, logger, context):
         self.logger = logger
-        self.context = '{0}: {1}'.format(parent.context, context) \
-                            if parent else context
+        self.context = context
 
     def thread_info(self):
         from .util import objref
