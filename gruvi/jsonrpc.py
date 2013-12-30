@@ -236,7 +236,7 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
     _exception = JsonRpcError
     default_version = '1.0'
 
-    def __init__(self, message_handler=None, timeout=None, _trace=False):
+    def __init__(self, message_handler=None, timeout=None):
         """The constructor takes the following arguments. The *message_handler*
         argument specifies an optional message handler. See the notes at the
         top for more information on the message handler.
@@ -246,7 +246,6 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
         """
         super(JsonRpcBase, self).__init__(JsonRpcParser, timeout)
         self._message_handler = message_handler
-        self._trace = _trace
 
     def _dispatch_fast_path(self, transport, message):
         if 'result' in message or 'error' in message:
@@ -295,17 +294,9 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
             raise RuntimeError('not connected')
         if not check_message(message):
             raise ValueError('illegal JSON-RPC message')
+        self._log_response(message)
         serialized = json.dumps(message).encode('utf8')
         self._write(transport, serialized)
-        self._log_response(message)
-
-    def _log_request(self, message):
-        if self._trace:
-            self._log.debug('Incoming message: {!s}', message)
-
-    def _log_response(self, message):
-        if self._trace:
-            self._log.debug('Outgoing message: {!s}', message)
 
 
 class JsonRpcClient(JsonRpcBase):
