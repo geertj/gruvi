@@ -7,8 +7,9 @@
 # complete list.
 
 from __future__ import absolute_import, print_function
+del absolute_import, print_function  # don't export
 
-from ._version import *
+from ._version import __version__
 from .error import *
 from .hub import *
 from .fibers import *
@@ -19,4 +20,4 @@ from .ssl import *
 from .futures import *
 from .util import *
 
-from . import http, jsonrpc, dbus, stream
+from . import http, jsonrpc, dbus, stream, util
