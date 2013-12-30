@@ -68,6 +68,10 @@ class Pipe(pyuv.Pipe):
     def __init__(self, ipc=False):
         super(Pipe, self).__init__(get_hub().loop, ipc)
 
+    def bind(self, name):
+        super(Pipe, self).bind(name)
+        self.address = name
+
     def connect(self, address, callback=None):
         # Support for abstract sockets on Linux, which are needed for D-BUS.
         # Abstract sockets don't work with libuv/pyuv Pipe because libuv
