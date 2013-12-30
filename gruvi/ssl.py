@@ -27,13 +27,6 @@ else:
 __all__ = ['SSL']
 
 
-ssl_error_nb = frozenset((ssl.SSL_ERROR_WANT_READ, ssl.SSL_ERROR_WANT_WRITE))
-socket_error_nb = frozenset((errno.EAGAIN, errno.EWOULDBLOCK))
-
-if sys.platform.startswith('win'):
-    socket_error_nb = frozenset(tuple(socket_error_nb) + (errno.WSAEWOULDBLOCK,))
-
-
 def write_to_socket(sock, data):
     """Write as much of *data* to the socket as possible, retrying short writes
     due to EINTR only."""
@@ -44,7 +37,7 @@ def write_to_socket(sock, data):
         except (io.BlockingIOError, socket.error) as e:
             if e.args[0] == errno.EINTR:
                 continue
-            elif e.args[0] in socket_error_nb:
+            elif e.args[0] in (errno.EAGAIN, errno.EWOULDBLOCK):
                 break
             raise
         offset += nbytes
@@ -60,7 +53,7 @@ def read_from_socket(sock, bufsize):
         except (io.BlockingIOError, socket.error) as e:
             if e.args[0] == errno.EINTR:
                 continue
-            elif e.args[0] in socket_error_nb:
+            elif e.args[0] in (errno.EAGAIN, errno.EWOULDBLOCK):
                 break
             raise
         chunks.append(chunk)
@@ -206,7 +199,7 @@ class SSLPipe(object):
                     chunks = read_from_socket(self._sockets[1], self.bufsize)
                     appdata.extend(chunks)
             except ssl.SSLError as e:
-                if e.args[0] not in ssl_error_nb:
+                if e.args[0] not in (ssl.SSL_ERROR_WANT_READ, ssl.SSL_ERROR_WANT_WRITE):
                     raise
             # Check for record level data that needs to be sent
             # back. Happens for the initial handshake and renegotiations.
