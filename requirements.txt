@@ -1,3 +1,4 @@
+pycparser
+cffi
 fibers
 pyuv
-cffi

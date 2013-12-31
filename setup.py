@@ -15,19 +15,26 @@ import subprocess
 
 from setuptools import setup
 
-# CFFI is needed to call setup(). Therefore it needs to be installed before the
-# setup script can be run. I had hoped that specifying setup_requires with
-# setup() would force pip to download it before installing an sdist from PyPI.
-# That appears not to be the case. We don't want our script to do too much
-# magic (like installing it automatically), so we just instruct the user to
-# install CFFI and bail out.
+# CFFI is needed to call setup() and therefore it needs to be installed before
+# this setup script can be run. However it would be nice if the user could just
+# to "pip install gruvi" and it would install CFFI as a dependency.
+# We can work around it with a hack. When pip installs a package, it will call
+# the "egg_info" command first to get dependencies.  We exploit this by injecting
+# adding the cffi dependency to "install_requires" when "egg_info" is run, but
+# only import cffi when "install" is run. Note this requires us to list all
+# cffi dependencies as collected dependencies will be installed last. At the
+# moment this is only "pycparser". The process above also works when installing
+# from requirements.txt.
 
-try:
-    import cffi
-except ImportError:
-    sys.stderr.write('Error: CFFI (required for setup) is not available.\n')
-    sys.stderr.write('Please use "pip install cffi", or equivalent.\n')
-    sys.exit(1)
+egg_info = 'egg_info' if sys.argv[:2] == ['-c', 'egg_info'] else None
+
+if not egg_info:
+    try:
+        import cffi
+    except ImportError:
+        sys.stderr.write('Error: CFFI (required for setup) is not available.\n')
+        sys.stderr.write('Please use "pip install cffi", or equivalent.\n')
+        sys.exit(1)
 
 
 version_info = {
@@ -117,17 +124,21 @@ def main():
     os.chdir(topdir)
     update_version()
     update_manifest()
-    sys.path.append('gruvi')
-    import dbus_ffi, http_ffi, jsonrpc_ffi
+    if egg_info:
+        ext_modules = []
+    else:
+        sys.path.append('gruvi')
+        import dbus_ffi, http_ffi, jsonrpc_ffi
+        ext_modules = [dbus_ffi.ffi.verifier.get_extension(),
+                       http_ffi.ffi.verifier.get_extension(),
+                       jsonrpc_ffi.ffi.verifier.get_extension()]
     sys.path.pop()
     setup(
         packages = ['gruvi', 'gruvi.txdbus'],
-        install_requires = ['fibers', 'pyuv', 'cffi'],
+        install_requires = ['pycparser', 'cffi', 'fibers', 'pyuv'],
         test_suite = 'nose.collector',
         zip_safe = False,
-        ext_modules = [dbus_ffi.ffi.verifier.get_extension(),
-                       http_ffi.ffi.verifier.get_extension(),
-                       jsonrpc_ffi.ffi.verifier.get_extension()],
+        ext_modules = ext_modules,
         **version_info
     )
 
