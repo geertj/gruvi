@@ -31,4 +31,4 @@ ffi.cdef("""
 parent, _ = os.path.split(os.path.abspath(__file__))
 topdir, _ = os.path.split(parent)
 lib = ffi.verify('#include "src/json_splitter.c"',
-                 modulename='json_cffi', include_dirs=[topdir])
+                 modulename='gruvi_jsonrpc_cffi', include_dirs=[topdir])

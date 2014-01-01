@@ -44,4 +44,4 @@ ffi.cdef("""
 parent, _ = os.path.split(os.path.abspath(__file__))
 topdir, _ = os.path.split(parent)
 lib = ffi.verify('#include "src/dbus_splitter.c"',
-                 modulename='dbus_cffi', include_dirs=[topdir])
+                 modulename='gruvi_dbus_cffi', include_dirs=[topdir])
