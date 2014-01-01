@@ -1,5 +1,7 @@
-fibers
-pyuv
+pycparser
 cffi
+pyuv
+fibers
 nose
 sphinx
+wheel
