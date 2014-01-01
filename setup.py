@@ -39,7 +39,7 @@ if not egg_info:
 
 version_info = {
     'name': 'gruvi',
-    'version': '0.9.2',
+    'version': '0.9.3.dev',
     'description': 'Synchronous evented IO with pyuv and fibers',
     'author': 'Geert Jansen',
     'author_email': 'geertj@gmail.com',
