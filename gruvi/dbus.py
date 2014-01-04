@@ -170,7 +170,7 @@ def parse_dbus_address(address):
         if not address:
             raise ValueError('$DBUS_SESSION_BUS_ADDRESS not set')
     elif address == 'system':
-        address = os.environ.get('DBUS_SYSTEM_BUS_ADDRES',
+        address = os.environ.get('DBUS_SYSTEM_BUS_ADDRESS',
                                 'unix:path=/var/run/dbus/system_bus_socket')
     addresses = []
     for addr in address.split(';'):
