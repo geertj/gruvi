@@ -16,7 +16,7 @@ from .hub import get_hub, switchpoint
 from .sync import Signal, Queue
 from .error import Cancelled
 
-__all__ = ['current_fiber', 'Fiber']
+__all__ = ['current_fiber', 'Fiber', 'spawn']
 
 
 def current_fiber():
@@ -96,3 +96,9 @@ class Fiber(fibers.Fiber):
             self._log.exception('uncaught exception in fiber')
             exc = e
         self.done.emit(value, exc)
+
+
+def spawn(func, *args, **kwargs):
+    """Spawn function *func* in a separate greenlet."""
+    fiber = Fiber(func, args, kwargs)
+    fiber.start()

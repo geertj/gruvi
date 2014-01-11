@@ -14,6 +14,16 @@ from support import *
 
 class TestFiber(UnitTest):
 
+    def test_spawn(self):
+        def fiber(i):
+            if i == 0:
+                done.emit('foo')
+            else:
+                gruvi.spawn(fiber, i-1)
+        done = gruvi.Signal()
+        gruvi.spawn(fiber, 100)
+        self.assertEqual(done.wait(), ('foo',))
+
     def test_run_fibers(self):
         hub = gruvi.get_hub()
         counter = [0]
