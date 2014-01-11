@@ -34,7 +34,7 @@ Some general notes:
 
 from __future__ import absolute_import, print_function
 
-import os.path
+import re
 import collections
 
 from . import hub, protocols, error, reader, http_ffi, logging, compat
@@ -43,37 +43,104 @@ from .util import objref, docfrom, getsockname
 from ._version import __version__
 
 try:
-    from urllib.parse import urlsplit
+    from urllib import parse as urlparse
+    from http import client as httplib
 except ImportError:
-    from urlparse import urlsplit
+    import urlparse
+    import httplib
 
-__all__ = ['HttpError', 'HttpClient', 'HttpServer', 'HttpResponse', 'geturlinfo']
+__all__ = ['HttpError', 'HttpClient', 'HttpServer']
+
+
+# Export some definitions from httplib/http.client.
+for name in dir(httplib):
+    value = getattr(httplib, name)
+    if name.isupper() and value in httplib.responses:
+        globals()[name] = value
+for name in ('HTTP_PORT', 'HTTPS_PORT', 'responses'):
+    globals()[name] = getattr(httplib, name)
 
 
 # The "Hop by Hop" headers as defined in RFC 2616. These may not be set by the
-# WSGI application.
+# HTTP handler.
 hop_by_hop = frozenset(('Connection', 'Keep-Alive', 'Proxy-Authenticate',
                         'Proxy-Authorization', 'TE', 'Trailers',
                         'Transfer-Encoding', 'Upgrade'))
 
 
-def geturlinfo(url):
-    """Return connection information for a url.
-    
-    The *url* parameter must be a a string.
-    
-    The return value is a (host, port, ssl, path) tuple.
+# RFC 2626 section 2.2 grammar definitions:
+_re_token = re.compile('([!#$%&\'*+-.0-9A-Z^_`a-z|~]+)')
+
+# The regex for "quoted_string" below is not 100% correct. The standard allows
+# also LWS and escaped CTL characters. But http-parser has an issue with these
+# so we just not allow them.
+# Note that the first 256 code points of Unicode are the same as those for
+# ISO-8859-1 which is how HTTP headers are encoded. So we can just include the
+# valid characters as \x hex references.
+# Also note that this does not decode any of the RFC-2047 internationalized
+# header values that are allowed in quoted-string (but it will match).
+_re_qstring = re.compile('"(([ !\x23-\xff]|\\")*)"')
+
+
+def urlsplit2(url, default_scheme='http'):
+    """Like :func:`urllib.parse.urlsplit`, but fills in default values for
+    *scheme* (based on *default_scheme*), *port* (depending on scheme), and
+    *path* (defaults to "/").
     """
-    parsed = urlsplit(url)
-    try:
-        hort, port = parsed.netloc.split(':')
-        port = int(port)
-    except ValueError:
-        host = parsed.netloc
-        port = 443 if parsed.scheme == 'https' else 80
-    ssl = parsed.scheme == 'https'
-    path = (parsed.path + parsed.query) or '/'
-    return (host, port, ssl, path)
+    if '://' not in url:
+        url = '{0}://{1}'.format(default_scheme, url)
+    result = urlparse.urlsplit(url)
+    updates = {}
+    if result.port is None:
+        port = HTTPS_PORT if result.scheme == 'https' else HTTP_PORT
+        updates['netloc'] = '{0}:{1}'.format(result.hostname, port)
+    if not result.path:
+        updates['path'] = '/'
+    if updates:
+        result = result._replace(**updates)
+    return result
+
+
+def split_header_options(header, sep=';'):
+    """Split options from an HTTP header.
+
+    The header must be of the form "value [; parameters]". This format is used
+    by headers like "Content-Type" and "Transfer-Encoding".
+
+    The return value is a (value, params) tuple, with params a dictionary
+    containing the parameters.
+
+    This function never raises an error. When a parse error occurs, it returns
+    what has been parsed so far.
+    """
+    options = {}
+    p1 = header.find(sep)
+    if p1 == -1:
+        return header, options
+    p2 = p1+1
+    while True:
+        while p2 < len(header) and header[p2].isspace():
+            p2 += 1
+        if p2 == len(header):
+            break
+        mobj = _re_token.match(header, p2)
+        if mobj is None:
+            break
+        name = mobj.group(1)
+        p2 = mobj.end(0)
+        if p2 > len(header)-2 or header[p2] != '=':
+            break
+        p2 += 1
+        if header[p2] == '"':
+            mobj = _re_qstring.match(header, p2)
+        else:
+            mobj = _re_token.match(header, p2)
+        if mobj is None:
+            break
+        value = mobj.group(1)
+        p2 = mobj.end(0)
+        options[name] = value
+    return header[:p1], options
 
 
 def _s2b(s):

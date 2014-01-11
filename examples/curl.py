@@ -1,25 +1,29 @@
 # Example: cURL like URL downloader
 
 import sys
-import logging
 import argparse
-from gruvi.http import HttpClient, geturlinfo
-
-logging.basicConfig()
+from gruvi import http
 
 parser = argparse.ArgumentParser()
 parser.add_argument('url');
 args = parser.parse_args()
 
-client = HttpClient()
-host, port, ssl, path = geturlinfo(args.url)
-client.connect((host, port), ssl=ssl)
+url = http.urlsplit2(args.url)
+client = http.HttpClient()
+client.connect((url.hostname, url.port), ssl=url.scheme == 'https')
 
-client.request('GET', path)
+client.request('GET', url.path)
 response = client.getresponse()
+
+ctype = response.get_header('Content-Type', 'text/plain')
+ctype, options = http.split_header_options(ctype)
+if not ctype.startswith('text/'):
+    print('Refusing to write {} to stdout'.format(ctype))
+    sys.exit(0)
+charset = options.get('charset', 'iso-8859-1')
 
 while True:
     buf = response.read(4096)
     if not buf:
         break
-    print(buf)
+    sys.stdout.write(buf.decode(charset))

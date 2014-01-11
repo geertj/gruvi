@@ -10,8 +10,76 @@ from __future__ import absolute_import, print_function
 
 import time
 import gruvi
-from gruvi.http import HttpParser, HttpMessage, HttpServer, HttpClient
+from gruvi.http import *
+from gruvi.http import HttpParser, HttpMessage, urlsplit2, split_header_options
 from support import *
+
+
+class TestUrlsplit2(UnitTest):
+
+    def test_basic(self):
+        parsed = urlsplit2('foo.org')
+        self.assertEqual(parsed.scheme, 'http')
+        self.assertEqual(parsed.netloc, 'foo.org:80')
+        self.assertEqual(parsed.hostname, 'foo.org')
+        self.assertEqual(parsed.port, 80)
+        self.assertEqual(parsed.path, '/')
+
+    def test_scheme(self):
+        parsed = urlsplit2('foo.org', default_scheme='https')
+        self.assertEqual(parsed.scheme, 'https')
+        parsed = urlsplit2('http://foo.org', default_scheme='https')
+        self.assertEqual(parsed.scheme, 'http')
+
+    def test_port(self):
+        parsed = urlsplit2('http://foo.org')
+        self.assertEqual(parsed.port, 80)
+        parsed = urlsplit2('https://foo.org')
+        self.assertEqual(parsed.port, 443)
+        parsed = urlsplit2('http://foo.org:81')
+        self.assertEqual(parsed.port, 81)
+        parsed = urlsplit2('https://foo.org:444')
+        self.assertEqual(parsed.port, 444)
+
+    def test_path(self):
+        parsed = urlsplit2('foo.org')
+        self.assertEqual(parsed.path, '/')
+        parsed = urlsplit2('foo.org/a')
+        self.assertEqual(parsed.path, '/a')
+
+
+class TestSplitHeaderOptions(UnitTest):
+
+    def test_basic(self):
+        parsed = split_header_options('text/plain; charset=foo')
+        self.assertIsInstance(parsed, tuple)
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(parsed[0], 'text/plain')
+        self.assertEqual(parsed[1], {'charset': 'foo'})
+
+    def test_plain(self):
+        parsed = split_header_options('text/plain')
+        self.assertEqual(parsed, ('text/plain', {}))
+
+    def test_iso8859_1(self):
+        parsed = split_header_options('text/plain; foo="bar\xfe"')
+        self.assertEqual(parsed, ('text/plain', {'foo': 'bar\xfe'}))
+
+    def test_whitespace(self):
+        parsed = split_header_options('text/plain;   charset=foo    ')
+        self.assertEqual(parsed, ('text/plain', {'charset': 'foo'}))
+
+    def test_quoted(self):
+        parsed = split_header_options('text/plain; charset="foo bar"')
+        self.assertEqual(parsed, ('text/plain', {'charset': 'foo bar'}))
+
+    def test_multiple(self):
+        parsed = split_header_options('text/plain; foo=bar baz=qux')
+        self.assertEqual(parsed, ('text/plain', {'foo': 'bar', 'baz': 'qux'}))
+
+    def test_empty(self):
+        parsed = split_header_options('text/plain; charset=""')
+        self.assertEqual(parsed, ('text/plain', {'charset': ''}))
 
 
 class TestHttpParser(UnitTest):
