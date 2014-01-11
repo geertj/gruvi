@@ -233,6 +233,7 @@ class ThreadPool(PoolBase):
 
     def _spawn_worker(self):
         worker = threading.Thread(target=self._worker_main)
+        worker.daemon = True
         worker.start()
         return worker
 
