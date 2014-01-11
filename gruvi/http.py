@@ -294,7 +294,7 @@ class HttpParser(protocols.Parser):
         nbytes = http_ffi.lib.http_parser_execute(self._parser, self._settings, s, len(s))
         if nbytes != len(s):
             self._error = http_ffi.lib.http_errno(self._parser)
-            self._error_message = _cp2str(http_ffi.lib.http_errno_name(errno))
+            self._error_message = _cp2str(http_ffi.lib.http_errno_name(self._error))
         return nbytes
 
     def _setup_callbacks(self):
