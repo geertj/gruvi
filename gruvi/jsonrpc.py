@@ -110,6 +110,20 @@ def check_message(message):
     return True
 
 
+def message_type(msg):
+    """Return the message type of *msg*."""
+    if msg.get('method') and msg.get('id'):
+        return 'request'
+    elif msg.get('method'):
+        return 'notification'
+    elif msg.get('error'):
+        return 'error'
+    elif msg.get('result'):
+        return 'response'
+    else:
+        return 'unknown'
+
+
 _last_request_id = 0
 
 def _get_request_id():
