@@ -142,6 +142,8 @@ def create_request(method, args=(), version='2.0'):
 
 def create_response(request, result):
     """Create a JSON-RPC response message."""
+    if request.get('id') is None:
+        return
     msg = { 'id': request['id'], 'result': result }
     if 'jsonrpc' not in request:
         msg['error'] = None
@@ -151,6 +153,8 @@ def create_response(request, result):
 
 def create_error(request, code=None, message=None, data=None, error=None):
     """Create a JSON-RPC error response message."""
+    if request.get('id') is None:
+        return
     if code is None and error is None:
         raise ValueError('either "code" or "error" must be set')
     msg = { 'id': request['id'] }
