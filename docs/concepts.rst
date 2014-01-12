@@ -83,11 +83,11 @@ threads are a bad solution for I/O. This is because threads have a high memory
 overhead (in the order of megabytes), which limits the total number of threads
 you can have in a system. And threads often introduce the need for locking,
 with is very difficult to get right. For a more authoritative opinion on why
-threads are usually bad, see `this paper by Ousterhout`. Note that Gruvi is not
-of the opinion that threads are always bad, just when used for I/O. An example
-where I believe that threads are a good solution is number crunching on either
-a large shared state (for efficiency), or without any shared state (no need for
-locks).
+threads are usually bad, see `this paper by Ousterhout`_. Note that Gruvi is
+not of the opinion that threads are always bad, just when used for I/O. An
+example where I believe that threads are a good solution is number crunching on
+either a large shared state (for efficiency), or without any shared state (no
+need for locks).
 
 When not using threads, we need a way to handle multiple I/O operations in a
 single execution context. This is called *I/O multiplexing*. There are two
@@ -306,4 +306,4 @@ result.
 
 .. _libuv: https://github.com/joyent/libuv
 .. _pyuv: http://pyuv.readthedocs.org/en/latest
-.. _this paper by Ousterhout: www.stanford.edu/class/cs240/readings/threads-bad-usenix96.pdf
+.. _this paper by Ousterhout: http://www.stanford.edu/class/cs240/readings/threads-bad-usenix96.pdf
