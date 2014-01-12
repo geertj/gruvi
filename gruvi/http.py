@@ -315,7 +315,7 @@ class HttpResponse(object):
 
     @property
     def __iter__(self):
-        return self._mesasge.body.__iter__
+        return self._message.body.__iter__
 
 
 class HttpParser(protocols.Parser):
