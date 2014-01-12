@@ -133,7 +133,7 @@ def _get_request_id():
     return reqid
 
 
-def create_request(method, args, version='1.0'):
+def create_request(method, args=(), version='2.0'):
     """Create a JSON-RPC request."""
     msg = { 'id': _get_request_id(), 'method': method, 'params': args }
     if version == '2.0':
@@ -163,10 +163,10 @@ def create_error(request, code=None, message=None, data=None, error=None):
     if 'jsonrpc' not in request:
         msg['result'] = None
     elif request['jsonrpc'] == '2.0':
-        msg['jsonrpc'] = version
+        msg['jsonrpc'] = request['jsonrpc']
     return msg
 
-def create_notification(method, args, version='1.0'):
+def create_notification(method, args=(), version='2.0'):
     """Create a JSON-RPC notification message."""
     msg = { 'method': method, 'params': args }
     if version == '1.0':
@@ -245,7 +245,7 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
     """Base class for the JSON-RPC client and server implementations."""
     
     _exception = JsonRpcError
-    default_version = '1.0'
+    default_version = '2.0'
 
     def __init__(self, message_handler=None, timeout=None):
         """The constructor takes the following arguments. The *message_handler*
