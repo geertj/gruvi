@@ -48,30 +48,27 @@ from .protocols import ProtocolError
 __all__ = ['JsonRpcError', 'JsonRpcClient', 'JsonRpcServer']
 
 
-class errno(object):
-    """JSON-RPC v2.0 error codes."""
+# JSON-RPC v2.0 error codes
 
-    PARSE_ERROR = -32700
-    INVALID_REQUEST = -32600
-    METHOD_NOT_FOUND = -32601
-    INVALID_PARAMS = -32602
-    INTERNAL_ERROR = -32603
-    SERVER_ERROR = -32000
+errorcode = {}
+_jsonrpc_errlist = {}
 
-    errlist = {
-        PARSE_ERROR: 'Parse error',
-        INVALID_REQUEST: 'Invalid request',
-        METHOD_NOT_FOUND: 'Method not found',
-        INVALID_PARAMS: 'Invalid params',
-        INTERNAL_ERROR: 'Internal error',
-        SERVER_ERROR: 'Server error'
-    }
+def add_error(code, name, message):
+    globals()[name] = code
+    errorcode[code] = name
+    _jsonrpc_errlist[code] = message
 
-    errorcode = dict((k,v) for k,v in locals().items() if k.isupper())
+add_error(-32000, 'SERVER_ERROR', 'Server error')
+add_error(-32600, 'INVALID_REQUEST', 'Invalid request')
+add_error(-32601, 'METHOD_NOT_FOUND', 'Method not found')
+add_error(-32602, 'INVALID_PARAMS', 'Invalid parameters')
+add_error(-32603, 'INTERNAL_ERROR', 'Internal error')
+add_error(-32700, 'PARSE_ERROR', 'Parse error')
 
-    @classmethod
-    def strerror(cls, code):
-        return cls.errlist.get(code, 'Unknown error')
+del add_error
+
+def strerror( code):
+    return _jsonrpc_errlist.get(code, 'No error description available')
 
 
 class JsonRpcError(ProtocolError):
@@ -145,7 +142,7 @@ def create_error(request, code=None, message=None, data=None, error=None):
     msg = { 'id': request['id'] }
     if code:
         error = { 'code': code }
-        error['message'] = errno.strerror(code)
+        error['message'] = message or strerror(code)
         if data:
             error['data'] = data
     msg['error'] = error

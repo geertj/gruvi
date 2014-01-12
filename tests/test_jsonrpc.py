@@ -13,7 +13,7 @@ import time
 import pyuv
 
 import gruvi
-from gruvi import jsonrpc_ffi
+from gruvi import jsonrpc_ffi, jsonrpc
 from gruvi.jsonrpc import *
 from gruvi.jsonrpc import create_response, create_error, JsonRpcParser
 from gruvi.protocols import errno
@@ -238,6 +238,15 @@ def notification_app():
 
 
 class TestJsonRpc(UnitTest):
+
+    def test_errors(self):
+        code = jsonrpc.SERVER_ERROR
+        self.assertIsInstance(code, int)
+        name = jsonrpc.errorcode[code]
+        self.assertIsInstance(name, str)
+        self.assertEqual(getattr(jsonrpc, name), code)
+        desc = jsonrpc.strerror(code)
+        self.assertIsInstance(desc, str)
 
     def test_call_method(self):
         server = JsonRpcServer(echo_app)
