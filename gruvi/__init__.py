@@ -7,7 +7,10 @@
 # complete list.
 
 from __future__ import absolute_import, print_function
-del absolute_import, print_function  # don't export
+del absolute_import, print_function  # clean up module namespace
+
+# should not use "from gruvi import *"
+__all__ = []
 
 from ._version import __version__
 from .error import *
