@@ -153,8 +153,8 @@ class Protocol(object):
             self._client_factory = type(transport)
         else:
             raise TypeError('expecting a string, a tuple or a transport')
+        transport.listen(self._on_new_connection)
         self._transport = transport
-        self._transport.listen(self._on_new_connection)
         self._log.debug('transport is {}', objref(transport))
 
     def _on_new_connection(self, transport, error):
