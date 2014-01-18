@@ -35,6 +35,7 @@ Some general notes:
 from __future__ import absolute_import, print_function
 
 import re
+import time
 import collections
 
 from . import hub, protocols, error, reader, http_ffi, logging, compat
@@ -141,6 +142,22 @@ def split_header_options(header, sep=';'):
         p2 = mobj.end(0)
         options[name] = value
     return header[:p1], options
+
+
+_weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+           'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+_rfc1123_fmt = '%a, %d %b %Y %H:%M:%S GMT'
+
+def rfc1123_date(timestamp=None):
+    """Create a RFC1123 style Date header for *timestamp*."""
+    if timestamp is None:
+        timestamp = time.time()
+    tm = time.gmtime(timestamp)
+    # The time stamp must be GMT, and cannot be localized
+    s = _rfc1123_fmt.replace('%a', _weekdays[tm.tm_wday]) \
+                    .replace('%b', _months[tm.tm_mon-1])
+    return time.strftime(s, tm)
 
 
 def _s2b(s):
@@ -732,6 +749,9 @@ class HttpServer(protocols.RequestResponseProtocol):
         server = get_header(transport._headers, 'Server')
         if server is None:
             transport._headers.append(('Server', self.server_id))
+        date = get_header(transport._headers, 'Date')
+        if date is None:
+            transport._headers.append(('Date', rfc1123_date()))
         header = create_response(transport._version, transport._status,
                                  transport._headers)
         transport.write(header)
