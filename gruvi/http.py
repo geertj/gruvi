@@ -733,6 +733,7 @@ class HttpServer(protocols.RequestResponseProtocol):
         env['wsgi.multithread'] = True
         env['wsgi.multiprocess'] = True
         env['wsgi.run_once'] = False
+        env['gruvi.transport'] = transport
         return env
 
     def _send_headers(self, transport):
