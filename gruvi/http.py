@@ -796,7 +796,7 @@ class HttpServer(protocols.RequestResponseProtocol):
         return write
 
     def _dispatch_message(self, transport, message):
-        transport._log.info('request: {} {}', message.method, message.url)
+        transport._log.debug('request: {} {}', message.method, message.url)
         transport._version = message.version
         transport._keepalive = message.should_keep_alive
         environ = self._get_environ(transport, message)
@@ -816,7 +816,10 @@ class HttpServer(protocols.RequestResponseProtocol):
         finally:
             if hasattr(result, 'close'):
                 result.close()
-        transport._log.info('response: {}', transport._status)
+        ctype = get_header(transport._headers, 'Content-Type', 'unknown')
+        clen = get_header(transport._headers, 'Content-Length', 'unknown')
+        transport._log.debug('response: {0} ({1}; {2} bytes)'
+                                .format(transport._status, ctype, clen))
         if transport._keepalive:
             transport._log.debug('keeping connection alive')
             self._reinit_request(transport)
