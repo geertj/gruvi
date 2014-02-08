@@ -218,13 +218,19 @@ class Hub(fibers.Fiber):
         if self.parent is not None:
             raise RuntimeError('Hub must be created in the root fiber')
         super(Hub, self).__init__(target=self.run)
+        self._name = 'Hub'
         self._loop = pyuv.Loop()
         self._atomic = collections.deque()
         self._callbacks = collections.deque()
         self._thread = threading.get_ident()
         self._stop_loop = pyuv.Async(self.loop, lambda h: self.loop.stop())
-        self._log = logging.get_logger(self)
-        self._log.debug('new Hub for thread {:#x}', self._thread)
+        self._log = logging.get_logger()
+        self._log.debug('new Hub for {.name}', threading.current_thread())
+
+    @property
+    def name(self):
+        """Return the fiber name."""
+        return self._name
 
     @property
     def loop(self):

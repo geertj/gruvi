@@ -39,10 +39,19 @@ class Fiber(fibers.Fiber):
     def __init__(self, target, args=(), kwargs={}):
         self._hub = get_hub()
         super(Fiber, self).__init__(self.run, args, kwargs, self._hub)
+        if not hasattr(self._hub, 'last_fiber'):
+            self._hub.last_fiber = 0
+        self._hub.last_fiber += 1
+        self._name = 'Fiber-{0}'.format(self._hub.last_fiber)
         self._target = target
         self._log = logging.get_logger(self)
         self._done = Signal()
         self._thread = threading.get_ident()
+
+    @property
+    def name(self):
+        """Return the fiber name."""
+        return self._name
 
     @property
     def done(self):

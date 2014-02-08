@@ -20,7 +20,7 @@ from . import compat
 __all__ = ['get_logger']
 
 
-def get_logger(context, name='gruvi'):
+def get_logger(context='', name='gruvi'):
     """Return a logger for *context*.
 
     Return a :class:`ContextLogger` instance. The instance implements the
@@ -51,6 +51,7 @@ def patch_logger(logger):
 
 
 # Support Python 2.7+ implictly indexed format strings also on Python 2.6
+# Also remove the non-supported ',' format specifier
 
 PY26 = sys.version_info[:2] <= (2,6)
 # {{ and }} are escape characters. Use negative lookbehind/ahead to ensure
@@ -60,9 +61,9 @@ re_fmt = re.compile(r'(?<!\{)((?:\{\{)*\{)([:!][^}]+)?(\}(?:\}\})*)(?!\})')
 def replace_fmt(msg):
     count = [0]
     def replace(mobj):
-        replaced = mobj.group(1) + str(count[0]) + (mobj.group(2) or '') + mobj.group(3)
-        count[0] += 1
-        return replaced
+        field = str(count[0]); count[0] += 1
+        fmt = (mobj.group(2) or '').replace(',', '')
+        return mobj.group(1) + field + fmt + mobj.group(3)
     return re_fmt.sub(replace, msg)
 
 
@@ -76,35 +77,39 @@ class ContextLogger(object):
     # implementations differ quite a bit, which means we would need to
     # reimplement almost the entire thing anyway.
 
-    def __init__(self, logger, context):
+    def __init__(self, logger, context=''):
         self.logger = logger
         self.context = context
 
+    def with_context(self, context, *args, **kwargs):
+        if args or kwargs:
+            if PY26:
+                context = replace_fmt(context)
+            context = context.format(*args, **kwargs)
+        context = '{0}; {1}'.format(self.context, context) if self.context else context
+        return type(self)(self.logger, context)
+
     def thread_info(self):
         from .util import objref
-        tid = objref(threading.current_thread())
+        tid = threading.current_thread().name
+        if tid == 'MainThread': tid = 'Main'
         current = fibers.current()
-        if current.parent or hasattr(current, 'loop'):
-            fid = objref(current)
-        else:
-            fid = '(root)'
+        fid = getattr(current, 'name', objref(current)) if current.parent else 'Root'
         return '{0}:{1}'.format(tid, fid)
 
     def stack_info(self):
         f = sys._getframe(3)
         fname = os.path.split(f.f_code.co_filename)[1]
         funcname = f.f_code.co_name
-        return '{0}:{1}()#L{2} '.format(fname, funcname, f.f_lineno)
+        return '{0}:{1}|{2}()'.format(fname, f.f_lineno, funcname)
 
     def log(self, level, exc, msg, *args, **kwargs):
         if not self.logger.isEnabledFor(level):
             return
-        prefix = ''
-        if self.logger.isEnabledFor(logging.DEBUG):
-            parts = [self.thread_info(), self.stack_info()]
-            prefix += '@'.join(filter(None, parts))
+        prefix = [self.thread_info(), self.stack_info()]
         if self.context:
-            prefix += self.context
+            prefix.append(self.context)
+        prefix = '|'.join(prefix)
         if args or kwargs:
             if PY26:
                 msg = replace_fmt(msg)
