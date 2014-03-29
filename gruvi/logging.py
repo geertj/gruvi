@@ -102,13 +102,15 @@ class ContextLogger(object):
         if tid == 'MainThread': tid = 'Main'
         current = fibers.current()
         fid = getattr(current, 'name', objref(current)) if current.parent else 'Root'
+        if tid == 'Main' and fid == 'Root':
+            return '@'
         return '{0}:{1}'.format(tid, fid)
 
     def stack_info(self):
         f = sys._getframe(3)
         fname = os.path.split(f.f_code.co_filename)[1]
         funcname = f.f_code.co_name
-        return '{0}:{1}|{2}()'.format(fname, f.f_lineno, funcname)
+        return '{0}:{1}!{2}()'.format(fname, f.f_lineno, funcname)
 
     def log(self, level, exc, msg, *args, **kwargs):
         if not self.logger.isEnabledFor(level):
