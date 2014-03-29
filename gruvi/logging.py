@@ -65,23 +65,6 @@ def patch_logger(logger):
     logger.findCaller = findCaller
 
 
-# Support Python 2.7+ implictly indexed format strings also on Python 2.6
-# Also remove the non-supported ',' format specifier
-
-PY26 = sys.version_info[:2] <= (2,6)
-# {{ and }} are escape characters. Use negative lookbehind/ahead to ensure
-# an odd number of braces on either side.
-re_fmt = re.compile(r'(?<!\{)((?:\{\{)*\{)([:!][^}]+)?(\}(?:\}\})*)(?!\})')
-
-def replace_fmt(msg):
-    count = [0]
-    def replace(mobj):
-        field = str(count[0]); count[0] += 1
-        fmt = (mobj.group(2) or '').replace(',', '')
-        return mobj.group(1) + field + fmt + mobj.group(3)
-    return re_fmt.sub(replace, msg)
-
-
 class ContextLogger(object):
     """A logger adapter that prepends a context string to log messages.
     
@@ -123,8 +106,8 @@ class ContextLogger(object):
             prefix.pop()
         prefix = '|'.join(prefix)
         if args or kwargs:
-            if PY26:
-                msg = replace_fmt(msg)
+            if compat.PY26:
+                msg = compat.fixup_format_string(msg)
             msg = msg.format(*args, **kwargs)
         msg = '[{0}] {1}'.format(prefix, msg)
         self.logger._log(level, msg, (), exc_info=exc)
