@@ -44,7 +44,6 @@ import struct
 
 from . import hub, error, txdbus, protocols, dbus_ffi, compat
 from .hub import switchpoint
-from .util import objref
 from .protocols import errno, ProtocolError
 
 __all__ = ['DBusError', 'DBusClient']

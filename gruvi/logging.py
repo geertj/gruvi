@@ -14,10 +14,26 @@ import logging
 import threading
 import fibers
 import re
+from weakref import WeakKeyDictionary
 
 from . import compat
 
 __all__ = ['get_logger']
+
+
+_objrefs = WeakKeyDictionary()  # obj -> objref
+_lastids = {}  # classname -> lastid
+
+def objref(obj):
+    """Return a string that uniquely and compactly identifies an object."""
+    ref = _objrefs.get(obj)
+    if ref is None:
+        clsname = obj.__class__.__name__.split('.')[-1]
+        seqno = _lastids.setdefault(clsname, 1)
+        ref = '{0}#{1}'.format(clsname, seqno)
+        _objrefs[obj] = ref
+        _lastids[clsname] += 1
+    return ref
 
 
 def get_logger(context='', name='gruvi'):
@@ -27,7 +43,6 @@ def get_logger(context='', name='gruvi'):
     standard library's :class:`logging.Logger` interface.
     """
     if not isinstance(context, compat.string_types):
-        from .util import objref
         context = objref(context)
     logger = logging.getLogger(name)
     if not logger.isEnabledFor(logging.DEBUG):
@@ -90,7 +105,6 @@ class ContextLogger(object):
         return type(self)(self.logger, context)
 
     def thread_info(self):
-        from .util import objref
         tid = threading.current_thread().name
         if tid == 'MainThread': tid = 'Main'
         current = fibers.current()

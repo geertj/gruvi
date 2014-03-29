@@ -19,7 +19,7 @@ from .fibers import Fiber
 from .sync import Signal, Queue
 from .pyuv import pyuv_exc, TCP, Pipe
 from .ssl import SSL
-from .util import docfrom, objref
+from .util import docfrom
 
 __all__ = ['errno', 'ProtocolError', 'Protocol']
 
@@ -155,7 +155,7 @@ class Protocol(object):
             raise TypeError('expecting a string, a tuple or a transport')
         transport.listen(self._on_new_connection)
         self._transport = transport
-        self._log.debug('transport is {}', objref(transport))
+        self._log.debug('transport is {}', logging.objref(transport))
 
     def _on_new_connection(self, transport, error):
         """Callback that is called for new connections."""
@@ -170,7 +170,7 @@ class Protocol(object):
             self._log.error('max connections reached, dropping connection')
             self._close_transport(client, errno.SERVER_BUSY)
             return
-        self._log.debug('new client on {}', objref(client))
+        self._log.debug('new client on {}', logging.objref(client))
         self._init_transport(client)
 
     def _init_transport(self, transport):
@@ -258,7 +258,7 @@ class Protocol(object):
         self._log.debug('connect to {}', util.saddr(address))
         transport = util.create_connection(address, ssl, local_address, **transport_args)
         self._transport = transport
-        self._log.debug('transport is {}', objref(transport))
+        self._log.debug('transport is {}', logging.objref(transport))
         self._init_transport(self._transport)
 
     @switchpoint

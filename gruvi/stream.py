@@ -21,7 +21,7 @@ import pyuv
 
 from .hub import switchpoint
 from .pyuv import pyuv_exc
-from .util import docfrom, objref
+from .util import docfrom
 from . import fibers, reader, protocols, error
 
 

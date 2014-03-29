@@ -40,7 +40,7 @@ import collections
 
 from . import hub, protocols, error, reader, http_ffi, logging, compat
 from .hub import switchpoint
-from .util import objref, docfrom, getsockname
+from .util import docfrom, getsockname
 from ._version import __version__
 
 try:
@@ -505,7 +505,7 @@ class ErrorStream(object):
     """
 
     def __init__(self):
-        self._log = logging.get_logger(objref(self))
+        self._log = logging.get_logger(self)
 
     def flush(self):
         pass
@@ -729,7 +729,7 @@ class HttpServer(protocols.RequestResponseProtocol):
         env['SERVER_PORT'] = addr[1]
         env['wsgi.version'] = (1, 0)
         errors = env['wsgi.errors'] = ErrorStream()
-        transport._log.debug('logging to {}', objref(errors))
+        transport._log.debug('logging to {}', logging.objref(errors))
         env['wsgi.multithread'] = True
         env['wsgi.multiprocess'] = True
         env['wsgi.run_once'] = False

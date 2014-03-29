@@ -10,7 +10,6 @@ from __future__ import absolute_import, print_function
 
 import pyuv
 import socket
-from weakref import WeakKeyDictionary
 
 from . import compat
 from .hub import switchpoint, get_hub, switch_back
@@ -19,21 +18,6 @@ from .ssl import SSL
 from .error import Timeout
 
 __all__ = ['sleep', 'saddr', 'getaddrinfo', 'create_connection', 'getsockname']
-
-
-_objrefs = WeakKeyDictionary()  # obj -> objref
-_lastids = {}  # classname -> lastid
-
-def objref(obj):
-    """Return a string that uniquely and compactly identifies an object."""
-    ref = _objrefs.get(obj)
-    if ref is None:
-        clsname = obj.__class__.__name__.split('.')[-1]
-        seqno = _lastids.setdefault(clsname, 1)
-        ref = '{0}#{1}'.format(clsname, seqno)
-        _objrefs[obj] = ref
-        _lastids[clsname] += 1
-    return ref
 
 
 def docfrom(base):
