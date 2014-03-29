@@ -65,6 +65,29 @@ def patch_logger(logger):
     logger.findCaller = findCaller
 
 
+def get_log_level():
+    """Return the logging level based on $DEBUG and $VERBOSE."""
+    try:
+        verbose = int(os.environ['VERBOSE'])
+    except (KeyError, ValueError):
+        verbose = None
+    try:
+        debug = int(os.environ['DEBUG'])
+    except (KeyError, ValueError):
+        debug = None
+    if verbose is None:
+        level = logging.DEBUG if debug else logging.INFO
+    elif verbose <= 0:
+        level = logging.ERROR
+    elif verbose == 1:
+        level = logging.WARNING
+    elif verbose == 2:
+        level = logging.INFO
+    elif verbose >= 3:
+        level = logging.DEBUG
+    return level
+
+
 class ContextLogger(object):
     """A logger adapter that prepends a context string to log messages.
     
