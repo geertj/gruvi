@@ -126,6 +126,16 @@ class SSLPipe(object):
         else:
             self._sslsock = ssl.wrap_socket(self._sockets[1], **self._sslargs)
 
+    def close(self):
+        """Close the SSL pipe."""
+        if self._sockets:
+            self._sockets[0].close()
+            self._sockets[1].close()
+            self._sockets = None
+        if self._sslsock:
+            self._sslsock.close()
+            self._sslsock = None
+
     def start_handshake(self, callback=None):
         """Start the SSL handshake. Return a list of ssldata."""
         if self._state != self.s_unwrapped:
