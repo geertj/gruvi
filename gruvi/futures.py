@@ -87,8 +87,9 @@ class PoolBase(object):
 
     _StopWorker = object()
 
-    def __init__(self, maxsize=4):
+    def __init__(self, maxsize=4, name=None):
         self.maxsize = maxsize
+        self.name = name
         self._workers = set()
         self._queue = sync.Queue()
         self._active = 0
@@ -197,11 +198,11 @@ class PoolBase(object):
 class FiberPool(PoolBase):
     """Execute functions asynchronously in a pool of fibers."""
 
-    def __init__(self, maxsize=None):
+    def __init__(self, maxsize=None, name=None):
         """Spawn up to *maxsize* fibers in the fiber pool. If maxsize is not
         provided, then there is no limit to the size of the pool.
         """
-        super(Pool, self).__init__(maxsize)
+        super(Pool, self).__init__(maxsize, name)
 
     def _current_worker(self):
         return fibers.current_fiber()
@@ -221,18 +222,19 @@ class ThreadPool(PoolBase):
     _io_pool = None
     _cpu_pool = None
 
-    def __init__(self, maxsize=None):
+    def __init__(self, maxsize=None, name=None):
         """Spawn up to *maxsize* threads in the thread pool. If maxsize is not
         provided, then it will be set to the number of cores in the system."""
         if maxsize is None:
             maxsize = len(pyuv.util.cpu_info())
-        super(ThreadPool, self).__init__(maxsize)
+        super(ThreadPool, self).__init__(maxsize, name)
 
     def _current_worker(self):
         return threading.current_thread()
 
     def _spawn_worker(self):
-        worker = threading.Thread(target=self._worker_main)
+        name = '{0}-{1}'.format(self.name, len(self._workers)) if self.name else None
+        worker = threading.Thread(target=self._worker_main, name=name)
         worker.daemon = True
         worker.start()
         return worker
@@ -243,7 +245,7 @@ class ThreadPool(PoolBase):
         if cls._io_pool is None:
             with cls._lock:
                 if cls._io_pool is None:
-                    cls._io_pool = ThreadPool(20)
+                    cls._io_pool = ThreadPool(20, 'IoPool')
         return cls._io_pool
 
     @classmethod
@@ -253,7 +255,7 @@ class ThreadPool(PoolBase):
             with cls._lock:
                 if cls._cpu_pool is None:
                     ncores = len(pyuv.util.cpu_info())
-                    cls._cpu_pool = ThreadPool(ncores)
+                    cls._cpu_pool = ThreadPool(ncores, 'CpuPool')
         return cls._cpu_pool
 
 
