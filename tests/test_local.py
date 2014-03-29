@@ -11,7 +11,7 @@ from __future__ import absolute_import, print_function
 import gc
 import gruvi
 from gruvi import util
-from support import *
+from tests.support import *
 
 
 class TestLocal(UnitTest):
@@ -66,4 +66,4 @@ class TestLocal(UnitTest):
 
 
 if __name__ == '__main__':
-    unittest.main(buffer=True)
+    unittest.main()

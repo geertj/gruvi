@@ -9,7 +9,7 @@
 from __future__ import absolute_import, print_function
 
 import gruvi
-from support import *
+from tests.support import *
 
 
 class TestFiber(UnitTest):
@@ -72,4 +72,4 @@ class TestFiber(UnitTest):
 
 
 if __name__ == '__main__':
-    unittest.main(buffer=True)
+    unittest.main()

@@ -10,7 +10,7 @@ from __future__ import absolute_import, print_function
 
 import gruvi
 from gruvi.stream import StreamClient, StreamServer
-from support import *
+from tests.support import *
 
 
 def echo_handler(stream, protocol, client):
@@ -49,4 +49,4 @@ class TestHandles(UnitTest):
 
 
 if __name__ == '__main__':
-    unittest.main(buffer=True)
+    unittest.main()

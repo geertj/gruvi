@@ -12,7 +12,7 @@ import random
 
 import gruvi
 from gruvi.futures import *
-from support import *
+from tests.support import *
 
 
 class TestFuture(UnitTest):
@@ -151,4 +151,4 @@ class TestThreadPool(PoolTest, UnitTest):
 
 
 if __name__ == '__main__':
-    unittest.main(buffer=True)
+    unittest.main()

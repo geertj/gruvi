@@ -8,11 +8,10 @@
 
 from __future__ import absolute_import, print_function
 
-import time
 import gruvi
 from gruvi.http import *
 from gruvi.http import HttpParser, HttpMessage, urlsplit2, split_header_options
-from support import *
+from tests.support import *
 
 
 class TestUrlsplit2(UnitTest):
@@ -389,30 +388,6 @@ class TestHttpParser(UnitTest):
         self.assertEqual(msg.headers, [('Cookie', 'foo0')])
         self.assertEqual(msg.body.read(), b'HTTP/1.1 204 OK\r\nCookie: foo1\r\n\r\n')
 
-    def test_speed(self):
-        r = b'HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n'
-        r += b'x' * 1000
-        reqs = 10 * r
-        parser = HttpParser()
-        t1 = time.time()
-        nbytes = 0
-        while True:
-            t2 = time.time()
-            if t2-t1 > 0.5:
-                break
-            nparsed = parser.feed(reqs)
-            self.assertEqual(nparsed, len(reqs))
-            nmessages = 0
-            while True:
-                msg = parser.pop_message()
-                if msg is None:
-                    break
-                nmessages += 1
-            self.assertEqual(nmessages, 10)
-            nbytes += nparsed
-        speed = nbytes / (1024 * 1024 * (t2 - t1))
-        print('Speed: {0:.2f} MiB/sec'.format(speed))
-
 
 def hello_app(environ, start_response):
     headers = [('Content-Type', 'text/plain')]
@@ -503,4 +478,4 @@ class TestHttp(UnitTest):
 
 
 if __name__ == '__main__':
-    unittest.main(buffer=True)
+    unittest.main()

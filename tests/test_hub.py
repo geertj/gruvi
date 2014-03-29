@@ -17,7 +17,7 @@ import weakref
 import pyuv
 import gruvi
 import gruvi.hub
-from support import *
+from tests.support import *
 
 
 class TestHub(UnitTest):
@@ -80,4 +80,4 @@ class TestHub(UnitTest):
 
 
 if __name__ == '__main__':
-    unittest.main(buffer=True)
+    unittest.main()

@@ -14,7 +14,7 @@ import time
 import gruvi
 from gruvi.ssl import SSLPipe, SSL
 from gruvi.stream import StreamClient, StreamServer
-from support import *
+from tests.support import *
 
 
 def communicate(buf, client, server, clientssl, serverssl):
@@ -70,6 +70,8 @@ class TestSSLPipe(UnitTest):
         self.assertEqual(len(serverssl), 0)  # server waits
         received = communicate(buf, client, server, clientssl, serverssl)
         self.assertEqual(received, buf)
+        client.close()
+        server.close()
 
     def test_shutdown(self):
         client = SSLPipe(server_side=False)
@@ -95,6 +97,8 @@ class TestSSLPipe(UnitTest):
         self.assertEqual(len(clientssl), 0)
         self.assertEqual(len(appdata), 0)
         self.assertEqual(client.state, SSLPipe.s_unwrapped)
+        client.close()
+        server.close()
 
     def test_unwrapped(self):
         client = SSLPipe()
@@ -102,6 +106,8 @@ class TestSSLPipe(UnitTest):
         buf = b'x' * 1000
         received = communicate(buf, client, server, [], [])
         self.assertEqual(received, buf)
+        client.close()
+        server.close()
 
     def test_unwrapped_after_wrapped(self):
         client = SSLPipe(server_side=False)
@@ -125,6 +131,8 @@ class TestSSLPipe(UnitTest):
         server.start_handshake()
         received = communicate(buf, client, server, clientssl, [])
         self.assertEqual(received, buf)
+        client.close()
+        server.close()
 
     def test_simultaneous_shutdown(self):
         client = SSLPipe(server_side=False)
@@ -143,24 +151,8 @@ class TestSSLPipe(UnitTest):
         self.assertEqual(client.state, SSLPipe.s_unwrapped)
         self.assertEqual(server.state, SSLPipe.s_unwrapped)
         self.assertEqual(received, buf)  # this was sent in the clear
-
-    def test_speed(self):
-        server = SSLPipe(keyfile=self.certname, certfile=self.certname,
-                         server_side=True)
-        client = SSLPipe(server_side=False)
-        buf = b'x' * 65536
-        nbytes = 0
-        clientssl = client.start_handshake()
-        server.start_handshake()
-        t1 = time.time()
-        while (time.time() - t1) < 0.2:
-            received = communicate(buf, client, server, clientssl, [])
-            if clientssl:
-                clientssl = []
-            nbytes += len(received)
-        t2 = time.time()
-        speed = (nbytes / (t2 - t1)) / (1024 * 1024)
-        print('SSL speed: {0:.2f} MiB/sec'.format(speed))
+        client.close()
+        server.close()
 
 
 class TestSSL(UnitTest):
@@ -293,4 +285,4 @@ class TestSSL(UnitTest):
 
 
 if __name__ == '__main__':
-    unittest.main(buffer=True)
+    unittest.main()

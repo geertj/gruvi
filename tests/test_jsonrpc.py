@@ -9,7 +9,6 @@
 from __future__ import absolute_import, print_function
 
 import os
-import time
 import pyuv
 
 import gruvi
@@ -18,7 +17,7 @@ from gruvi.jsonrpc import *
 from gruvi.jsonrpc import create_response, create_error, JsonRpcParser
 from gruvi.protocols import errno
 from gruvi.stream import StreamClient
-from support import *
+from tests.support import *
 
 
 _keepalive = None
@@ -112,24 +111,6 @@ class TestJsonRpcFFI(UnitTest):
         error = jsonrpc_ffi.lib.split(ctx)
         self.assertEqual(error, ctx.error) == 0
         self.assertEqual(ctx.offset, 1)
-
-    def test_performance(self):
-        chunk = b'{' + b'x' * 100 + b'}'
-        buf = chunk * 100
-        ctx = jsonrpc_ffi.ffi.new('struct context *')
-        nbytes = 0
-        t1 = time.time()
-        while True:
-            t2 = time.time()
-            if t2 - t1 > 0.5:
-                break
-            set_buffer(ctx, buf)
-            while ctx.offset != len(buf):
-                error = jsonrpc_ffi.lib.split(ctx)
-                self.assertEqual(error, ctx.error) == 0
-            nbytes += len(buf)
-        throughput = nbytes / (1024 * 1024 * (t2 - t1))
-        print('Throughput: {0:.2f} MiB/sec'.format(throughput))
 
 
 class TestJsonRpcParser(UnitTest):
@@ -303,23 +284,6 @@ class TestJsonRpc(UnitTest):
         result = client.call_method('echo', 'foo')
         self.assertEqual(result, ['foo'])
 
-    def test_performance(self):
-        server = JsonRpcServer(echo_app)
-        server.listen(('127.0.0.1', 0))
-        addr = server.transport.getsockname()
-        client = JsonRpcClient()
-        client.connect(addr)
-        nrequests = 0
-        t1 = time.time()
-        while True:
-            t2 = time.time()
-            if t2 - t1 > 0.5:
-                break
-            result = client.call_method('echo', 'foo')
-            self.assertEqual(result, ['foo'])
-            nrequests += 1
-        print('Throughput: {0:.0f} requests/sec'.format(nrequests/(t2-t1)))
-
     def test_connection_limit(self):
         server = JsonRpcServer(echo_app)
         server.listen(('127.0.0.1', 0))
@@ -389,4 +353,4 @@ class TestJsonRpc(UnitTest):
                                       pyuv.errno.UV_ECANCELED))
 
 if __name__ == '__main__':
-    unittest.main(buffer=True)
+    unittest.main()

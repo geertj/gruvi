@@ -16,7 +16,7 @@ import weakref
 
 import gruvi
 from gruvi import util, compat
-from support import *
+from tests.support import *
 
 
 def lock_unlock(lock, count=50):
@@ -596,4 +596,4 @@ class TestWaitAll(UnitTest):
 
 
 if __name__ == '__main__':
-    unittest.main(buffer=True)
+    unittest.main()

@@ -9,7 +9,6 @@
 from __future__ import absolute_import, print_function
 
 import os
-import time
 import functools
 
 import gruvi
@@ -17,7 +16,7 @@ from gruvi import dbus_ffi, txdbus, compat
 from gruvi.protocols import errno
 from gruvi.dbus import DBusParser, DBusBase, DBusClient
 
-from support import *
+from tests.support import *
 
 
 _keepalive = None
@@ -222,26 +221,6 @@ class TestDBusFFI(UnitTest):
         self.assertEqual(ctx.error, error)
         self.assertEqual(ctx.offset, 1)
 
-    def test_performance(self):
-        m = b'l\1\0\1\x64\0\0\0\1\0\0\0\0\0\0\0' + (b'x'*100)
-        buf = m * 100
-        ctx = dbus_ffi.ffi.new('struct context *')
-        nbytes = 0
-        t1 = time.time()
-        while True:
-            t2 = time.time()
-            if t2 - t1 > 0.2:
-                break
-            set_buffer(ctx, buf)
-            while ctx.offset != len(buf):
-                error = dbus_ffi.lib.split(ctx)
-                self.assertEqual(error, 0)
-                self.assertEqual(ctx.error, error)
-                self.assertEqual(ctx.offset % len(m), 0)
-            nbytes += len(buf)
-        speed = nbytes / (1024 * 1024 * (t2 - t1))
-        print('Throughput: {0:.2f} MiB/sec'.format(speed))
-
 
 class TestDBusParser(UnitTest):
 
@@ -374,4 +353,4 @@ class TestDBus(UnitTest):
 
 
 if __name__ == '__main__':
-    unittest.main(buffer=True)
+    unittest.main()

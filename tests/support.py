@@ -1,9 +1,9 @@
 #
-# This file is part of gruvi. Gruvi is free software available under the
+# This file is part of Gruvi. Gruvi is free software available under the
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -14,6 +14,7 @@ import shutil
 import tempfile
 import logging
 import subprocess
+import functools
 
 if sys.version_info[:2] >= (2,7):
     import unittest
@@ -22,12 +23,18 @@ else:
 
 SkipTest = unittest.SkipTest
 
-__all__ = ['UnitTest', 'SkipTest', 'unittest']
+from gruvi.logging import get_log_level
 
 
-def setup_logger(logger):
+__all__ = ['UnitTest', 'PerformanceTest', 'SkipTest', 'unittest']
+
+
+def setup_logging():
     """Configure a logger to output to stdout."""
-    logger.setLevel(logging.DEBUG)
+    logger = logging.getLogger()
+    if logger.handlers:
+        return
+    logger.setLevel(get_log_level())
     handler = logging.StreamHandler(sys.stdout)
     template = '%(levelname)s %(message)s'
     handler.setFormatter(logging.Formatter(template))
@@ -53,46 +60,52 @@ def create_ssl_certificate(fname):
         sys.stderr.write('openssl stderr: {0}\n'.format(stderr))
 
 
-class UnitTest(unittest.TestCase):
-    """Base class for unit tests."""
+class BaseTest(unittest.TestCase):
+    """Base class for test suites."""
 
     @classmethod
     def setUpClass(cls):
-        cls.__tmpdir = tempfile.mkdtemp('gruvi-test')
-        logger = logging.getLogger('gruvi')
-        if not logger.handlers:
-            setup_logger(logger)
+        setup_logging()
         testdir = os.path.abspath(os.path.split(__file__)[0])
         os.chdir(testdir)
-        if not os.access('server.pem', os.R_OK):
-            create_ssl_certificate('server.pem')
-        cls.certname = 'server.pem'
+        if not os.access('testcert.pem', os.R_OK):
+            create_ssl_certificate('testcert.pem')
+        cls.certname = 'testcert.pem'
 
-    @classmethod
-    def tearDownClass(cls):
-        # Some paranoia checks to make me feel better when calling
+    def setUp(self):
+        self._tmpindex = 1
+        self.__tmpdir = tempfile.mkdtemp('gruvi-test')
+        self.__tmpinode = os.stat(self.__tmpdir).st_ino
+
+    def tearDown(self):
+        # Some paranoia checks to make me feel better before calling
         # shutil.rmtree()..
-        assert '/..' not in cls.__tmpdir and '\\..' not in cls.__tmpdir
-        if '/tmp/' not in cls.__tmpdir and '\\temp\\' not in cls.__tmpdir:
-            return
+        assert '/..' not in self.__tmpdir and '\\..' not in self.__tmpdir
+        assert os.stat(self.__tmpdir).st_ino == self.__tmpinode
         try:
-            shutil.rmtree(cls.__tmpdir)
+            shutil.rmtree(self.__tmpdir)
         except OSError:
             # On Windows a WindowsError is raised when files are
             # still open (WindowsError inherits from OSError).
             pass
-        cls.__tmpdir = None
+        self.__tmpdir = None
+        self.__tmpinode = None
 
-    @classmethod
-    def tempname(cls, name):
-        return os.path.join(cls.__tmpdir, name)
+    @property
+    def tempdir(self):
+        return self.__tmpdir
 
-    @classmethod
-    def pipename(cls, name):
+    def tempname(self, name=None):
+        if name is None:
+            name = 'tmpfile-{0}'.format(self._tmpindex)
+            self._tmpindex += 1
+        return os.path.join(self.__tmpdir, name)
+
+    def pipename(self, name):
         if sys.platform.startswith('win'):
             return r'\\.\pipe\{0}-{1}'.format(name, os.getpid())
         else:
-            return cls.tempname(name)
+            return self.tempname(name)
 
     def assertRaises(self, exc, func, *args, **kwargs):
         # Like unittest.assertRaises, but returns the exception.
@@ -105,3 +118,23 @@ class UnitTest(unittest.TestCase):
         else:
             self.fail('Exception not raised: {0!s}'.format(exc))
         return exc
+
+
+class UnitTest(BaseTest):
+    """Base class for unit tests."""
+
+
+class PerformanceTest(BaseTest):
+    """Base class for performance tests."""
+
+    def add_result(self, result, params={}, name=None):
+        """Add a performance test result."""
+        if name is None:
+            frame = sys._getframe(1)
+            clsname = frame.f_locals.get('self', '').__class__.__name__
+            methname = frame.f_code.co_name
+            name = '{0}_{1}'.format(clsname[4:], methname[5:]).lower()
+        if params is not None:
+            params = ','.join(['{0}={1}'.format(k, params[k]) for k in params])
+        with open('performance.txt', 'a') as fout:
+            fout.write('{0:<32s} {1:<16.2f} {2:s}\n'.format(name, result, params))
