@@ -45,9 +45,9 @@ def get_logger(context='', name='gruvi'):
     if not isinstance(context, compat.string_types):
         context = objref(context)
     logger = logging.getLogger(name)
-    if not logger.isEnabledFor(logging.DEBUG):
-        patch_logger(logger)
-    return ContextLogger(logger, context)
+    patch_logger(logger)
+    debug = os.environ.get('DEBUG', '0') != '0'
+    return ContextLogger(logger, context, debug)
 
 
 def patch_logger(logger):
@@ -92,17 +92,10 @@ class ContextLogger(object):
     # implementations differ quite a bit, which means we would need to
     # reimplement almost the entire thing anyway.
 
-    def __init__(self, logger, context=''):
+    def __init__(self, logger, context='', debug=False):
         self.logger = logger
         self.context = context
-
-    def with_context(self, context, *args, **kwargs):
-        if args or kwargs:
-            if PY26:
-                context = replace_fmt(context)
-            context = context.format(*args, **kwargs)
-        context = '{0}; {1}'.format(self.context, context) if self.context else context
-        return type(self)(self.logger, context)
+        self._debug = debug
 
     def thread_info(self):
         tid = threading.current_thread().name
@@ -120,9 +113,11 @@ class ContextLogger(object):
     def log(self, level, exc, msg, *args, **kwargs):
         if not self.logger.isEnabledFor(level):
             return
-        prefix = [self.thread_info(), self.stack_info()]
-        if self.context:
-            prefix.append(self.context)
+        prefix = [self.thread_info()]
+        prefix.append(self.stack_info() if self._debug else '')
+        prefix.append(self.context)
+        while not prefix[-1]:
+            prefix.pop()
         prefix = '|'.join(prefix)
         if args or kwargs:
             if PY26:
