@@ -230,7 +230,7 @@ def reflect_app(message, endpoint, transport):
 def notification_app():
     notifications = []
     def application(message, endpoint, transport):
-        if message['id'] is None:
+        if message.get('id') is None:
             notifications.append((message['method'], message['params']))
         elif message['method'] == 'get_notifications':
             return create_response(message, notifications)
