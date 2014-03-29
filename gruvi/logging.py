@@ -117,6 +117,7 @@ class ContextLogger(object):
             return
         prefix = [self.thread_info()]
         prefix.append(self.stack_info() if self._debug else '')
+        prefix.append(getattr(fibers.current(), 'context', None) or '')
         prefix.append(self.context)
         while not prefix[-1]:
             prefix.pop()

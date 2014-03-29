@@ -47,6 +47,7 @@ class Fiber(fibers.Fiber):
         self._log = logging.get_logger(self)
         self._done = Signal()
         self._thread = threading.get_ident()
+        self.context = None
 
     @property
     def name(self):
