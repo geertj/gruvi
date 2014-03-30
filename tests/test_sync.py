@@ -474,8 +474,8 @@ class TestWait(UnitTest):
         # disconnected from all signals.
         signals = [gruvi.Signal(), gruvi.Signal()]
         self.assertRaises(gruvi.Timeout, gruvi.wait, signals, timeout=0.001)
-        self.assertEqual(signals[0].callbacks, [])
-        self.assertEqual(signals[1].callbacks, [])
+        self.assertEqual(len(signals[0]._callbacks), 0)
+        self.assertEqual(len(signals[1]._callbacks), 0)
 
 
 class TestWaitAll(UnitTest):
@@ -582,8 +582,8 @@ class TestWaitAll(UnitTest):
         signals = [gruvi.Signal(), gruvi.Signal()]
         gen = gruvi.waitall(signals, timeout=0.1)
         self.assertRaises(gruvi.Timeout, compat.next, gen)
-        self.assertEqual(signals[0].callbacks, [])
-        self.assertEqual(signals[1].callbacks, [])
+        self.assertEqual(len(signals[0]._callbacks), 0)
+        self.assertEqual(len(signals[1]._callbacks), 0)
 
     def test_cleanup_cancel(self):
         # Unfired signals should be disconnected after the generator is
@@ -591,8 +591,8 @@ class TestWaitAll(UnitTest):
         signals = [gruvi.Signal(), gruvi.Signal()]
         gen = gruvi.waitall(signals)
         gen.close()
-        self.assertEqual(signals[0].callbacks, [])
-        self.assertEqual(signals[1].callbacks, [])
+        self.assertEqual(len(signals[0]._callbacks), 0)
+        self.assertEqual(len(signals[1]._callbacks), 0)
 
 
 if __name__ == '__main__':

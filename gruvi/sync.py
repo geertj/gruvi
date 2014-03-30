@@ -176,16 +176,6 @@ class Signal(object):
         """
         return getattr(cls._local, 'signal', None)
 
-    @property
-    def callbacks(self):
-        """Return the currently registered callbacks."""
-        return [cb[0].callback for cb in self._callbacks if hasattr(cb[0], 'callback')]
-
-    @property
-    def waiters(self):
-        """Return the fibers currently waiting on this signal."""
-        return [cb[0].fiber for cb in self._callbacks if hasattr(cb[0], 'fiber')]
-
     def emit(self, *args):
         """Emit the signal.
 
