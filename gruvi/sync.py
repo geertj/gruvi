@@ -25,12 +25,17 @@ class Lock(object):
     The lock is acquired using :meth:`acquire` and released using
     :meth:`release`. A lock can also be used as a context manager.
 
-    This lock is thread safe.
+    A lock is thread safe.
     """
 
     __slots__ = ('_recursive', '_lock', '_locked', '_owner', '_waiters')
 
     def __init__(self, recursive=False):
+        """If the *recursive* argument is nonzero, then the lock will be a
+        recursive lock. A recursive lock may be acquired multiple times by the
+        fiber that holds the lock. To unlock a recursive lock, it needs to be
+        unlocked as many times as it was locked.
+        """
         self._recursive = recursive
         self._lock = threading.Lock()
         self._locked = 0
@@ -44,12 +49,13 @@ class Lock(object):
 
     @property
     def locked(self):
+        """Whether or not the lock is currently locked."""
         return self._locked
 
     @switchpoint
     def acquire(self, timeout=None):
         """Acquire the lock.
-        
+
         The *timeout* parameter specifies an optional timeout in seconds. The
         return value is a boolean indicating whether the lock was acquired.
         """
@@ -122,7 +128,7 @@ def current_signal():
 
 class Signal(object):
     """A signal object.
-    
+
     A signal is a synchronization primitive that allows one or more fibers to
     wait for an event to happen. A signal can be emitted using :meth:`emit`,
     and be waited for using :meth:`wait`. You can also connect a callback to
@@ -134,8 +140,10 @@ class Signal(object):
     Note that a signal is edge triggered. This means that only those fibers are
     notified that are waiting at the moment the signal is emitted. Immediateley
     after the signal is emitted, it is reset, and the signal arguments are
-    lost. In this respect, a signal is similar to a :class:`threading.Condition`
-    (albeit with arguments).
+    lost.
+
+    A signal is essentially a :class:`threading.Condition` with arguments and
+    the ability to install callbacks.
     """
 
     __slots__ = ('_log', '_lock', '_callbacks')
@@ -181,7 +189,7 @@ class Signal(object):
     def emit(self, *args):
         """Emit the signal.
 
-        Any positional argument passed here will be returned by :meth:`wait`.
+        Any positional arguments passed here will be returned by :meth:`wait`.
         """
         deleted = 0
         for i in range(len(self._callbacks)):
@@ -277,12 +285,13 @@ class Queue(object):
     """A synchronized priority queue.
 
     Items are pushed onto the queue with :meth:`push` and popped with
-    :meth:`pop`. The latter will pop the item with the highest priority, which
-    by default will be the item with the highest age (i.e. a FIFO queue).
+    :meth:`pop`. The latter pops the item with the highest priority, which by
+    default is the item with the highest age (i.e. a FIFO queue).
 
-    A queue is thread safe. To synchronize calls between :meth:`put` and
-    :meth:`get` in different threads, acquire the :attr:`lock` before calling
-    either method.
+    The attr:`size_changed` signal is raised every time an element is added or
+    removed. You can connect to this signal and take actions based on it to
+    limit the size of the queue. The queue itself is unbounded and will always
+    accept new elements.
     """
 
     __slots__ = ('_heap', '_size', '_sizefunc', '_counter', '_priofunc',
@@ -323,7 +332,7 @@ class Queue(object):
     @property
     def size_changed(self):
         """A signal that is emitted when the size of the queue has changed.
-        
+
         Signal arguments: ``size_changed(oldsize, newsize)``.
         """
         return self._size_changed
@@ -374,7 +383,7 @@ def wait(signals, timeout=None):
     """Wait for one of the signals to be raised.
 
     The optional *timeout* keyword argument can be provided to specify a timeout.
-    
+
     Return a tuple containing the signal followed by its arguments.
     """
     raised = Signal()
@@ -393,7 +402,7 @@ def wait(signals, timeout=None):
 @switchpoint
 def waitall(signals, **kwargs):
     """Wait for all of *signals* to be raised.
-    
+
     An optional *timeout* keyword argument can be provided to specify a timeout.
 
     Returns an iterator that yields tuples containing the signal followed by
