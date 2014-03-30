@@ -163,7 +163,7 @@ class Reader(io.BufferedIOBase):
                 raise bufs.error
         if size is None:
             if not bufs.eof and not bufs.error:
-                bufs.events.wait(waitfor=('EOF', 'Error'))
+                bufs.events.wait(lambda event: event in ('EOF', 'Error'))
             assert bufs.eof or bufs.error
             if bufs.size == 0 and bufs.error:
                 raise bufs.error

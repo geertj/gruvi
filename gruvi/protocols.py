@@ -221,8 +221,7 @@ class Protocol(object):
         transport._write_buffer += nbytes
         transport.write(data, on_write_complete)
         if transport._write_buffer > self.max_buffer_size:
-            events = ('BufferBelowThreshold', 'HandleError')
-            transport._events.wait(waitfor=events)
+            transport._events.wait(lambda event: event in ('BufferBelowThreshold', 'HandleError'))
         if transport._error:
             raise transport._error
         return nbytes
@@ -239,7 +238,7 @@ class Protocol(object):
         if not transport._write_buffer:
             return
         if not transport._error:
-            transport._events.wait(waitfor=('BufferEmpty', 'HandleError'))
+            transport._events.wait(lambda event: event in ('BufferEmpty', 'HandleError'))
         if transport._error:
             raise transport._error
 

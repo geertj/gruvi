@@ -285,7 +285,8 @@ class JsonRpcBase(protocols.RequestResponseProtocol):
         message = create_request(method, args, version=self.default_version)
         self._send_message(transport, message)
         events = ('MethodResponse:{0}'.format(message['id']), 'HandleError')
-        response = transport._events.wait(self._timeout, waitfor=events)
+        response = transport._events.wait(lambda event,*args: event in events,
+                                          timeout=self._timeout)
         if response == 'HandleError':
             raise self._transport._error
         event, response = response

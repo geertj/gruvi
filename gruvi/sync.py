@@ -185,51 +185,48 @@ class Signal(object):
         """
         deleted = 0
         for i in range(len(self._callbacks)):
-            callback, waitfor, rearm = self._callbacks[i-deleted]
-            if isinstance(waitfor, tuple):
-                match = args and args[0] in waitfor
-            elif callable(waitfor):
-                match = waitfor(*args)
+            callback, accept, rearm = self._callbacks[i-deleted]
+            if callable(accept):
+                match = accept(*args)
             else:
-                match = True
-            if match:
-                try:
-                    callback(*args)
-                except Cancelled:
-                    rearm = False
-                except Exception as e:
-                    self._log.exception('uncaught exception in callback')
-            if not rearm and match:
+                match = accept is None or accept == args
+            if not match:
+                continue
+            try:
+                callback(*args)
+            except Cancelled:
+                rearm = False
+            except Exception as e:
+                self._log.exception('uncaught exception in callback')
+            if not rearm:
                 del self._callbacks[i-deleted]
                 deleted += 1
 
     @switchpoint
-    def wait(self, timeout=None, interrupt=False, waitfor=None):
+    def wait(self, accept=None, timeout=None, interrupt=False):
         """Wait for the signal to be emitted.
 
-        The optional *timeout* argument specifies the number of seconds to
-        wait. If no timeout is provided, then this method waits indefinitely.
-
-        The optional *waitfor* argument can be used to wait for specific values
-        of the signal arguments. It can be a tuple of values, in which case the
-        first signal argument must be in the tuple. It may also be a callable
-        that takes the signal arguments as parameters and returns a boolean
-        indicating if the caller wants to wait for this signal.
+        The optional *accept* argument can be used to wait for a specific value
+        of the signal argument. If the value does not match, then this method
+        continues to wait. The *accept* argument can be a callable, a tuple, or
+        ``None``. If it is a callable, it is called with the signal arguments
+        and it must return a boolean indicating whether they match.  If it is a
+        tuple then it must compare as equal to the signal's arguments. If it is
+        None (the default) then any signal arguments are acceptable.
 
         If the :attr:`lock` is held when this method is called, then it will be
         released after the current fiber blocks, and acquired again before this
-        method returns. This allows you to synchronize :meth:`wait` and
-        :meth:`emit` between each other in a multi-threaded environment.
+        method returns. This allows you to synchronize calls to :meth:`wait`
+        and :meth:`emit` in different threads.
 
-        The return value is a tuple containing the positional arguments passed
-        to :meth:`emit`.
+        The return value is the value passed to :meth:`emit`.
         """
         hub = get_hub()
         lock_count = self.lock.locked
         unlocked = False
         try:
             with switch_back(timeout, interrupt) as switcher:
-                self._callbacks.append((switcher, waitfor, False))
+                self._callbacks.append((switcher, accept, False))
                 # See the comment in Lock.acquire() why it is OK to release the
                 # lock here before calling hub.switch().
                 # Also if this is a recursive lock make sure it is fully released.
@@ -244,15 +241,15 @@ class Signal(object):
                 self.lock._locked = lock_count
         return result[0]
 
-    def connect(self, callback):
+    def connect(self, callback, accept=None):
         """Connect a callback to the signal.
 
         The callback will be called every time the signal is emitted. It will
-        be called as ``callback(*args)`` with ``*args`` the arguments passed to
-        :meth:`emit`.
+        be called as ``callback(*args)`` with *args* the positional argument
+        passed to :meth:`emit`. Callbacks are always run in the Hub of the
+        thread that connected to the signal.
 
-        Callbacks are always run in the Hub of the thread that called this
-        method.
+        The *accept* argument has the same meaning as in :meth:`wait`.
         """
         hub = get_hub()
         def schedule_callback(*args):
@@ -264,7 +261,7 @@ class Signal(object):
                     self._local.signal = None
             hub.run_callback(call_callback)
         schedule_callback.callback = callback
-        self._callbacks.append((schedule_callback, None, True))
+        self._callbacks.append((schedule_callback, accept, True))
 
     def disconnect(self, callback):
         """Disconnect a callback."""
@@ -359,13 +356,13 @@ class Queue(object):
     @switchpoint
     def get(self, timeout=None):
         """Pop the object with the highest priority from the queue.
-        
+
         If the queue is empty, wait up to *timeout* seconds until an item
         becomes available. If the timeout is not provided, then wait
         indefinitely. On timeout, a :class:`Timeout` exception is raised.
         """
         while len(self._heap) == 0:
-            self.size_changed.wait(timeout)
+            self.size_changed.wait(timeout=timeout)
         prio, obj = heapq.heappop(self._heap)
         delta = -1 if self._sizefunc is None else -self._sizefunc(obj)
         self._adjust_size(delta)
@@ -386,7 +383,7 @@ def wait(signals, timeout=None):
     for signal in signals:
         signal.connect(callback)
     try:
-        result = raised.wait(timeout)
+        result = raised.wait(timeout=timeout)
     finally:
         for signal in signals:
             signal.disconnect(callback)

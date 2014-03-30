@@ -69,7 +69,7 @@ class Future(object):
         was raised instead, it is re-raised here.
         """
         if not self._completed:
-            self.done.wait(timeout)
+            self.done.wait(timeout=timeout)
         if self._exception:
             raise self._exception
         return self._value
@@ -194,7 +194,7 @@ class PoolBase(object):
             for i in range(len(self._workers)):
                 self._queue.put(self._StopWorker)
             if len(self._queue) > 0:
-                self._queue.size_changed.wait(waitfor=(lambda o,n: n == 0))
+                self._queue.size_changed.wait(lambda old,new: new == 0)
         assert len(self._queue) == 0
 
 

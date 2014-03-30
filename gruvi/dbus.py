@@ -310,7 +310,8 @@ class DBusClient(DBusBase):
             raise DBusError('could not connect to any address')
         self._start_authentication(self._transport)
         events = ('AuthenticationComplete', 'HandleError')
-        self._transport._events.wait(self._timeout, waitfor=events)
+        self._transport._events.wait(lambda event: event in events,
+                                     timeout=self._timeout)
         if self._transport._error:
             raise self._transport._error
         elif not self._transport._authenticated:
@@ -360,7 +361,8 @@ class DBusClient(DBusBase):
                                            autoStart=auto_start)
         self.send_message(message)
         events = ('MethodResponse:{0}'.format(message.serial), 'HandleError')
-        response = self._transport._events.wait(self._timeout, waitfor=events)
+        response = self._transport._events.wait(lambda event,*args: event in events,
+                                                timeout=self._timeout)
         if response == 'HandleError':
             raise self._transport._error
         event, response = response
