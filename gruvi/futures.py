@@ -30,11 +30,11 @@ class Future(object):
     :class:`asyncio.Future`, but with an API that uses Gruvi signals.
     """
 
-    def __init__(self):
+    def __init__(self, lock=None):
         self._value = None
         self._exception = None
         self._completed = False
-        self._done = sync.Signal()
+        self._done = sync.Signal(lock)
 
     @property
     def value(self):
@@ -101,6 +101,9 @@ class PoolBase(object):
     def _spawn_worker(self):
         raise NotImplemented
 
+    def _create_future(self):
+        raise NotImplemented
+
     def _worker_main(self):
         # Main function for each worker in the pool.
         while True:
@@ -153,8 +156,8 @@ class PoolBase(object):
         The function is called with positional argument *args*.
         """
         if self._closed:
-            raise RuntimeError('ThreadPool is closed')
-        result = Future()
+            raise RuntimeError('Pool is closed')
+        result = self._create_future()
         with self._queue.lock:
             self._queue.put((func, args, result))
         self._spawn_workers()
@@ -212,6 +215,9 @@ class FiberPool(PoolBase):
         worker.start()
         return worker
 
+    def _create_future(self):
+        return Future()
+
 Pool = FiberPool
 
 
@@ -238,6 +244,9 @@ class ThreadPool(PoolBase):
         worker.daemon = True
         worker.start()
         return worker
+
+    def _create_future(self):
+        return Future(sync.Lock())
 
     @classmethod
     def get_io_pool(cls):

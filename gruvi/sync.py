@@ -10,7 +10,6 @@ from __future__ import absolute_import, print_function
 
 import fibers
 import threading
-import collections
 import heapq
 
 from . import logging, local
@@ -29,12 +28,19 @@ class Lock(object):
     This lock is thread safe.
     """
 
+    __slots__ = ('_recursive', '_lock', '_locked', '_owner', '_waiters')
+
     def __init__(self, recursive=False):
         self._recursive = recursive
         self._lock = threading.Lock()
-        self._locked = False
+        self._locked = 0
         self._owner = None
-        self._waiters = collections.deque()
+        # The _waiters attribute is initialized with a list on first use. We
+        # use a list instead of a deque to save on memory, even if a list has
+        # worse asymptotic performance. A lock is a very fundamental data
+        # structure that should be fast and small. On my 64-bit system, an
+        # empty deque is 624 bytes vs just 72 for a list.
+        self._waiters = None
 
     @property
     def locked(self):
@@ -62,6 +68,8 @@ class Lock(object):
                             raise RuntimeError('already locked by this fiber')
                         self._locked += 1
                         return True
+                    if self._waiters is None:
+                        self._waiters = []
                     self._waiters.append(switcher)
                 if timeout is not None:
                     timeout = end_time - hub.loop.now()
@@ -83,11 +91,25 @@ class Lock(object):
                 self._owner = None
             if not self._waiters:
                 return
-            notify = self._waiters.popleft()
+            notify = self._waiters.pop()
             notify()
 
     __enter__ = acquire
     __exit__ = lambda self,*exc_info: self.release()
+
+
+class DummyLock(object):
+    """A dummy lock.
+
+    This lock is used with :class:`Signal` and :class:`Queue` in case thread
+    safety is not required.
+    """
+    __slots__ = ()
+    locked = property(lambda self: False)
+    __enter__ = lambda self: None
+    __exit__ = lambda self,*exc_info: None
+
+_DummyLock = DummyLock()
 
 
 def current_signal():
@@ -109,10 +131,6 @@ class Signal(object):
     Positional arguments that are provided when the signal is emitted will be
     passed on as the return value of :meth:`wait`.
 
-    A signal is thread safe. To synchronize calls between :meth:`emit` and
-    :meth:`wait` across multiple threads, acquire the :attr:`lock` before
-    calling either function.
-
     Note that a signal is edge triggered. This means that only those fibers are
     notified that are waiting at the moment the signal is emitted. Immediateley
     after the signal is emitted, it is reset, and the signal arguments are
@@ -120,18 +138,23 @@ class Signal(object):
     (albeit with arguments).
     """
 
+    __slots__ = ('_log', '_lock', '_callbacks')
+
     def __init__(self, lock=None):
-        self._log = logging.get_logger(self)
-        self._lock = lock or Lock()
-        self._callbacks = collections.deque()
+        """
+        The *lock* argument can be used to make the signal thread aware by
+        passing it a :class:`Lock` instance. In this case you can synchronize
+        calls between :meth:`emit` and :meth:`wait` in multiple threads by
+        acquiring the :attr:`lock` before calling either method.
+        """
+        self._log = logging.get_logger()
+        self._lock = lock or _DummyLock
+        self._callbacks = []
 
     @property
     def lock(self):
-        """The signal's lock.
-        
-        Acquiring this lock before calling :meth:`emit` and :meth:`wait` allows
-        you to synchronize these calls across multiple threads.
-        """
+        """The signal's lock that was passed to the constructor, or a dummy
+        lock object if none was passed."""
         return self._lock
 
     _local = local.local()
@@ -160,8 +183,9 @@ class Signal(object):
 
         Any positional argument passed here will be returned by :meth:`wait`.
         """
+        deleted = 0
         for i in range(len(self._callbacks)):
-            callback, waitfor, rearm = self._callbacks.popleft()
+            callback, waitfor, rearm = self._callbacks[i-deleted]
             if isinstance(waitfor, tuple):
                 match = args and args[0] in waitfor
             elif callable(waitfor):
@@ -175,8 +199,9 @@ class Signal(object):
                     rearm = False
                 except Exception as e:
                     self._log.exception('uncaught exception in callback')
-            if rearm or not match:
-                self._callbacks.append((callback, waitfor, rearm))
+            if not rearm and match:
+                del self._callbacks[i-deleted]
+                deleted += 1
 
     @switchpoint
     def wait(self, timeout=None, interrupt=False, waitfor=None):
@@ -243,18 +268,12 @@ class Signal(object):
 
     def disconnect(self, callback):
         """Disconnect a callback."""
-        # Keep the order of the callbacks. And optimize for the case when you
+        # Reverse iterate over _callbacks to optimize for the case when you
         # disconnect a signal that was recently connected (e.g. wait()).
-        pos = 0
-        for cb in reversed(self._callbacks):
-            if cb[0].callback is callback:
+        for i in reversed(range(len(self._callbacks))):
+            if self._callbacks[i][0].callback is callback:
+                del self._callbacks[i]
                 break
-            pos += 1
-        else:
-            return
-        self._callbacks.rotate(pos)
-        self._callbacks.pop()
-        self._callbacks.rotate(-pos)
 
 
 class Queue(object):
@@ -269,37 +288,39 @@ class Queue(object):
     either method.
     """
 
-    def __init__(self, sizefunc=None, priofunc=None):
-        """The optional *sizefunc* paremeter can be used to define a custom
+    __slots__ = ('_heap', '_size', '_sizefunc', '_counter', '_priofunc',
+                 '_size_changed')
+
+    def __init__(self, lock=None, sizefunc=None, priofunc=None):
+        """The *lock* argument can be used to make a queue thread aware by
+        passing it a :class:`Lock` instance. In this case you can synchronize
+        calls between :meth:`put` and :meth:`get` in different threads by
+        acquiring the :attr:`lock` before calling either method.
+
+        The optional *sizefunc* paremeter can be used to define a custom
         size for queue elements. It must be a function that takes a queue
-        element as its argument, and returns its size. If no *sizefunc* is
-        provided, then all elements will have a size of 1. In this case,
-        ``len(queue)`` wil be equal to the queue :meth:`size`.
+        element as its argument, and returns its size as an integer. If no
+        *sizefunc* is provided, then all elements will have a size of 1. In
+        this case, ``len(queue)`` wil be equal to the queue's :meth:`size`.
 
         The optional *priofunc* can be used to specify a priority for queue
-        elements. It must be a function that takes a queue element as its
-        argument, and returns its priority. The priority must be an integer,
-        with higher values meaning higher priorities. If no *priofunc* is
-        provided, then the priority of an item will be its age.
+        elements. It must be a function that takes a monotonically increasing
+        counter and a queue element as its arguments, and returns its priority
+        as an integer. Lower numerical values mean a higher priority. If no
+        *priofunc* is provided, then the priority of an item will the value of
+        the counter, resulting in a FIFO queue.
         """
         self._heap = []
         self._size = 0
-        self._sizefunc = sizefunc or (lambda x: 1)
-        if priofunc is None:
-            self._counter = 0
-            def priofunc(x):
-                self._counter -= 1
-                return self._counter
+        self._sizefunc = sizefunc
+        self._counter = 0
         self._priofunc = priofunc
-        self._size_changed = Signal()
+        self._size_changed = Signal(lock)
 
     @property
     def lock(self):
-        """The queue's lock.
-        
-        Acquiring this lock before calling :meth:`put` and :meth:`get` allows
-        you to synchronize these calls across multiple threads.
-        """
+        """The queue's lock that was passed to the constructor, or a dummy
+        lock object if none was passed."""
         return self._size_changed._lock
 
     @property
@@ -326,9 +347,14 @@ class Queue(object):
 
     def put(self, obj):
         """Push an object onto the queue."""
-        prio = self._priofunc(obj)
-        heapq.heappush(self._heap, (-prio, obj))
-        self._adjust_size(self._sizefunc(obj))
+        self._counter += 1
+        if self._priofunc is None:
+            priority = self._counter
+        else:
+            priority = self._priofunc(self._counter, obj)
+        heapq.heappush(self._heap, (priority, obj))
+        delta = 1 if self._sizefunc is None else self._sizefunc(obj)
+        self._adjust_size(delta)
 
     @switchpoint
     def get(self, timeout=None):
@@ -341,7 +367,8 @@ class Queue(object):
         while len(self._heap) == 0:
             self.size_changed.wait(timeout)
         prio, obj = heapq.heappop(self._heap)
-        self._adjust_size(-self._sizefunc(obj))
+        delta = -1 if self._sizefunc is None else -self._sizefunc(obj)
+        self._adjust_size(delta)
         return obj
 
 

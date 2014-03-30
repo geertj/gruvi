@@ -276,7 +276,7 @@ class TestSignal(UnitTest):
             res = signal.wait()
             result[0] += res[0]
             gruvi.get_hub().close()
-        signal = gruvi.Signal()
+        signal = gruvi.Signal(gruvi.Lock())
         for i in range(100):
             t1 = threading.Thread(target=thread_emit)
             t2 = threading.Thread(target=thread_wait)
@@ -316,7 +316,7 @@ class TestQueue(UnitTest):
         # The constructor should take a priofunc argument which is a function
         # that returns the priority of an item. When getting elements from the
         # queue, the element with the highest priority should be returned first.
-        queue = gruvi.Queue(priofunc=lambda el: len(el))
+        queue = gruvi.Queue(priofunc=lambda i,el: -len(el))
         for i in range(10):
             queue.put(i * 'x')
         for i in range(10):
@@ -426,7 +426,7 @@ class TestQueue(UnitTest):
                 if fib.alive:
                     fib.done.wait()
             gruvi.get_hub().close()
-        queue = gruvi.Queue()
+        queue = gruvi.Queue(gruvi.Lock())
         queue.size_changed.connect(callback)
         threads = []
         for i in range(5):

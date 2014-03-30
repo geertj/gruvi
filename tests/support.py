@@ -26,7 +26,7 @@ SkipTest = unittest.SkipTest
 from gruvi.logging import get_log_level
 
 
-__all__ = ['UnitTest', 'PerformanceTest', 'SkipTest', 'unittest']
+__all__ = ['UnitTest', 'PerformanceTest', 'SkipTest', 'unittest', 'sizeof']
 
 
 def setup_logging():
@@ -58,6 +58,27 @@ def create_ssl_certificate(fname):
         sys.stderr.write('Error: key generation failed\n')
         sys.stderr.write('openssl stdout: {0}\n'.format(stdout))
         sys.stderr.write('openssl stderr: {0}\n'.format(stderr))
+
+
+def sizeof(obj, exclude=None):
+    """Return the size in bytes of *obj*."""
+    if obj is None or obj is False or obj is True:
+        return 0
+    size = sys.getsizeof(obj)
+    if hasattr(obj, '__dict__'):
+        size += sys.getsizeof(obj.__dict__)
+        for key,value in obj.__dict__.items():
+            if exclude is not None and key in exclude:
+                continue
+            size += sizeof(key)
+            size += sizeof(value, exclude)
+    elif hasattr(obj, '__slots__'):
+        for key in obj.__slots__:
+            if hasattr(obj, key):
+                if exclude is not None and key in exclude:
+                    continue
+                size += sizeof(getattr(obj, key), exclude)
+    return size
 
 
 class BaseTest(unittest.TestCase):

@@ -36,18 +36,31 @@ def objref(obj):
     return ref
 
 
-def get_logger(context='', name='gruvi'):
+_logger_name = 'gruvi'
+_logger_dict = {}
+
+def get_logger(context='', name=None):
     """Return a logger for *context*.
 
     Return a :class:`ContextLogger` instance. The instance implements the
     standard library's :class:`logging.Logger` interface.
     """
-    if not isinstance(context, compat.string_types):
+    if name is None:
+        name = _logger_name
+    # To save memory, return a singleton instance for loggers without context.
+    if not context:
+        logger = _logger_dict.get(name)
+        if logger is not None:
+            return logger
+    elif not isinstance(context, compat.string_types):
         context = objref(context)
     logger = logging.getLogger(name)
     patch_logger(logger)
     debug = os.environ.get('DEBUG', '0') != '0'
-    return ContextLogger(logger, context, debug)
+    logger = ContextLogger(logger, context, debug)
+    if not context:
+        _logger_dict[name] = logger
+    return logger
 
 
 def patch_logger(logger):
