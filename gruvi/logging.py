@@ -56,8 +56,8 @@ def get_logger(context='', name=None):
         context = objref(context)
     logger = logging.getLogger(name)
     patch_logger(logger)
-    debug = os.environ.get('DEBUG', '0') != '0'
-    logger = ContextLogger(logger, context, debug)
+    show_stack = os.environ.get('DEBUG', '0') != '0'
+    logger = ContextLogger(logger, context, show_stack)
     if not context:
         _logger_dict[name] = logger
     return logger
@@ -91,12 +91,14 @@ def get_log_level():
     if verbose is None:
         level = logging.DEBUG if debug else logging.INFO
     elif verbose <= 0:
-        level = logging.ERROR
+        level = logging.CRITICAL
     elif verbose == 1:
-        level = logging.WARNING
+        level = logging.ERROR
     elif verbose == 2:
+        level = logging.WARNING
+    elif verbose == 3:
         level = logging.INFO
-    elif verbose >= 3:
+    elif verbose >= 4:
         level = logging.DEBUG
     return level
 
@@ -111,10 +113,10 @@ class ContextLogger(object):
     # implementations differ quite a bit, which means we would need to
     # reimplement almost the entire thing anyway.
 
-    def __init__(self, logger, context='', debug=False):
+    def __init__(self, logger, context='', show_stack=False):
         self.logger = logger
         self.context = context
-        self._debug = debug
+        self.show_stack = show_stack
 
     def thread_info(self):
         tid = threading.current_thread().name
@@ -135,7 +137,7 @@ class ContextLogger(object):
         if not self.logger.isEnabledFor(level):
             return
         prefix = [self.thread_info()]
-        prefix.append(self.stack_info() if self._debug else '')
+        prefix.append(self.stack_info() if self.show_stack else '')
         prefix.append(getattr(fibers.current(), 'context', None) or '')
         prefix.append(self.context)
         while not prefix[-1]:
