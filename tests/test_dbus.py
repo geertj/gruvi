@@ -3,354 +3,532 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
 
 import os
-import functools
+import six
+import socket
 
 import gruvi
-from gruvi import dbus_ffi, txdbus, compat
-from gruvi.protocols import errno
-from gruvi.dbus import DBusParser, DBusBase, DBusClient
+from gruvi import txdbus
+from gruvi.dbus import *
+from gruvi.dbus import parse_dbus_header, TxdbusAuthenticator
+from gruvi.transports import TransportError
 
-from tests.support import *
-
-
-_keepalive = None
-
-def set_buffer(ctx, buf):
-    # See note in DBusParser
-    global _keepalive
-    _keepalive = ctx.buf = dbus_ffi.ffi.new('char[]', buf)
-    ctx.buflen = len(buf)
-    ctx.offset = 0
-
-def split_string(s):
-    ctx = dbus_ffi.ffi.new('struct context *')
-    set_buffer(ctx, s)
-    dbus_ffi.lib.split(ctx)
-    return ctx
+from support import *
 
 
-class TestDBusFFI(UnitTest):
+class TestParseDbusHeader(UnitTest):
 
     def test_simple(self):
         m = b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, 0)
-        self.assertEqual(ctx.offset, len(m))
-        self.assertEqual(ctx.big_endian, 0)
-        self.assertEqual(ctx.serial, 1)
+        self.assertEqual(parse_dbus_header(m), len(m))
 
     def test_big_endian(self):
         m = b'B\1\0\1\0\0\0\0\0\0\0\1\0\0\0\0'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, 0)
-        self.assertEqual(ctx.offset, len(m))
-        self.assertEqual(ctx.big_endian, 1)
-        self.assertEqual(ctx.serial, 1)
-
-    def test_invalid_endian(self):
-        m = b'X\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.ERROR_ENDIAN)
-        self.assertEqual(ctx.offset, 0)
-
-    def test_message_type(self):
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        for i in range(1, 4):
-            m = m[:1] + chr(i).encode('ascii') + m[2:]
-            ctx = split_string(m)
-            self.assertEqual(ctx.error, 0)
-            self.assertEqual(ctx.offset, len(m))
-
-    def test_invalid_message_type(self):
-        m = b'l\0\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.ERROR_TYPE)
-        self.assertEqual(ctx.offset, 1)
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.ERROR_TYPE)
-        self.assertEqual(ctx.offset, 1)
-
-    def test_flags(self):
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        for i in range(1, 4):
-            m = m[:2] + chr(i).encode('ascii') + m[3:]
-            ctx = split_string(m)
-            self.assertEqual(ctx.error, 0)
-            self.assertEqual(ctx.offset, len(m))
-
-    def test_invalid_flags(self):
-        m = b'l\1\4\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.ERROR_FLAGS)
-        self.assertEqual(ctx.offset, 2)
-
-    def test_invalid_version(self):
-        m = b'l\1\0\2\0\0\0\0\1\0\0\0\0\0\0\0'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.ERROR_VERSION)
-        self.assertEqual(ctx.offset, 3)
-
-    def test_invalid_serial(self):
-        m = b'l\1\0\1\0\0\0\0\0\0\0\0\0\0\0\0'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.ERROR_SERIAL)
-        self.assertEqual(ctx.offset, 11)
+        self.assertEqual(parse_dbus_header(m), len(m))
 
     def test_header_array(self):
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\4\0\0\0h234'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.INCOMPLETE)
-        self.assertEqual(ctx.offset, len(m))
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\4\0\0\0h2345678'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, 0)
-        self.assertEqual(ctx.offset, len(m))
         m = b'l\1\0\1\0\0\0\0\1\0\0\0\10\0\0\0h2345678'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, 0)
-        self.assertEqual(ctx.offset, len(m))
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\11\0\0\0h23456781234567'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.INCOMPLETE)
-        self.assertEqual(ctx.offset, len(m))
+        self.assertEqual(parse_dbus_header(m), len(m))
+        for l in range(16, len(m)):
+            self.assertEqual(parse_dbus_header(m[:l]), len(m))
+
+    def test_padding(self):
         m = b'l\1\0\1\0\0\0\0\1\0\0\0\11\0\0\0h234567812345678'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, 0)
-        self.assertEqual(ctx.offset, len(m))
+        self.assertEqual(parse_dbus_header(m), len(m))
+        for l in range(16, len(m)):
+            self.assertEqual(parse_dbus_header(m[:l]), len(m))
 
     def test_body_size(self):
-        m = b'l\1\0\1\4\0\0\0\1\0\0\0\0\0\0\0b23'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.INCOMPLETE)
-        self.assertEqual(ctx.offset, len(m))
         m = b'l\1\0\1\4\0\0\0\1\0\0\0\0\0\0\0b234'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, 0)
-        self.assertEqual(ctx.offset, len(m))
-        m = b'l\1\0\1\xf0\xff\xff\x0f\1\0\0\0\0\0\0\0b234'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.INCOMPLETE)
-        self.assertEqual(ctx.offset, len(m))
+        self.assertEqual(parse_dbus_header(m), len(m))
+        for l in range(16, len(m)):
+            self.assertEqual(parse_dbus_header(m[:l]), len(m))
 
-    def test_invalid_body_size(self):
-        m = b'l\1\0\1\xf1\xff\xff\x0f\1\0\0\0\0\0\0\0b234'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, dbus_ffi.lib.ERROR_TOO_LARGE)
-        self.assertEqual(ctx.offset, 7)
+    def test_illegal_endian(self):
+        m = b'L\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
+        self.assertRaises(ValueError, parse_dbus_header, m)
+        m = b'b\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
+        self.assertRaises(ValueError, parse_dbus_header, m)
 
-    def test_header_and_body(self):
-        m = b'l\1\0\1\4\0\0\0\1\0\0\0\4\0\0\0h23456781234'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, 0)
-        self.assertEqual(ctx.offset, len(m))
+    def test_illegal_type(self):
+        m = b'l\0\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
+        self.assertRaises(ValueError, parse_dbus_header, m)
+        m = b'l\5\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
+        self.assertRaises(ValueError, parse_dbus_header, m)
 
-    def test_multiple(self):
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0' + \
-            b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        ctx = split_string(m)
-        self.assertEqual(ctx.error, 0)
-        self.assertEqual(ctx.offset, len(m)/2)
-        error = dbus_ffi.lib.split(ctx)
-        self.assertEqual(ctx.error, 0)
-        self.assertEqual(ctx.offset, len(m))
- 
-    def test_incremental(self):
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        offset = state = 0
-        ctx = dbus_ffi.ffi.new('struct context *')
-        for i in range(len(m)-1):
-            set_buffer(ctx, m[i:i+1])
-            error = dbus_ffi.lib.split(ctx)
-            self.assertEqual(error, dbus_ffi.lib.INCOMPLETE)
-            self.assertEqual(error, ctx.error)
-            self.assertEqual(ctx.offset, 1)
-        set_buffer(ctx, m[-1:])
-        error = dbus_ffi.lib.split(ctx)
-        self.assertEqual(error, 0)
-        self.assertEqual(ctx.error, error)
-        self.assertEqual(ctx.offset, 1)
-
-    def test_incremental_with_body(self):
-        m = b'l\1\0\1\4\0\0\0\1\0\0\0\0\0\0\0abcd'
-        ctx = dbus_ffi.ffi.new('struct context *')
-        for i in range(len(m)-1):
-            set_buffer(ctx, m[i:i+1])
-            error = dbus_ffi.lib.split(ctx)
-            self.assertEqual(error, dbus_ffi.lib.INCOMPLETE)
-            self.assertEqual(ctx.error, error)
-            self.assertEqual(ctx.offset, 1)
-        set_buffer(ctx, m[-1:])
-        error = dbus_ffi.lib.split(ctx)
-        self.assertEqual(error, 0)
-        self.assertEqual(ctx.error, error)
-        self.assertEqual(ctx.offset, 1)
-
-    def test_incremental_with_header(self):
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\10\0\0\0h2345678'
-        ctx = dbus_ffi.ffi.new('struct context *')
-        for i in range(len(m)-1):
-            set_buffer(ctx, m[i:i+1])
-            error = dbus_ffi.lib.split(ctx)
-            self.assertEqual(error, dbus_ffi.lib.INCOMPLETE)
-            self.assertEqual(ctx.error, error)
-            self.assertEqual(ctx.offset, 1)
-        set_buffer(ctx, m[-1:])
-        error = dbus_ffi.lib.split(ctx)
-        self.assertEqual(error, 0)
-        self.assertEqual(ctx.error, error)
-        self.assertEqual(ctx.offset, 1)
-
-    def test_incremental_with_header_and_body(self):
-        m = b'l\1\0\1\4\0\0\0\1\0\0\0\4\0\0\0h23456781234'
-        ctx = dbus_ffi.ffi.new('struct context *')
-        for i in range(len(m)-1):
-            set_buffer(ctx, m[i:i+1])
-            error = dbus_ffi.lib.split(ctx)
-            self.assertEqual(error, dbus_ffi.lib.INCOMPLETE)
-            self.assertEqual(ctx.error, error)
-            self.assertEqual(ctx.offset, 1)
-        set_buffer(ctx, m[-1:])
-        error = dbus_ffi.lib.split(ctx)
-        self.assertEqual(error, 0)
-        self.assertEqual(ctx.error, error)
-        self.assertEqual(ctx.offset, 1)
+    def test_illegal_serial(self):
+        m = b'l\1\0\1\0\0\0\0\0\0\0\0\0\0\0\0'
+        self.assertRaises(ValueError, parse_dbus_header, m)
 
 
-class TestDBusParser(UnitTest):
+class TestDbusProtocol(UnitTest):
 
-    def test_simple(self):
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        parser = DBusParser()
-        parser.feed(m)
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, txdbus.DBusMessage)
-        self.assertEqual(msg._messageType, 1)
-        self.assertEqual(msg.expectReply, True)
-        self.assertEqual(msg.autoStart, True)
-        self.assertEqual(msg.endian, ord(b'l'))
-        self.assertEqual(msg.bodyLength, 0)
-        msg = parser.pop_message()
-        self.assertIsNone(msg)
+    def setUp(self):
+        super(TestDbusProtocol, self).setUp()
+        self.messages = []
+        self.protocols = []
 
-    def test_multiple(self):
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0' \
-            b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        parser = DBusParser()
-        parser.feed(m)
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, txdbus.DBusMessage)
-        self.assertEqual(msg._messageType, 1)
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, txdbus.DBusMessage)
-        self.assertEqual(msg._messageType, 1)
-        msg = parser.pop_message()
-        self.assertIsNone(msg)
+    def store_messages(self, transport, protocol, message):
+        self.messages.append(message)
+        self.protocols.append(protocol)
 
-    def test_incremental(self):
-        m = b'l\1\0\1\0\0\0\0\1\0\0\0\0\0\0\0'
-        parser = DBusParser()
-        for i in range(len(m)-1):
-            parser.feed(m[i:i+1])
-            self.assertIsNone(parser.pop_message())
-        parser.feed(m[-1:])
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, txdbus.DBusMessage)
+    def store_and_echo_messages(self, transport, protocol, message):
+        self.messages.append(message)
+        self.protocols.append(protocol)
+        response = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
+                        signature=message.signature, body=message.body)
+        protocol.send_message(response)
 
-    def test_illegal_message(self):
-        m = b'l\1\0\2\0\0\0\0\1\0\0\0\0\0\0\0'
-        parser = DBusParser()
-        nbytes = parser.feed(m)
-        self.assertNotEqual(nbytes, len(m))
-        self.assertEqual(parser.error, errno.FRAMING_ERROR)
+    def test_auth_missing_creds_byte(self):
+        # The first thing a client should send to the server is a '\0' byte. If
+        # not, the server should close the connection.
+        transport = MockTransport()
+        protocol = DbusProtocol(True, None)
+        transport.start(protocol)
+        self.assertFalse(transport.closed)
+        protocol.data_received(b'\1')
+        self.assertIsInstance(protocol._error, DbusError)
+        self.assertTrue(transport.closed)
 
-    def test_maximum_message_size_exceeded(self):
-        parser = DBusParser()
-        parser.max_message_size = 100
-        m = b'l\1\0\1\0\1\0\0\1\0\0\0\0\0\0\0' + b'x' * 256
-        nbytes = parser.feed(m)
-        self.assertNotEqual(nbytes, len(m))
-        self.assertEqual(parser.error, errno.MESSAGE_TOO_LARGE)
+    def test_auth_non_ascii(self):
+        # After the '\0' byte, an authentiction phase happens. The
+        # authentication protocol is line based and all lines should be ascii.
+        transport = MockTransport()
+        protocol = DbusProtocol(True, None)
+        transport.start(protocol)
+        self.assertFalse(transport.closed)
+        protocol.data_received(b'\0\xff\r\n')
+        self.assertIsInstance(protocol._error, DbusError)
+        self.assertTrue(transport.closed)
+
+    def test_auth_long_line(self):
+        # An authentication line should not exceed the maximum line size.
+        transport = MockTransport()
+        protocol = DbusProtocol(True, None, 'foo')
+        protocol.max_line_size = 5
+        transport.start(protocol)
+        self.assertFalse(transport.closed)
+        protocol.data_received(b'\0AUTH ANONYMOUS\r\n')
+        self.assertIsInstance(protocol._error, DbusError)
+        self.assertTrue(transport.closed)
+
+    def test_auth_ok(self):
+        # Test anonymous authenication. Ensure that the server GUID is
+        # correctly sent back.
+        transport = MockTransport()
+        protocol = DbusProtocol(True, None, 'foo')
+        transport.start(protocol)
+        protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
+        buf = transport.buffer.getvalue()
+        self.assertTrue(buf.startswith(b'OK foo'))
+        auth = protocol._authenticator
+        self.assertTrue(auth.authenticationSucceeded())
+        self.assertTrue(auth.getGUID(), 'foo')
+        self.assertFalse(transport.closed)
+
+    def test_missing_hello(self):
+        # After authentication, the first message should be a "Hello".
+        # Otherwise, the server should close the connection.
+        transport = MockTransport()
+        protocol = DbusProtocol(True, self.store_messages, 'foo')
+        transport.start(protocol)
+        protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
+        message = txdbus.MethodCallMessage('/my/path', 'Method')
+        protocol.data_received(message.rawMessage)
+        auth = protocol._authenticator
+        self.assertTrue(auth.authenticationSucceeded())
+        self.assertIsInstance(protocol._error, DbusError)
+        self.assertTrue(transport.closed)
+
+    def test_send_message(self):
+        # After the "Hello" message, it should be possible to send other
+        # messages.
+        transport = MockTransport()
+        protocol = DbusProtocol(True, self.store_messages, 'foo')
+        transport.start(protocol)
+        protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
+        auth = protocol._authenticator
+        self.assertTrue(auth.authenticationSucceeded())
+        message = txdbus.MethodCallMessage('/org/freedesktop/DBus', 'Hello',
+                        interface='org.freedesktop.DBus', destination='org.freedesktop.DBus')
+        protocol.data_received(message.rawMessage)
+        gruvi.sleep(0)
+        self.assertIsNone(protocol._error)
+        self.assertFalse(transport.closed)
+        self.assertTrue(protocol._name_acquired)
+        self.assertEqual(len(self.messages), 0)
+        message = txdbus.MethodCallMessage('/my/path', 'Method')
+        protocol.data_received(message.rawMessage)
+        gruvi.sleep(0)
+        self.assertIsNone(protocol._error)
+        self.assertFalse(transport.closed)
+        self.assertEqual(len(self.messages), 1)
+        self.assertEqual(self.messages[0].path, '/my/path')
+        self.assertEqual(self.messages[0].member, 'Method')
+        self.assertEqual(self.protocols, [protocol])
+
+    def test_send_message_incremental(self):
+        # Send a message byte by byte. The protocol should be able process it.
+        transport = MockTransport()
+        protocol = DbusProtocol(True, self.store_messages, 'foo')
+        transport.start(protocol)
+        authexchange = b'\0AUTH ANONYMOUS\r\nBEGIN\r\n'
+        for i in range(len(authexchange)):
+            protocol.data_received(authexchange[i:i+1])
+        auth = protocol._authenticator
+        self.assertTrue(auth.authenticationSucceeded())
+        message = txdbus.MethodCallMessage('/org/freedesktop/DBus', 'Hello',
+                        interface='org.freedesktop.DBus', destination='org.freedesktop.DBus')
+        for i in range(len(message.rawMessage)):
+            protocol.data_received(message.rawMessage[i:i+1])
+        gruvi.sleep(0)
+        self.assertIsNone(protocol._error)
+        self.assertFalse(transport.closed)
+        self.assertEqual(len(self.messages), 0)
+        message = txdbus.MethodCallMessage('/my/path', 'Method')
+        for i in range(len(message.rawMessage)):
+            protocol.data_received(message.rawMessage[i:i+1])
+        gruvi.sleep(0)
+        self.assertIsNone(protocol._error)
+        self.assertFalse(transport.closed)
+        self.assertEqual(len(self.messages), 1)
+        self.assertEqual(self.messages[0].path, '/my/path')
+        self.assertEqual(self.messages[0].member, 'Method')
+        self.assertEqual(self.protocols, [protocol])
+
+    def test_send_message_too_large(self):
+        # Send a message that exceeds the maximum message size. The connection
+        # should be closed.
+        transport = MockTransport()
+        protocol = DbusProtocol(True, self.store_messages, 'foo')
+        transport.start(protocol)
+        protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
+        message = txdbus.MethodCallMessage('/org/freedesktop/DBus', 'Hello',
+                        interface='org.freedesktop.DBus', destination='org.freedesktop.DBus')
+        protocol.data_received(message.rawMessage)
+        gruvi.sleep(0)
+        self.assertTrue(protocol._name_acquired)
+        # Send a signal with a size equal to the high-water mark. This should work.
+        message = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
+                                       signature='s', body=['x'*100])
+        msglen = len(message.rawMessage)
+        self.assertGreater(msglen, 100)
+        protocol.set_read_buffer_limits(msglen)
+        protocol.data_received(message.rawMessage)
+        gruvi.sleep(0)
+        self.assertIsNone(protocol._error)
+        self.assertFalse(transport.closed)
+        self.assertEqual(len(self.messages), 1)
+        # Now send a signal with a size larger than the high-water mark. This should fail.
+        message = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
+                                       signature='s', body=['x'*100])
+        msglen = len(message.rawMessage)
+        protocol.set_read_buffer_limits(msglen-1)
+        protocol.data_received(message.rawMessage)
+        gruvi.sleep(0)
+        self.assertIsInstance(protocol._error, DbusError)
+        self.assertTrue(transport.closed)
+        self.assertEqual(len(self.messages), 1)
+
+    def test_read_write_flow_control(self):
+        # Send a lot of messages filling up the protocol read buffer.
+        transport = MockTransport()
+        protocol = DbusProtocol(True, self.store_and_echo_messages)
+        transport.start(protocol)
+        protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
+        auth = protocol._authenticator
+        self.assertTrue(auth.authenticationSucceeded())
+        message = txdbus.MethodCallMessage('/org/freedesktop/DBus', 'Hello',
+                        interface='org.freedesktop.DBus', destination='org.freedesktop.DBus')
+        protocol.data_received(message.rawMessage)
+        gruvi.sleep(0)
+        self.assertTrue(protocol._name_acquired)
+        interrupted = 0
+        message = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
+                                       signature='s', body=['x'*100])
+        msglen = len(message.rawMessage)
+        protocol.set_read_buffer_limits(10*msglen)
+        transport.buffer.seek(0)
+        transport.buffer.truncate()
+        transport.set_write_buffer_limits(7*msglen)
+        for i in range(100):
+            # Fill up protocol read buffer
+            message = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
+                                           signature='s', body=['x'*100])
+            protocol.data_received(message.rawMessage)
+            if protocol._reading:
+                continue
+            interrupted += 1
+            self.assertGreater(protocol._queue.qsize(), 0)
+            # Run the dispatcher to fill up the transport write buffer
+            gruvi.sleep(0)
+            # Now the write buffer is full and the read buffer still contains
+            # some entries because it is larger.
+            self.assertTrue(protocol._reading)
+            self.assertGreater(protocol._queue.qsize(), 0)
+            self.assertFalse(protocol._may_write)
+            # Drain write buffer and resume writing
+            transport.buffer.seek(0)
+            transport.buffer.truncate()
+            protocol.resume_writing()
+        # Should be interrupted > 10 times. The write buffer is the limiting factor
+        # not the read buffer.
+        self.assertGreater(interrupted, 10)
 
 
-def uses_host_dbus(test):
-    @functools.wraps(test)
-    def maybe_run(*args, **kwargs):
-        addr = os.environ.get('DBUS_SESSION_BUS_ADDRESS')
-        if not addr:
-            raise SkipTest('this test requires a local D-BUS instance')
-        return test(*args, **kwargs)
-    return maybe_run
-
-
-class DummyAuthenticator(object):
-
-    s_start, s_begin, s_authenticated = range(3)
-
-    def __init__(self):
-        self._state = self.s_start
-        self._username = None
-
-    @property
-    def username(self):
-        return self._username
-
-    def feed(self, line):
-        if self._state == self.s_start:
-            if line == b'\0AUTH EXTERNAL\r\n':
-                self._state = self.s_begin
-                return b'OK\r\n'
-        elif self._state == self.s_begin:
-            if line == b'BEGIN\r\n':
-                self._state = self.s_authenticated
-                self._username = '<external>'
-
-
-def echo_app(message, endpoint, transport):
+def echo_app(transport, protocol, message):
+    # Test application that echos D-Bus arguments
     if not isinstance(message, txdbus.MethodCallMessage):
         return
-    method = message.member
-    if method == 'Hello':
-        signature = 's'
-        body = ':1'
-    elif method == 'Echo':
-        signature = message.signature
-        body = message.body
-    response = txdbus.MethodReturnMessage(message.serial,
-                        signature=signature, body=body)
-    return response
+    if message.member == 'Echo':
+        reply = txdbus.MethodReturnMessage(message.serial, signature=message.signature,
+                                           body=message.body)
+    elif message.member == 'Error':
+        reply = txdbus.ErrorMessage('Echo.Error', message.serial, signature=message.signature,
+                                    body=message.body)
+    else:
+        return
+    protocol.send_message(reply)
 
 
-class TestDBus(UnitTest):
+class TestGruviDbus(UnitTest):
 
-    @uses_host_dbus
-    def test_host(self):
-        client = gruvi.dbus.DBusClient()
-        client.connect('system')
-        result = client.call_method('org.freedesktop.DBus',
-                                    '/org/freedesktop/DBus',
-                                    'org.freedesktop.DBus', 'ListNames')
-        self.assertIsInstance(result, list)
-        for name in result:
-            self.assertIsInstance(name, compat.text_type)
+    def setUp(self):
+        super(TestGruviDbus, self).setUp()
+        TxdbusAuthenticator.cookie_dir = self.tempdir
 
-    def test_simple(self):
-        server = DBusBase(echo_app)
-        server._authenticator = DummyAuthenticator
-        server._listen(('localhost', 0))
-        addr = server.transport.getsockname()
-        client = DBusClient()
-        addr = 'tcp:host={0},port={1}'.format(*addr)
+    def test_auth_pipe(self):
+        # Test that authentication works over a Pipe.
+        server = DbusServer(echo_app)
+        addr = 'unix:path=' + self.pipename()
+        server.listen(addr)
+        client = DbusClient()
         client.connect(addr)
-        result = client.call_method('service.com', '/path', 'iface.com', 'Echo',
-                                    signature='ss', args=('foo', 'bar'))
-        self.assertEqual(result, ['foo', 'bar'])
+        cproto = client.connection[1]
+        cauth = cproto._authenticator
+        sproto = list(server.connections)[0][1]
+        sauth = sproto._authenticator
+        self.assertTrue(cauth.authenticationSucceeded())
+        self.assertTrue(sauth.authenticationSucceeded())
+        self.assertIsInstance(cproto.server_guid, six.text_type)
+        self.assertTrue(cproto.server_guid.isalnum())
+        self.assertEqual(cproto.server_guid, cauth.getGUID())
+        self.assertEqual(cproto.server_guid, sproto.server_guid)
+        self.assertEqual(sproto.server_guid, sauth.getGUID())
+        self.assertEqual(cauth.getMechanismName(), sauth.getMechanismName())
+        if hasattr(socket, 'SO_PEERCRED'):
+            self.assertEqual(cauth.getMechanismName(), 'EXTERNAL')
+        else:
+            self.assertEqual(cauth.getMechanismName(), 'DBUS_COOKIE_SHA1')
+        client.close()
+        server.close()
+
+    def test_auth_tcp(self):
+        # Test that authentication works over TCP
+        server = DbusServer(echo_app)
+        addr = 'tcp:host=127.0.0.1,port=0'
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(server.addresses[0])
+        cproto = client.connection[1]
+        cauth = cproto._authenticator
+        sproto = list(server.connections)[0][1]
+        sauth = sproto._authenticator
+        self.assertTrue(cauth.authenticationSucceeded())
+        self.assertTrue(sauth.authenticationSucceeded())
+        self.assertIsInstance(cproto.server_guid, six.text_type)
+        self.assertTrue(cproto.server_guid.isalnum())
+        self.assertEqual(cproto.server_guid, cauth.getGUID())
+        self.assertEqual(cproto.server_guid, sproto.server_guid)
+        self.assertEqual(sproto.server_guid, sauth.getGUID())
+        self.assertEqual(cauth.getMechanismName(), sauth.getMechanismName())
+        self.assertEqual(sauth.getMechanismName(), 'DBUS_COOKIE_SHA1')
+        client.close()
+        server.close()
+
+    def test_get_unique_name(self):
+        # Ensure that get_unique_name() works client and server side
+        server = DbusServer(echo_app)
+        addr = 'unix:path=' + self.pipename()
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(addr)
+        unique_name = client.get_unique_name()
+        self.assertIsInstance(unique_name, six.text_type)
+        self.assertTrue(unique_name.startswith(':'))
+        sproto = list(server.connections)[0][1]
+        self.assertEqual(unique_name, sproto.get_unique_name())
+        server.close()
+        client.close()
+
+    def test_call_method(self):
+        # Ensure that calling a method over a Unix socket works.
+        server = DbusServer(echo_app)
+        addr = 'unix:path=' + self.pipename()
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(addr)
+        result = client.call_method('bus.name', '/path', 'my.iface', 'Echo')
+        self.assertEqual(result, ())
+        server.close()
+        client.close()
+
+    def test_call_method_tcp(self):
+        # Ensure that calling a method over TCP works.
+        server = DbusServer(echo_app)
+        addr = 'tcp:host=127.0.0.1,port=0'
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(server.addresses[0])
+        result = client.call_method('bus.name', '/path', 'my.iface', 'Echo')
+        self.assertEqual(result, ())
+        server.close()
+        client.close()
+
+    def test_call_method_str_args(self):
+        # Ensure that calling a method with string arguments works.
+        server = DbusServer(echo_app)
+        addr = 'unix:path=' + self.pipename()
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(addr)
+        result = client.call_method('bus.name', '/path', 'my.iface', 'Echo',
+                                    signature='s', args=['foo'])
+        self.assertEqual(result, ('foo',))
+        result = client.call_method('bus.name', '/path', 'my.iface', 'Echo',
+                                    signature='ss', args=['foo', 'bar'])
+        self.assertEqual(result, ('foo', 'bar'))
+        server.close()
+        client.close()
+
+    def test_call_method_int_args(self):
+        # Ensure that calling a method with integer arguments works.
+        server = DbusServer(echo_app)
+        addr = 'unix:path=' + self.pipename()
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(addr)
+        result = client.call_method('bus.name', '/path', 'my.iface', 'Echo',
+                                    signature='i', args=[1])
+        self.assertEqual(result, (1,))
+        result = client.call_method('bus.name', '/path', 'my.iface', 'Echo',
+                                    signature='ii', args=[1, 2])
+        self.assertEqual(result, (1, 2))
+        server.close()
+        client.close()
+
+    def test_call_method_error(self):
+        # Ensure that a method can return an error and that in this case a
+        # DbusMethodCallError is raised.
+        server = DbusServer(echo_app)
+        addr = 'unix:path=' + self.pipename()
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(addr)
+        exc = self.assertRaises(DbusMethodCallError, client.call_method,
+                               'bus.name', '/path', 'my.iface', 'Error')
+        self.assertEqual(exc.error, 'Echo.Error')
+        self.assertEqual(exc.args, ())
+        server.close()
+        client.close()
+
+    def test_call_method_error_args(self):
+        # Call a method that will return an error with arguments. The arguments
+        # should be available from the exception.
+        server = DbusServer(echo_app)
+        addr = 'unix:path=' + self.pipename()
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(addr)
+        exc = self.assertRaises(DbusMethodCallError, client.call_method,
+                               'bus.name', '/path', 'my.iface', 'Error',
+                               signature='ss', args=('foo', 'bar'))
+        self.assertEqual(exc.error, 'Echo.Error')
+        self.assertEqual(exc.args, ('foo', 'bar'))
+        server.close()
+        client.close()
+
+    def test_send_garbage(self):
+        # Send random garbage and ensure the connection gets dropped.
+        server = DbusServer(echo_app)
+        addr = 'unix:path=' + self.pipename()
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(addr)
+        transport = client.connection[0]
+        exc = None
+        try:
+            while True:
+                chunk = os.urandom(100)
+                transport.write(chunk)
+                gruvi.sleep(0)
+        except Exception as e:
+            exc = e
+        self.assertIsInstance(exc, TransportError)
+        server.close()
+        client.close()
+
+    def test_connection_limit(self):
+        # Establish more connections than the DBUS server is willing to accept.
+        # The connections should be closed.
+        server = DbusServer(echo_app)
+        addr = 'unix:path=' + self.pipename()
+        server.listen(addr)
+        server.max_connections = 10
+        clients = []
+        exc = None
+        try:
+            for i in range(15):
+                client = DbusClient()
+                client.connect(addr)
+                clients.append(client)
+        except Exception as e:
+            exc = e
+        self.assertIsInstance(exc, TransportError)
+        self.assertLessEqual(len(server.connections), server.max_connections)
+        for client in clients:
+            client.close()
+        server.close()
+
+
+class TestNativeDbus(UnitTest):
+
+    def setUp(self):
+        if not os.environ.get('DBUS_SESSION_BUS_ADDRESS'):
+            raise SkipTest('D-BUS session bus not available')
+        super(TestNativeDbus, self).setUp()
+
+    def test_get_unique_name(self):
+        # Ensure that get_unique_name() works
+        client = DbusClient()
+        client.connect('session')
+        unique_name = client.get_unique_name()
+        self.assertIsInstance(unique_name, six.text_type)
+        self.assertTrue(unique_name.startswith(':'))
+        client.close()
+
+    def test_call_listnames(self):
+        # Call the ListNames() bus method and ensure the results are a list of
+        # strings.
+        client = DbusClient()
+        client.connect('session')
+        result = client.call_method('org.freedesktop.DBus', '/org/freedesktop/DBus',
+                                    'org.freedesktop.DBus', 'ListNames')
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 1)
+        names = result[0]
+        self.assertIsInstance(names, list)
+        self.assertGreater(len(names), 0)
+        for name in names:
+            self.assertIsInstance(name, six.text_type)
+        client.close()
 
 
 if __name__ == '__main__':
+    os.environ.setdefault('VERBOSE', '1')
     unittest.main()

@@ -8,9 +8,10 @@ from __future__ import absolute_import, print_function
 
 import struct
 import re
+import six
+import codecs
 
 from .error import MarshallingError
-from .. import compat
 
 
 invalid_obj_path_re = re.compile('[^a-zA-Z0-9_/]')
@@ -242,14 +243,33 @@ def sigFromPy( pobj ):
         return sig
     
     elif isinstance(pobj,        int): return 'i'
+    elif isinstance(pobj, six.integer_types): return 'x'
     elif isinstance(pobj,      float): return 'd'
-    elif isinstance(pobj,        str): return 's'
+    elif isinstance(pobj, six.string_types): return 's'
     
     elif isinstance(pobj,       list):
-        return 'a' + sigFromPy(pobj[0])
+        vtype = type(pobj[0])
+        same = True
+        for v in pobj[1:]:
+            if not vtype is type(v):
+                same = False
+        if same:
+            return 'a' + sigFromPy(pobj[0])
+        else:
+            return 'av'
     
     elif isinstance(pobj,       dict):
-        return 'a{' + sigFromPy(next(iter(pobj.keys()))) + sigFromPy(next(iter(pobj.values()))) + '}'
+        same = True
+        vtype = None
+        for k,v in six.iteritems(pobj):
+            if vtype is None:
+                vtype = type(v)
+            elif not vtype is type(v):
+                same = False
+        if same:
+            return 'a{' + sigFromPy(k) + sigFromPy(v) + '}'
+        else:
+            return 'a{' + sigFromPy(k) + 'v}'
     
     else:
         raise MarshallingError('Invalid Python type for variant: ' + repr(pobj))
@@ -292,6 +312,7 @@ def genCompleteTypes( compoundSig ):
       "i(ii)i"    => [ 'i', '(ii)',    'i' ]
       "i(i(ii))i" => [ 'i', '(i(ii))', 'i' ]
     """
+
     i     = 0
     start = 0
     end   = len(compoundSig)
@@ -324,7 +345,7 @@ def genCompleteTypes( compoundSig ):
         elif c == 'a':
             start = i
             g = genCompleteTypes( compoundSig[i+1:] )
-            ct = compat.next(g)
+            ct = six.next(g)
             i += len(ct)
             yield 'a' + ct
             
@@ -403,12 +424,11 @@ def marshal_double( ct, var, start_byte, lendian ):
 #       3 - terminating nul byte
 #
 def marshal_string( ct, var, start_byte, lendian ):
-    if isinstance(var, compat.text_type):
-        var = var.encode('utf8')
-    elif not isinstance(var, compat.binary_type):
+    if not isinstance(var, six.string_types):
         raise MarshallingError('Required string. Received: ' + repr(var))
-    if var.find(b'\0') != -1:
+    if var.find('\0') != -1:
         raise MarshallingError('Embedded nul characters are not allowed within DBus strings')
+    var = codecs.encode(var, 'utf-8')
     return 4 + len(var) + 1, [ struct.pack( lendian and '<I' or '>I', len(var)), var, b'\0' ]
 
 
@@ -430,10 +450,7 @@ def marshal_object_path( ct, var, start_byte, lendian ):
 #       3 - terminating nul byte
 def marshal_signature( ct, var, start_byte, lendian ):
     # XXX validate signature
-    if isinstance(var, compat.text_type):
-        var = var.encode('ascii')
-    elif not isinstance(var, compat.binary_type):
-        raise MarshallingError('Required string. Received: ' + repr(var))
+    var = codecs.encode(var, 'ascii')
     return 2 + len(var), [struct.pack(lendian and '<B' or '>B', len(var)), var, b'\0']
 
 
@@ -460,7 +477,7 @@ def marshal_array( ct, var, start_byte, lendian ):
     if isinstance(var, (list, tuple)):
         arr_list = var
     elif isinstance(var, dict):
-        arr_list = [ tpl for tpl in var.items() ]
+        arr_list = [ tpl for tpl in six.iteritems(var) ]
     else:
         raise MarshallingError('List, Tuple, or Dictionary required for DBus array. Received: ' + repr(var))
 
@@ -646,7 +663,8 @@ def unmarshal_double(ct, data, offset, lendian):
 #
 def unmarshal_string(ct, data, offset, lendian):
     slen = struct.unpack_from( lendian and '<I' or '>I', data, offset)[0]
-    return 4 + slen + 1, data[ offset + 4 :  offset + 4 + slen ].decode('ascii')
+    s = codecs.decode(data[ offset + 4 :  offset + 4 + slen ], 'utf-8')
+    return 4 + slen + 1, s
     
 
 # OBJECT_PATH:
@@ -665,7 +683,8 @@ unmarshal_object_path = unmarshal_string
 #       3 - terminating nul byte
 def unmarshal_signature(ct, data, offset, lendian):
     slen = struct.unpack_from( lendian and '<B' or '>B', data, offset)[0]
-    return 1 + slen + 1, data[ offset + 1 : offset + 1 + slen ].decode('ascii')
+    s = codecs.decode(data[ offset + 1 : offset + 1 + slen ], 'ascii')
+    return 1 + slen + 1, s
     
 
 # ARRAY:

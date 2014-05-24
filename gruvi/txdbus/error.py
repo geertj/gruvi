@@ -3,7 +3,6 @@ DBus errors
 @author: Tom Cocagne
 """
 
-
 class DBusException (Exception):
     """
     Base class for all expected DBus exceptions

@@ -3,200 +3,265 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
-
-"""
-A stream protocol client and server.
-
-The stream protocol doesn't really do any protocol handling. It is simply a
-raw, byte oriented connection. You can think of it as a blocking interface on
-top of a transport.
-"""
 
 from __future__ import absolute_import, print_function
 
-import io
-import pyuv
+import sys
+import six
 
+import gruvi
+from .sync import Event
+from .errors import Cancelled
+from .protocols import Protocol
+from .endpoints import Client, Server, add_protocol_method
 from .hub import switchpoint
-from .pyuv import pyuv_exc
 from .util import docfrom
-from . import fibers, reader, protocols, error
+
+__all__ = ['StreamReader', 'StreamProtocol', 'StreamClient', 'StreamServer']
 
 
-__all__ = ['StreamError', 'Stream', 'StreamClient', 'StreamServer']
+class StreamReader(object):
+    """A stream reader.
 
+    This is a blocking interface that provides :meth:`read`, :meth:`readline`
+    and similar methods on top of a memory buffer.
+    """
 
-class StreamError(error.Error):
-    """Exception that is raised in case of stream protocol errors."""
-
-
-class Stream(io.BufferedIOBase):
-    """A byte stream."""
-
-    def __init__(self, transport, protocol):
-        self._transport = transport
-        self._protocol = protocol
-
-    @switchpoint
-    @docfrom(reader.Reader.read)
-    def read(self, size=None):
-        return self._transport._reader.read(size)
-
-    @switchpoint
-    @docfrom(reader.Reader.readline)
-    def readline(self, limit=-1):
-        return self._transport._reader.readline(limit)
-
-    @switchpoint
-    @docfrom(reader.Reader.readlines)
-    def readlines(self, hint=-1):
-        return self._transport._reader.readlines(hint)
-
-    @switchpoint
-    @docfrom(protocols.Protocol._write)
-    def write(self, data):
-        return self._protocol._write(self._transport, data)
-
-    @switchpoint
-    @docfrom(protocols.Protocol._writelines)
-    def writelines(self, lines):
-        self._protocol._writelines(self._transport, lines)
-
-    @switchpoint
-    @docfrom(protocols.Protocol._flush)
-    def flush(self):
-        self._protocol._flush(self._transport)
-
-    @switchpoint
-    @docfrom(protocols.Protocol._shutdown)
-    def shutdown(self):
-        self._protocol._shutdown(self._transport)
-
-
-class StreamBase(protocols.Protocol):
-
-    _exception = StreamError
-
-    def __init__(self, timeout=None):
-        """The optional *timeout* argument can be used to specify a timeout for
-        network operations."""
-        super(StreamBase, self).__init__(timeout)
-        self._connection_handler = None
-
-    def _init_transport(self, transport):
-        super(StreamBase, self)._init_transport(transport)
-        def on_size_change(oldsize, newsize):
-            if self.max_buffer_size is None:
-                return
-            if oldsize < self.max_buffer_size <= newsize:
-                transport.stop_read()
-            elif newsize < self.max_buffer_size <= oldsize:
-                transport.start_read(self._on_transport_readable)
-        transport._buffers = reader.BufferList()
-        transport._buffers.size_changed.connect(on_size_change)
-        transport._reader = reader.Reader(transport._buffers)
-        transport._stream = Stream(transport, self)
-        if self._connection_handler is None:
-            return
-        transport._dispatcher = fibers.Fiber(self._dispatch_connection,
-                                             args=(transport,))
-        transport._dispatcher.start()
-
-    def _on_transport_readable(self, transport, data, error):
-        if error == pyuv.errno.UV_EOF:
-            transport._eof = True
-            transport._buffers.feed_eof()
-        elif error:
-            transport._error = pyuv_exc(transport, error)
-            self._close_transport(transport)
-        else:
-            transport._buffers.feed(data)
-
-    def _dispatch_connection(self, transport):
-        try:
-            self._connection_handler(transport._stream, self, transport)
-        except Exception as e:
-            transport._log.exception('exception in handler')
-            error = self._exception(protocols.errno.HANDLER_ERROR, str(e))
-        else:
-            error = None
-        self._close_transport(transport, error)
-
-
-class StreamClient(StreamBase):
-    """A stream protocol client."""
-
-    @switchpoint
-    @docfrom(StreamBase._connect)
-    def connect(self, address, ssl=False, local_address=None,
-                **transport_args):
-        self._connect(address, ssl, local_address, **transport_args)
-
-    @switchpoint
-    @docfrom(Stream.read)
-    def read(self, size=None):
-        return self.transport._stream.read(size)
-
-    @switchpoint
-    @docfrom(Stream.readline)
-    def readline(self, limit=-1):
-        return self.transport._stream.readline(limit)
-
-    @switchpoint
-    @docfrom(Stream.readlines)
-    def readlines(self, hint=-1):
-        return self.transport._stream.readlines(hint)
-
-    @switchpoint
-    @docfrom(Stream.write)
-    def write(self, data):
-        return self.transport._stream.write(data)
-
-    @switchpoint
-    @docfrom(Stream.writelines)
-    def writelines(self, lines):
-        self.transport._stream.writelines(lines)
-
-    @switchpoint
-    @docfrom(Stream.flush)
-    def flush(self):
-        self.transport._stream.flush()
-
-    @switchpoint
-    @docfrom(Stream.shutdown)
-    def shutdown(self):
-        self.transport._stream.shutdown()
-
-
-class StreamServer(StreamBase):
-    """A stream protocol server."""
-
-    def __init__(self, connection_handler, timeout=None):
-        """The constructor accepts the following arguments. The
-        *connection_handler* specifies a connection handler.The signature of
-        the connection handler is ``connection_handler(stream, protocol,
-        client)``. Here, *stream* is an object that implements the
-        :class:`io.BufferedIOBase` interface.  The *protocol* is the server
-        instance, and *client* is the transport of the client.
-
-        The connection handler can use the methods on *stream* to interact with
-        the client. If the connection handler exits, the connection is closed.
-
-        The optional *timeout* argument can be used to specify a timeout for
-        network operations.
-        """
-        super(StreamServer, self).__init__(timeout)
-        self._connection_handler = connection_handler
+    def __init__(self, on_buffer_size_change=None):
+        self._can_read =  Event()
+        self._buffers = []
+        self._buffer_size = 0
+        self._offset = 0
+        self._eof = False
+        self._error = None
+        self._on_buffer_size_change = on_buffer_size_change
 
     @property
-    def clients(self):
-        """A set containing the transports of the currently connected
-        clients."""
-        return self._clients
+    def buffer_size(self):
+        """Return the amount of bytes currently in the buffer."""
+        return self._buffer_size
+
+    @property
+    def eof(self):
+        """Return whether the stream is currently at end-of-file."""
+        return self._eof and self._buffer_size == 0
+
+    def feed(self, data):
+        """Add *data* to the buffer."""
+        self._buffers.append(data)
+        oldsize = self._buffer_size
+        self._buffer_size += len(data)
+        if self._on_buffer_size_change:
+            self._on_buffer_size_change(self, oldsize, self._buffer_size)
+        self._can_read.set()
+
+    def feed_eof(self):
+        """Set the EOF condition."""
+        self._eof = True
+        self._can_read.set()
+
+    def feed_error(self, exc):
+        """Set the error condition to *exc*."""
+        self._error = exc
+        self._can_read.set()
 
     @switchpoint
-    @docfrom(StreamBase._listen)
-    def listen(self, address, ssl=False, **transport_args):
-        self._listen(address, ssl, **transport_args)
+    def _read_until(self, delim, limit=-1):
+        """Read until *delim*, or until EOF if *delim* is not provided.
+        If *limit* is positive then read at most this many bytes.
+        """
+        chunks = []
+        bytes_read = 0
+        while True:
+            # Special case for limit == 0
+            if limit != 0:
+                self._can_read.wait()
+            # _can_read is set: we have data, or there is an EOF of error
+            if not self._buffers:
+                break
+            # Find start and end offset in current buffer (if any)
+            pos = self._buffers[0].find(delim, self._offset) if delim else -1
+            endpos = len(self._buffers[0]) if pos < 0 else pos + len(delim)
+            nbytes = endpos - self._offset
+            # Reading too many bytes?
+            if limit >= 0 and bytes_read + nbytes > limit:
+                nbytes = limit - bytes_read
+                endpos = self._offset + nbytes
+            # Try to move a buffer instead of copying.
+            if self._offset == 0 and endpos == len(self._buffers[0]):
+                chunks.append(self._buffers.pop(0))
+            else:
+                chunks.append(self._buffers[0][self._offset:endpos])
+                self._offset = endpos
+                if self._offset == len(self._buffers[0]):
+                    del self._buffers[0]
+                    self._offset = 0
+            # Adjust buffer
+            bytes_read += nbytes
+            oldsize = self._buffer_size
+            self._buffer_size -= nbytes
+            if self._on_buffer_size_change:
+                self._on_buffer_size_change(self, oldsize, self._buffer_size)
+            if not self._buffers and not self._eof and not self._error:
+                self._can_read.clear()
+            # Done? If there is no delimiter, prefer to return only one chunk
+            # as a short write to prevent copying.
+            if pos >= 0 or bytes_read == limit \
+                        or limit >= 0 and not delim \
+                        or limit < 0 and (self._eof or self._error) and not self._buffers:
+                break
+        if len(chunks) == 1:
+            return chunks[0]
+        elif self._error and not chunks:
+            raise self._error
+        return b''.join(chunks)
+
+    @switchpoint
+    def read(self, size=-1):
+        """Read up to *size* bytes.
+        
+        If *size* is not specified or negative, read until EOF.
+        """
+        return self._read_until(b'', size)
+
+    @switchpoint
+    def readline(self, limit=-1):
+        """Read a single line.
+
+        If EOF is reached before a full line can be read, a partial line is
+        returned. If *limit* is specified, at most this many bytes will be read.
+        """
+        return self._read_until(b'\n', limit)
+
+    @switchpoint
+    def readlines(self, hint=-1):
+        """Read lines until EOF, and return them as a list.
+
+        If *hint* is specified, then lines will be read until their total size
+        will be equal to or larger than *hint*, or until EOF occurs.
+        """
+        lines = []
+        bytes_read = 0
+        while True:
+            try:
+                line = self.readline()
+            except Exception as e:
+                # If there's already some lines read, we return those without
+                # an exception first. Future invocatations of methods on
+                # StreamReader will raise the exception again.
+                if self._error and lines:
+                    break
+                six.reraise(*sys.exc_info())
+            if not line:
+                break
+            lines.append(line)
+            bytes_read += len(line)
+            if hint >= 0 and bytes_read > hint:
+                break
+        if not lines and self._error:
+            raise self._error
+        return lines
+
+    @switchpoint
+    def __iter__(self):
+        """Generate lines until EOF is reached."""
+        while True:
+            line = self.readline()
+            if not line:
+                break
+            yield line
+
+
+class StreamProtocol(Protocol):
+    """Byte stream protocol."""
+
+    def __init__(self):
+        super(StreamProtocol, self).__init__()
+        self._reader = StreamReader(self._update_read_buffer)
+
+    def data_received(self, data):
+        # Protocol callback
+        assert self._reading is True
+        self._reader.feed(data)
+
+    def eof_received(self):
+        # Protocol callback
+        self._reader.feed_eof()
+        # Always pass the EOF to the handler
+        return True
+
+    def connection_lost(self, exc):
+        # Protocol callback
+        super(StreamProtocol, self).connection_lost(exc)
+        if self._error:
+            self._reader.feed_error(self._error)
+
+    def _update_read_buffer(self, reader, oldsize, newsize):
+        """Update the read buffer size and pause/resume reading."""
+        self._read_buffer_size = newsize
+        self.read_buffer_size_changed()
+
+    @docfrom(StreamReader.read)
+    @switchpoint
+    def read(self, size=-1):
+        return self._reader.read(size)
+
+    @docfrom(StreamReader.readline)
+    @switchpoint
+    def readline(self, limit=-1):
+        return self._reader.readline(limit)
+
+    @docfrom(StreamReader.readlines)
+    @switchpoint
+    def readlines(self, hint=-1):
+        return self._reader.readlines(hint)
+
+    @docfrom(StreamReader.__iter__)
+    @switchpoint
+    def __iter__(self):
+        return self._reader.__iter__()
+
+
+class StreamClient(Client):
+    """A stream client."""
+
+    def __init__(self, timeout=None):
+        super(StreamClient, self).__init__(StreamProtocol)
+
+    add_protocol_method(StreamProtocol.read, globals(), locals())
+    add_protocol_method(StreamProtocol.readline, globals(), locals())
+    add_protocol_method(StreamProtocol.readlines, globals(), locals())
+    add_protocol_method(StreamProtocol.__iter__, globals(), locals())
+
+    add_protocol_method(StreamProtocol.write, globals(), locals())
+    add_protocol_method(StreamProtocol.writelines, globals(), locals())
+    add_protocol_method(StreamProtocol.write_eof, globals(), locals())
+    
+
+class StreamServer(Server):
+    """A stream server."""
+
+    def __init__(self, stream_handler, timeout=None):
+        super(StreamServer, self).__init__(StreamProtocol)
+        self._stream_handler = stream_handler
+        self._dispatchers = {}
+
+    def connection_made(self, transport, protocol):
+        self._dispatchers[protocol] = gruvi.spawn(self._dispatch_stream, transport, protocol)
+
+    def _dispatch_stream(self, transport, protocol):
+        self._log.debug('stream handler started')
+        try:
+            self._stream_handler(protocol)
+        except Cancelled:
+            self._log.debug('stream handler cancelled')
+        except Exception as e:
+            self._log.exception('uncaught exception in stream handler')
+        transport.close()
+        self._log.debug('stream handler exiting')
+
+    def connection_lost(self, transport, protocol, exc=None):
+        dispatcher = self._dispatchers.pop(protocol)
+        dispatcher.cancel()

@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -12,31 +12,21 @@ import fibers
 import threading
 import heapq
 
-from . import logging, local
 from .hub import switchpoint, get_hub, switch_back
-from .error import Cancelled
+from .errors import Timeout, Cancelled
 
-__all__ = ['Lock', 'Signal', 'Queue', 'current_signal', 'wait', 'waitall']
+__all__ = ['Lock', 'RLock', 'Event', 'Condition', 'QueueEmpty', 'QueueFull',
+           'Queue', 'LifoQueue', 'PriorityQueue']
 
 
-class Lock(object):
-    """A lock object.
+class _Lock(object):
+    """Base class for regular and re-entrant locks."""
 
-    The lock is acquired using :meth:`acquire` and released using
-    :meth:`release`. A lock can also be used as a context manager.
+    __slots__ = ('_reentrant', '_lock', '_locked', '_owner', '_waiters')
 
-    A lock is thread safe.
-    """
-
-    __slots__ = ('_recursive', '_lock', '_locked', '_owner', '_waiters')
-
-    def __init__(self, recursive=False):
-        """If the *recursive* argument is nonzero, then the lock will be a
-        recursive lock. A recursive lock may be acquired multiple times by the
-        fiber that holds the lock. To unlock a recursive lock, it needs to be
-        unlocked as many times as it was locked.
-        """
-        self._recursive = recursive
+    def __init__(self, reentrant):
+        # Allocate a new lock
+        self._reentrant = reentrant
         self._lock = threading.Lock()
         self._locked = 0
         self._owner = None
@@ -47,380 +37,534 @@ class Lock(object):
         # empty deque is 624 bytes vs just 72 for a list.
         self._waiters = None
 
-    @property
     def locked(self):
-        """Whether or not the lock is currently locked."""
+        """Whether the lock is currently locked."""
         return self._locked
 
     @switchpoint
-    def acquire(self, timeout=None):
+    def acquire(self, blocking=True, timeout=None):
         """Acquire the lock.
 
-        The *timeout* parameter specifies an optional timeout in seconds. The
-        return value is a boolean indicating whether the lock was acquired.
+        If *blocking* is true (the default), then this will block until the
+        lock can be acquired. The *timeout* parameter specifies an optional
+        timeout in seconds.
+
+        The return value is a boolean indicating whether the lock was acquired.
         """
         hub = get_hub()
-        if timeout is not None:
-            end_time = hub.loop.now() + timeout
-        while True:
+        try:
             with switch_back(timeout) as switcher:
                 with self._lock:
                     if not self._locked:
                         self._locked = 1
                         self._owner = fibers.current()
                         return True
-                    elif self._owner is fibers.current():
-                        if not self._recursive:
-                            raise RuntimeError('already locked by this fiber')
+                    elif self._reentrant and self._owner is fibers.current():
                         self._locked += 1
                         return True
+                    elif not blocking:
+                        return False
                     if self._waiters is None:
                         self._waiters = []
                     self._waiters.append(switcher)
-                if timeout is not None:
-                    timeout = end_time - hub.loop.now()
                 # It is safe to call hub.switch() outside the lock. Another
                 # thread could have called acquire()+release(), thereby firing
                 # the switchback. However the switchback only schedules the
                 # switchback in our hub, it won't execute it yet. So the
                 # switchback won't actually happen until we switch to the hub.
                 hub.switch()
-        return False
+                # Here the lock should be ours
+                assert self._owner is fibers.current()
+        except Exception as e:
+            # Likely a Timeout but could also be e.g. Cancelled
+            with self._lock:
+                # Search for switcher from the end which is where we're more
+                # likely to find it.
+                for i in reversed(range(len(self._waiters))):
+                    if self._waiters[i] is switcher:
+                        del self._waiters[i]
+                        break
+            if isinstance(e, Timeout):
+                return False
+            raise
+        return True
 
     def release(self):
         """Release the lock."""
         with self._lock:
             if not self._locked:
                 raise RuntimeError('lock not currently held')
-            self._locked -= 1
-            if not self._locked:
+            elif self._reentrant and self._owner is not fibers.current():
+                raise RuntimeError('lock not owned by this fiber')
+            if self._locked > 1:
+                self._locked -= 1
+            elif not self._waiters:
+                self._locked = 0
                 self._owner = None
-            if not self._waiters:
-                return
-            notify = self._waiters.pop()
-            notify()
+            else:
+                # Don't unlock + lock but rather pass the lock directly to the
+                # fiber that is next in line.
+                switcher = self._waiters.pop(0)
+                self._owner = switcher.fiber
+                switcher()
 
     __enter__ = acquire
     __exit__ = lambda self,*exc_info: self.release()
 
+    # Internal API used by Condition instances.
 
-class DummyLock(object):
-    """A dummy lock.
+    def _acquire_restore(self, state):
+        # Acquire a lock and restore the owner and lock count.
+        self.acquire()
+        self._owner, self._locked = state
 
-    This lock is used with :class:`Signal` and :class:`Queue` in case thread
-    safety is not required.
-    """
-    __slots__ = ()
-    locked = property(lambda self: False)
-    __enter__ = lambda self: None
-    __exit__ = lambda self,*exc_info: None
-
-_DummyLock = DummyLock()
-
-
-def current_signal():
-    """Return the signal that is currently being raised, if any.
-
-    This is equivalent to :meth:`Signal.current_signal`.
-    """
-    return Signal.current_signal()
+    def _release_save(self):
+        # Release a lock even if it is locked multiple times. Return the state.
+        state = self._owner, self._locked
+        self.release()
+        return state
 
 
-class Signal(object):
-    """A signal object.
+class Lock(_Lock):
+    """A lock object.
 
-    A signal is a synchronization primitive that allows one or more fibers to
-    wait for an event to happen. A signal can be emitted using :meth:`emit`,
-    and be waited for using :meth:`wait`. You can also connect a callback to
-    the signal using :meth:`connect`.
+    The lock is acquired using :meth:`acquire` and released using
+    :meth:`release`. A lock can also be used as a context manager.
 
-    Positional arguments that are provided when the signal is emitted will be
-    passed on as the return value of :meth:`wait`.
-
-    Note that a signal is edge triggered. This means that only those fibers are
-    notified that are waiting at the moment the signal is emitted. Immediateley
-    after the signal is emitted, it is reset, and the signal arguments are
-    lost.
-
-    A signal is essentially a :class:`threading.Condition` with arguments and
-    the ability to install callbacks.
+    A Lock is thread safe. This class is the fiber-aware equivalent of
+    :class:`threading.Lock`.
     """
 
-    __slots__ = ('_log', '_lock', '_callbacks')
+    __slots__ = _Lock.__slots__
+
+    def __init__(self):
+        super(Lock, self).__init__(False)
+
+
+class RLock(_Lock):
+    """A re-entrant lock object.
+
+    A re-entrant lock has the notion of a "lock owner" and a "lock count". If a
+    re-entrant lock is acquired, and it was already acquired by the current
+    fiber, then the lock count is increased and the acquire call will be
+    successful. Unlocking a re-entrant lock may only be done by the lock owner.
+    The lock becomes unlocked only after it is released as many times as it was
+    acquired.
+
+    A RLock is thread safe. This class is the fiber-aware equivalent of
+    :class:`threading.RLock`.
+    """
+
+    __slots__ = _Lock.__slots__
+
+    def __init__(self):
+        super(RLock, self).__init__(True)
+
+
+# A few words on the use of fiber locks (Lock) vs thread locks (threading.Lock)
+# in the code below.
+#
+# There is no difference between both locks from a safety point of view. Both
+# locks are thread-safe (which implies they are fiber-safe as well). The
+# difference is who gets blocked when trying to acquire a lock that is already
+# locked. With a fiber lock only the current fiber is blocked and other fibers
+# in current thread can continue (and fibers in other threads as well, of
+# course). With a thread lock the entire current thread is blocked including
+# all its fibers.
+#
+# This means that if we never call hub.switch() when a lock is held, fiber and
+# thread locks are completely identical. In this case there's a benefit in
+# using thread locks because i) they are smaller and faster, and ii) it makes
+# it possible for non-switchpoints to acquire the lock. An example of the
+# latter case is Queue.put_nowait().
+
+
+class Event(object):
+    """An Event.
+
+    An event is a synchronization primitive that can make zero or more fibers
+    wait for a programmer-raised event.
+
+    An event contains an internal flag that is initially False. The flag can be
+    set using the :meth:`set` method and cleared using the :meth:`clear`
+    method.  Fibers can wait for the flag to become set using :meth:`wait`.
+
+    Events are level triggered, meaning that the condition set by :meth:`set`
+    is "sticky". Setting the event will unblock all current waiters and will
+    cause future calls to :meth:`wait` not to block, until :meth:`clear` is
+    called again.
+
+    An event is thread safe. This class is the fiber-aware equivalent of
+    :class:`threading.Event`.
+    """
+
+    __slots__ = ('_flag', '_lock', '_waiters')
+
+    def __init__(self):
+        self._flag = False
+        self._lock = threading.Lock()
+        self._waiters = None
+
+    def __nonzero__(self):
+        return self._flag
+
+    __bool__ = __nonzero__
+    is_set = __nonzero__
+
+    def set(self):
+        """Set the internal flag, and wake up any fibers blocked on :meth:`wait`."""
+        with self._lock:
+            if self._flag:
+                return
+            self._flag = True
+            if not self._waiters:
+                return
+            for notify in self._waiters:
+                notify()
+            del self._waiters[:]
+
+    def clear(self):
+        """Clear the internal flag."""
+        with self._lock:
+            self._flag = False
+
+    @switchpoint
+    def wait(self, timeout=None):
+        """If the internal flag is set, return immediately. Otherwise block
+        until the flag gets set by another fiber calling :meth:`set`."""
+        if self._flag:
+            return
+        hub = get_hub()
+        self._lock.acquire()
+        try:
+            with switch_back(timeout) as switcher:
+                if self._waiters is None:
+                    self._waiters = []
+                self._waiters.append(switcher)
+                self._lock.release()
+                try:
+                    hub.switch()
+                finally:
+                    self._lock.acquire()
+        except Exception as e:
+            for i in reversed(range(len(self._waiters))):
+                if self._waiters[i] is switcher:
+                    del self._waiters[i]
+                    break
+            raise
+        finally:
+            self._lock.release()
+
+
+# Utility functions for a condition to work with both Locks and RLocks.
+
+def is_locked(lock):
+    """Return whether a lock is locked.
+
+    Suppors :class:`Lock`, :class:`RLock`, :class:`threading.Lock` and
+    :class:`threading.RLock` instances.
+    """
+    if hasattr(lock, 'locked'):
+        return lock.locked()
+    elif hasattr(lock, '_is_owned'):
+        return lock._is_owned()
+    else:
+        raise TypeError('expecting Lock/RLock')
+
+def acquire_restore(lock, state):
+    """Acquire a lock and restore its state."""
+    if hasattr(lock, '_acquire_restore'):
+        lock._acquire_restore(state)
+    elif hasattr(lock, 'acquire'):
+        lock.acquire()
+    else:
+        raise TypeError('expecting Lock/RLock')
+
+def release_save(lock):
+    """Release a lock and return its state."""
+    if hasattr(lock, '_release_save'):
+        return lock._release_save()
+    elif hasattr(lock, 'release'):
+        lock.release()
+    else:
+        raise TypeError('expecting Lock/RLock')
+
+
+class Condition(object):
+    """A condition.
+
+    A condition is a synchronization primitive that can make zero or more
+    fibers wait for a programmer-raised event.
+
+    A condition is always associated with a lock. The state of the condition
+    may only change when the caller has acquired the lock. While the lock is
+    held, a condition can be waited for using :meth:`wait`. The wait method
+    will release the lock just before blocking itself, so that another fiber
+    can call :meth:`notify` to notify the condition.
+
+    The difference between a condition and an :class:`Event` is that a
+    condition is edge-trigerred. This means that when a condition is notified,
+    only fibers that are waiting *at that exact time* are unblocked. Any fiber
+    that calls :meth:`wait` after the notification, will block until the next
+    notification. This also explains why a lock is needed. Without the lock
+    there would be a race condition between notification and waiting.
+
+    A condition is thread safe. This class is the fiber-aware equivalent of
+    :class:`threading.Condition`.
+    """
+
+    __slots__ = ('_lock', '_waiters')
 
     def __init__(self, lock=None):
         """
-        The *lock* argument can be used to make the signal thread aware by
-        passing it a :class:`Lock` instance. In this case you can synchronize
-        calls between :meth:`emit` and :meth:`wait` in multiple threads by
-        acquiring the :attr:`lock` before calling either method.
+        The *lock* argument can be used to share a lock between multiple
+        conditions. It must be a :class:`Lock` or :class:`RLock` instance. If
+        no lock is provided, a :class:`RLock` is allocated.
         """
-        self._log = logging.get_logger()
-        self._lock = lock or _DummyLock
-        self._callbacks = []
+        self._lock = lock or RLock()
+        self._waiters = []
 
-    @property
-    def lock(self):
-        """The signal's lock that was passed to the constructor, or a dummy
-        lock object if none was passed."""
-        return self._lock
+    acquire = lambda self,*args: self._lock.acquire(*args)
+    release = lambda self: self._lock.release()
+    __enter__ = lambda self: self._lock.acquire()
+    __exit__ = lambda self,*exc_info: self.release()
 
-    _local = local.local()
+    def notify(self, n=1):
+        """Raise the condition and wake up fibers waiting on it.
 
-    @classmethod
-    def current_signal(cls):
-        """Return the currrent signal, if any.
-
-        This method will only return a value inside a signal callback. In all
-        other cases, this will return ``None``.
+        The optional *n* parameter specifies how many fibers will be notified.
+        By default, one fiber is notified.
         """
-        return getattr(cls._local, 'signal', None)
-
-    def emit(self, *args):
-        """Emit the signal.
-
-        Any positional arguments passed here will be returned by :meth:`wait`.
-        """
-        deleted = 0
-        for i in range(len(self._callbacks)):
-            callback, accept, rearm = self._callbacks[i-deleted]
-            if callable(accept):
-                match = accept(*args)
-            else:
-                match = accept is None or accept == args
-            if not match:
+        if not is_locked(self._lock):
+            raise RuntimeError('lock is not locked')
+        if not self._waiters:
+            return
+        notified = 0
+        for i in range(min(n, len(self._waiters))):
+            notify, predicate = self._waiters[i-notified]
+            if callable(predicate) and not predicate():
                 continue
-            try:
-                callback(*args)
-            except Cancelled:
-                rearm = False
-            except Exception as e:
-                self._log.exception('uncaught exception in callback')
-            if not rearm:
-                del self._callbacks[i-deleted]
-                deleted += 1
+            notify()
+            del self._waiters[i-notified]
+            notified += 1
+
+    def notify_all(self):
+        """Raise the condition and wake up all fibers waiting on it."""
+        self.notify(len(self._waiters))
 
     @switchpoint
-    def wait(self, accept=None, timeout=None, interrupt=False):
-        """Wait for the signal to be emitted.
+    def wait(self, timeout=None):
+        """Wait for the condition to be notified.
 
-        The optional *accept* argument can be used to wait for a specific value
-        of the signal argument. If the value does not match, then this method
-        continues to wait. The *accept* argument can be a callable, a tuple, or
-        ``None``. If it is a callable, it is called with the signal arguments
-        and it must return a boolean indicating whether they match.  If it is a
-        tuple then it must compare as equal to the signal's arguments. If it is
-        None (the default) then any signal arguments are acceptable.
+        The return value is True, unless a timeout occurred in which case the
+        return value is False.
 
-        If the :attr:`lock` is held when this method is called, then it will be
-        released after the current fiber blocks, and acquired again before this
-        method returns. This allows you to synchronize calls to :meth:`wait`
-        and :meth:`emit` in different threads.
+        The lock must be held before calling this method. This method will
+        release the lock just before blocking itself, and it will re-acquire it
+        before returning. 
+        """
+        return self.wait_for(None, timeout)
 
-        The return value is the value passed to :meth:`emit`.
+    @switchpoint
+    def wait_for(self, predicate, timeout=None):
+        """Like :meth:`wait` but additionally for *predicate* to be true.
+
+        The *predicate* argument must be a callable that takes no arguments.
+        Its result is interpreted as a boolean value.
         """
         hub = get_hub()
-        lock_count = self.lock.locked
-        unlocked = False
+        if not is_locked(self._lock):
+            raise RuntimeError('lock is not locked')
         try:
-            with switch_back(timeout, interrupt) as switcher:
-                self._callbacks.append((switcher, accept, False))
+            with switch_back(timeout) as switcher:
+                self._waiters.append((switcher, predicate))
                 # See the comment in Lock.acquire() why it is OK to release the
                 # lock here before calling hub.switch().
-                # Also if this is a recursive lock make sure it is fully released.
-                if lock_count:
-                    self.lock._locked = 1
-                    self.lock.release()
-                    unlocked = True
-                result = hub.switch()
+                # Also if this is a reentrant lock make sure it is fully released.
+                state = release_save(self._lock)
+                hub.switch()
+        except Exception as e:
+            for i in reversed(range(len(self._waiters))):
+                if self._waiters[i][0] is switcher:
+                    del self._waiters[i]
+                    break
+            if isinstance(e, Timeout):
+                return False
+            raise
         finally:
-            if unlocked:
-                self.lock.acquire()
-                self.lock._locked = lock_count
-        return result[0]
+            acquire_restore(self._lock, state)
+        return True
 
-    def connect(self, callback, accept=None):
-        """Connect a callback to the signal.
 
-        The callback will be called every time the signal is emitted. It will
-        be called as ``callback(*args)`` with *args* the positional argument
-        passed to :meth:`emit`. Callbacks are always run in the Hub of the
-        thread that connected to the signal.
+class QueueEmpty(Exception):
+    """Queue is empty."""
 
-        The *accept* argument has the same meaning as in :meth:`wait`.
-        """
-        hub = get_hub()
-        def schedule_callback(*args):
-            def call_callback():
-                self._local.signal = self
-                try:
-                    callback(*args)
-                finally:
-                    self._local.signal = None
-            hub.run_callback(call_callback)
-        schedule_callback.callback = callback
-        self._callbacks.append((schedule_callback, accept, True))
-
-    def disconnect(self, callback):
-        """Disconnect a callback."""
-        # Reverse iterate over _callbacks to optimize for the case when you
-        # disconnect a signal that was recently connected (e.g. wait()).
-        for i in reversed(range(len(self._callbacks))):
-            if self._callbacks[i][0].callback is callback:
-                del self._callbacks[i]
-                break
+class QueueFull(Exception):
+    """Queue is full."""
 
 
 class Queue(object):
-    """A synchronized priority queue.
+    """A synchronized FIFO queue.
 
-    Items are pushed onto the queue with :meth:`push` and popped with
-    :meth:`pop`. The latter pops the item with the highest priority, which by
-    default is the item with the highest age (i.e. a FIFO queue).
-
-    The attr:`size_changed` signal is raised every time an element is added or
-    removed. You can connect to this signal and take actions based on it to
-    limit the size of the queue. The queue itself is unbounded and will always
-    accept new elements.
+    A queue is thread-safe. This class is the fiber-aware equivalent of
+    :class:`queue.Queue`.
     """
 
-    __slots__ = ('_heap', '_size', '_sizefunc', '_counter', '_priofunc',
-                 '_size_changed')
+    __slots__ = ('_maxsize', '_unfinished_tasks', '_heap', '_size', '_counter',
+                 '_lock', '_notempty', '_notfull', '_alldone')
 
-    def __init__(self, lock=None, sizefunc=None, priofunc=None):
-        """The *lock* argument can be used to make a queue thread aware by
-        passing it a :class:`Lock` instance. In this case you can synchronize
-        calls between :meth:`put` and :meth:`get` in different threads by
-        acquiring the :attr:`lock` before calling either method.
-
-        The optional *sizefunc* paremeter can be used to define a custom
-        size for queue elements. It must be a function that takes a queue
-        element as its argument, and returns its size as an integer. If no
-        *sizefunc* is provided, then all elements will have a size of 1. In
-        this case, ``len(queue)`` wil be equal to the queue's :meth:`size`.
-
-        The optional *priofunc* can be used to specify a priority for queue
-        elements. It must be a function that takes a monotonically increasing
-        counter and a queue element as its arguments, and returns its priority
-        as an integer. Lower numerical values mean a higher priority. If no
-        *priofunc* is provided, then the priority of an item will the value of
-        the counter, resulting in a FIFO queue.
+    def __init__(self, maxsize=0):
         """
+        The *maxsize* argument specifies the maximum queue size. If it is less
+        than or equal to zero, the queue size is infinite.
+        """
+        self._maxsize = maxsize
+        self._unfinished_tasks = 0
+        # Use a list/heapq even for a FIFO instead of a deque() because of the
+        # latter's high memory use (see comment in Lock). For most protocols
+        # there will be one Queue per connection so a low memory footprint is
+        # very important.
         self._heap = []
         self._size = 0
-        self._sizefunc = sizefunc
         self._counter = 0
-        self._priofunc = priofunc
-        self._size_changed = Signal(lock)
+        # Use a threading.Lock so that put_nowait() and get_nowait() don't need
+        # to be a switchpoint. Also it is more efficient.
+        self._lock = threading.Lock()
+        self._notempty = Condition(self._lock)
+        self._notfull = Condition(self._lock)
+        self._alldone = Condition(self._lock)
 
-    @property
-    def lock(self):
-        """The queue's lock that was passed to the constructor, or a dummy
-        lock object if none was passed."""
-        return self._size_changed._lock
+    def _get_item_priority(self, item):
+        # Priority function: FIFO queue by default
+        self._counter += 1
+        return self._counter
 
-    @property
-    def size_changed(self):
-        """A signal that is emitted when the size of the queue has changed.
-
-        Signal arguments: ``size_changed(oldsize, newsize)``.
-        """
-        return self._size_changed
-
-    def _adjust_size(self, delta):
-        """Adjust the queue size by some value in case one of the queue
-        elements changed size on the fly."""
-        oldsize, self._size = self._size, self._size+delta
-        self.size_changed.emit(oldsize, self._size)
-
-    def __len__(self):
-        """Return the number of items in the queue."""
-        return len(self._heap)
-
-    def size(self):
-        """Return the size of the queue."""
+    def qsize(self):
+        """Return the size of the queue, which is the sum of the size of all
+        its elements."""
         return self._size
 
-    def put(self, obj):
-        """Push an object onto the queue."""
-        self._counter += 1
-        if self._priofunc is None:
-            priority = self._counter
-        else:
-            priority = self._priofunc(self._counter, obj)
-        heapq.heappush(self._heap, (priority, obj))
-        delta = 1 if self._sizefunc is None else self._sizefunc(obj)
-        self._adjust_size(delta)
+    empty = lambda self: self.qsize() == 0
+    full = lambda self: self.qsize() >= self.maxsize > 0
+
+    maxsize = property(lambda self: self._maxsize)
+    unfinished_tasks = property(lambda self: self._unfinished_tasks)
 
     @switchpoint
-    def get(self, timeout=None):
-        """Pop the object with the highest priority from the queue.
+    def put(self, item, block=True, timeout=None, size=None):
+        """Put *item* into the queue.
 
-        If the queue is empty, wait up to *timeout* seconds until an item
-        becomes available. If the timeout is not provided, then wait
-        indefinitely. On timeout, a :class:`Timeout` exception is raised.
+        If the queue is currently full and *block* is True (the default), then
+        wait up to *timeout* seconds for space to become available. If no
+        timeout is specified, then wait indefinitely.
+
+        If the queue is full and *block* is False or a timeout occurs, then
+        raise a :class:`QueueFull` exception.
+
+        The optional *size* argument may be used to specify a custom size for
+        the item. The total :meth:`qsize` of the queue is the sum of the sizes
+        of all the items. The default size for an item is 1.
         """
-        while len(self._heap) == 0:
-            self.size_changed.wait(timeout=timeout)
-        prio, obj = heapq.heappop(self._heap)
-        delta = -1 if self._sizefunc is None else -self._sizefunc(obj)
-        self._adjust_size(delta)
-        return obj
+        if size is None:
+            size = 1
+        with self._lock:
+            priority = self._get_item_priority(item)
+            while self._size + size > self.maxsize > 0:
+                if not block:
+                    raise QueueFull
+                if not self._notfull.wait_for(lambda: self._size+size <= self.maxsize, timeout):
+                    raise QueueFull
+            heapq.heappush(self._heap, (priority, size, item))
+            self._size += size
+            self._unfinished_tasks += 1
+            self._notempty.notify()
+
+    def put_nowait(self, item, size=None):
+        """"Equivalent of ``put(item, False)``."""
+        # Don't don't turn this method into a switchpoint as put() will never
+        # switch if block is False. This can be done by calling the function
+        # wrapped by the @switchpoint wrapper directly.
+        return self.put.func(self, item, False, size=size)
+
+    @switchpoint
+    def get(self, block=True, timeout=None):
+        """Pop an item from the queue.
+
+        If the queue is not empty, an item is returned immediately. Otherwise,
+        if *block* is True (the default), wait up to *timeout* seconds for an
+        item to become available. If not timeout is provided, then wait
+        indefinitely.
+
+        If the queue is empty and *block* is false or a timeout occurs, then
+        raise a :class:`QueueEmpty` exception.
+        """
+        with self._lock:
+            while not self._heap:
+                if not block:
+                    raise QueueEmpty
+                if not self._notempty.wait(timeout):
+                    raise QueueEmpty
+            prio, size, item = heapq.heappop(self._heap)
+            self._size -= size
+            if 0 <= self._size < self.maxsize:
+                self._notfull.notify()
+        return item
+
+    def get_nowait(self):
+        """"Equivalent of ``get(False)``."""
+        # See note in put_nowait()
+        return self.get.func(self, False)
+
+    def clear(self):
+        """Remove all elements from the queue."""
+        with self._lock:
+            del self._heap[:]
+            self._notfull.notify()
+
+    def task_done(self):
+        """Mark a task as done."""
+        with self._lock:
+            unfinished = self._unfinished_tasks - 1
+            if unfinished < 0:
+                raise RuntimeError('task_done() called too many times')
+            elif unfinished == 0:
+                self._alldone.notify()
+            self._unfinished_tasks = unfinished
+
+    def join(self):
+        """Wait until all tasks are done."""
+        with self._lock:
+            while self._unfinished_tasks > 0:
+                self._alldone.wait()
 
 
-@switchpoint
-def wait(signals, timeout=None):
-    """Wait for one of the signals to be raised.
+class LifoQueue(Queue):
+    """A queue with LIFO behavior.
 
-    The optional *timeout* keyword argument can be provided to specify a timeout.
-
-    Return a tuple containing the signal followed by its arguments.
+    See :class:`Queue` for a description of the API.
     """
-    raised = Signal()
-    def callback(*args):
-        raised.emit(current_signal(), *args)
-    for signal in signals:
-        signal.connect(callback)
-    try:
-        result = raised.wait(timeout=timeout)
-    finally:
-        for signal in signals:
-            signal.disconnect(callback)
-    return result
+
+    __slots__ = Queue.__slots__
+
+    def _get_item_priority(self, item):
+        # Priority function for a LIFO queue
+        self._counter += 1
+        return -self._counter
 
 
-@switchpoint
-def waitall(signals, **kwargs):
-    """Wait for all of *signals* to be raised.
+class PriorityQueue(Queue):
+    """A priority queue.
 
-    An optional *timeout* keyword argument can be provided to specify a timeout.
+    Items that are added via :meth:`put` must be ``(priority, item)`` tuples.
+    The priority element must be a numeric priority. Lower numerical values
+    indicate a higher priority.
 
-    Returns an iterator that yields tuples containing the signal followed by
-    its arguments.
+    See :class:`Queue` for a description of the API.
     """
-    raised = Queue()
-    timeout = kwargs.get('timeout')
-    hub = get_hub()
-    def callback(*args):
-        raised.put((current_signal(),) + args)
-    active = set()
-    for signal in signals:
-        signal.connect(callback)
-        active.add(signal)
-    if timeout is not None:
-        end_time = hub.loop.now() + timeout
-    try:
-        while active:
-            if timeout is not None:
-                timeout = max(0, end_time - hub.loop.now())
-            result = raised.get(timeout)
-            result[0].disconnect(callback)
-            # report each signal only once
-            if result[0] not in active:
-                continue
-            active.remove(result[0])
-            yield result
-    finally:
-        # Most likely a Timeout but could also be a GeneratorExit
-        for signal in active:
-            signal.disconnect(callback)
+
+    __slots__ = Queue.__slots__
+
+    def _get_item_priority(self, item):
+        # Priority function for a priority queue: item should typically be a
+        # (priority, item) tuple
+        return item

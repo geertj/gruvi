@@ -12,35 +12,23 @@ import random
 
 import gruvi
 from gruvi.futures import *
-from tests.support import *
+from support import *
 
 
 class TestFuture(UnitTest):
 
-    def test_value(self):
+    def test_result(self):
         fut = Future()
-        fut.set_result(10, None)
-        self.assertEqual(fut.value, 10)
-        self.assertIsNone(fut.exception)
+        fut.set_result(10)
+        self.assertEqual(fut.result(), 10)
+        self.assertIsNone(fut.exception())
         self.assertEqual(fut.result(), 10)
 
     def test_exception(self):
         fut = Future()
-        err = ValueError()
-        fut.set_result(None, err)
-        self.assertIsNone(fut.value)
-        self.assertTrue(fut.exception is err)
+        fut.set_exception(ValueError())
+        self.assertIsInstance(fut.exception(), ValueError)
         self.assertRaises(ValueError, fut.result)
-
-    def test_wait_signal(self):
-        fut = Future()
-        def set_result():
-            gruvi.sleep(0.1)
-            fut.set_result('foo')
-        fib = gruvi.Fiber(set_result)
-        fib.start()
-        fut.done.wait()
-        self.assertEqual(fut.value, 'foo')
 
     def test_wait_result(self):
         fut = Future()
@@ -131,11 +119,10 @@ class PoolTest(object):
         result = [fut.result() for fut in futures]
         result.sort()
         self.assertEqual(result, list(range(self.count)))
-        self.assertGreater(pool.size, 0)
-        self.assertFalse(pool.closed)
+        self.assertGreater(len(pool._workers), 0)
         pool.close()
-        self.assertEqual(pool.size, 0)
-        self.assertTrue(pool.closed)
+        self.assertEqual(len(pool._workers), 0)
+        self.assertRaises(RuntimeError, pool.submit, func, i)
 
 
 class TestFiberPool(PoolTest, UnitTest):
@@ -146,7 +133,7 @@ class TestFiberPool(PoolTest, UnitTest):
 
 class TestThreadPool(PoolTest, UnitTest):
 
-    count = 50
+    count = 5
     Pool = ThreadPool
 
 

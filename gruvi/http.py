@@ -3,33 +3,49 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
+
 """
-This module contains a HTTP/1.1 client and server.
+The :mod:`gruvi.http` module implements a HTTP client and server.
 
-The client and server are relatively complete implementations of the HTTP/1.1
-protocol. The server also has best-efforts support for 1.0 clients. Some of the
-supported features are: keepalive, pipelining, chunked transfers and trailers.
+The client and server are relatively complete implementations of the HTTP
+protocol. Some of the supported features are: keepalive, pipelining, chunked
+transfers and trailers.
 
-Some general notes:
+Some general notes about the implementation:
 
-* Keepalive is the default so be sure to close connections when no longer
-  needed.
+* Both HTTP/1.0 and HTTP/1.1 are supported. The client will by default make
+  requests with HTTP/1.1. The server always responds in the same version as the
+  request.
+* Connections are kept alive by default. This means that you need to make sure
+  you close connections when they are no longer needed.
 * Any headers that are passed in by application code must not be "Hop by hop"
   headers. These headers may only be used by HTTP implementations themselves,
   such as the client and server in this module.
-* Strings passed into the API, other than those that end up in the HTTP body,
-  must be of a text type (str or unicode in Python 2.x, str in Python 3.x).
-  These strings must only contain code points that are in ISO-8859-1. This is
-  the default encoding for HTTP as per RFC2606.
-* Strings passed into the API that will end up in the HTTP body can be either
-  of a binary or a text type. If they are of a text type, then they must only
-  contain code points that are in ISO-8859-1.
-* To include a text in a body that contains code points outside ISO-8859-1,
-  encode it yourself in a suitable encoding (UTF-8 is a good choice), set the
-  "charset" parameter to the "Content-Type" header to the encoding you used,
-  and pass the body as a binary type.
+
+Some important points about the use of binary versus unicode types in the API:
+
+* Data that is passed into the API that ends up in the HTTP header, such as the
+  HTTP version string, method, and headers, must be of the string type. This
+  means ``str`` on Python 3, and ``str`` or ``unicode`` on Python 2. However,
+  if the string type is unicode aware (all except ``str`` on Python 2), you
+  must make sure that it only contains code points that are defined in
+  ISO-8859-1, which is the default HTTP encoding specified in RFC2606.
+* In theory, HTTP headers can support unicode code points outside ISO-8859-1 if
+  encoded according to the scheme in RFC2047. However this method is very
+  poorly supported and rarely used, and Gruvi therefore does not offer any
+  special support for it. If you must use this feature for some reason, you can
+  pre-encode the headers into this encoding and pass them already encoded.
+* Data that is passed to the API and ends up in the HTTP body can be either of
+  the binary type or of the string type (``bytes``, ``str`` or ``unicode``, the
+  latter only on Python 2). If passing a unicode aware type, then the data is
+  encoded before adding it to the body. The encoding must be passed into the
+  client or server by passing a "Content-Type" header with a "charset"
+  parameter. If no encoding is provided, then ISO-8859-1 is assumed. Note that
+  ISO-8859-1 is not able to express any code points outside latin1. This means
+  that if you pass a body with non-latin1 code points, and you fail to set the
+  "charset" parameter, then you will get a ``UnicodeEncodeError`` exception.
 """
 
 from __future__ import absolute_import, print_function
@@ -37,36 +53,72 @@ from __future__ import absolute_import, print_function
 import re
 import time
 import collections
+import six
 
-from . import hub, protocols, error, reader, http_ffi, logging, compat
+from . import logging
 from .hub import switchpoint
-from .util import docfrom, getsockname
-from ._version import __version__
+from .util import docfrom
+from .errors import Error
+from .protocols import MessageProtocol
+from .endpoints import Client, Server, add_protocol_method
+from .stream import StreamReader
+from .http_ffi import lib as _lib, ffi as _ffi
+from ._version import version_info
 
-try:
-    from urllib import parse as urlparse
-    from http import client as httplib
-except ImportError:
-    import urlparse
-    import httplib
+from six.moves import http_client
 
 __all__ = ['HttpError', 'HttpClient', 'HttpServer']
 
 
-# Export some definitions from httplib/http.client.
-for name in dir(httplib):
-    value = getattr(httplib, name)
-    if name.isupper() and value in httplib.responses:
+# Export some definitions from  http.client.
+for name in dir(http_client):
+    value = getattr(http_client, name)
+    if name.isupper() and value in http_client.responses:
         globals()[name] = value
 for name in ('HTTP_PORT', 'HTTPS_PORT', 'responses'):
-    globals()[name] = getattr(httplib, name)
+    globals()[name] = getattr(http_client, name)
 
 
 # The "Hop by Hop" headers as defined in RFC 2616. These may not be set by the
 # HTTP handler.
-hop_by_hop = frozenset(('Connection', 'Keep-Alive', 'Proxy-Authenticate',
-                        'Proxy-Authorization', 'TE', 'Trailers',
-                        'Transfer-Encoding', 'Upgrade'))
+hop_by_hop = frozenset(('connection', 'keep-alive', 'proxy-authenticate',
+                        'proxy-authorization', 'te', 'trailers',
+                        'transfer-encoding', 'upgrade'))
+
+
+# URL fields as defined by the http-parser URL parser.
+_url_fields = (_lib.UF_SCHEMA, _lib.UF_HOST, _lib.UF_PORT, _lib.UF_PATH,
+               _lib.UF_QUERY, _lib.UF_FRAGMENT, _lib.UF_USERINFO)
+
+
+def parse_url(url, is_connect=False):
+    """Split a URL into its components.
+    
+    This function is similar to :func:`urllib.parse.urlsplit` but it uses the
+    http-parser URL splitter via CFFI.
+
+    The return value is a sequence: (scheme, host, port, path, query, fragment,
+    userinfo).
+    """
+    if isinstance(url, six.text_type):
+        url = url.encode('iso-8859-1')
+    elif hasattr(url, 'tobytes'):
+        url = url.tobytes()
+    elif not isinstance(url, bytes):
+        url = bytes(url)
+    result = _ffi.new('struct http_parser_url *')
+    error = _lib.http_parser_parse_url(url, len(url), is_connect, result)
+    if error:
+        raise ValueError('http_parser_parse_url(): could not parse')
+    parsed = []
+    for field in _url_fields:
+        if result.field_set & (1 << field):
+            span = result.field_data[field]
+            comp = url[span.off:span.off+span.len].decode('iso-8859-1')
+        else:
+            comp = ''
+        parsed.append(comp)
+    return parsed
 
 
 # RFC 2626 section 2.2 grammar definitions:
@@ -83,27 +135,8 @@ _re_token = re.compile('([!#$%&\'*+-.0-9A-Z^_`a-z|~]+)')
 _re_qstring = re.compile('"(([ !\x23-\xff]|\\")*)"')
 
 
-def urlsplit2(url, default_scheme='http'):
-    """Like :func:`urllib.parse.urlsplit`, but fills in default values for
-    *scheme* (based on *default_scheme*), *port* (depending on scheme), and
-    *path* (defaults to "/").
-    """
-    if '://' not in url:
-        url = '{0}://{1}'.format(default_scheme, url)
-    result = urlparse.urlsplit(url)
-    updates = {}
-    if result.port is None:
-        port = HTTPS_PORT if result.scheme == 'https' else HTTP_PORT
-        updates['netloc'] = '{0}:{1}'.format(result.hostname, port)
-    if not result.path:
-        updates['path'] = '/'
-    if updates:
-        result = result._replace(**updates)
-    return result
-
-
-def split_header_options(header, sep=';'):
-    """Split options from an HTTP header.
+def parse_option_header(header, sep=';'):
+    """Parse a HTTP header with options.
 
     The header must be of the form "value [; parameters]". This format is used
     by headers like "Content-Type" and "Transfer-Encoding".
@@ -150,7 +183,10 @@ _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
 _rfc1123_fmt = '%a, %d %b %Y %H:%M:%S GMT'
 
 def rfc1123_date(timestamp=None):
-    """Create a RFC1123 style Date header for *timestamp*."""
+    """Create a RFC1123 style Date header for *timestamp*.
+
+    If *timestamp* is None, use the current time.
+    """
     if timestamp is None:
         timestamp = time.time()
     tm = time.gmtime(timestamp)
@@ -169,23 +205,23 @@ def _s2b(s):
         s = s.encode('iso-8859-1')
     return s
 
-def _ba2str(ba):
+def _ba2s(ba):
     """Convert a byte-array to a "str" type."""
-    if compat.PY3:
+    if six.PY3:
         return ba.decode('iso-8859-1')
     else:
         return bytes(ba)
 
-def _cp2str(cd):
+def _cd2s(cd):
     """Convert a cffi cdata('char *') to a str."""
-    s = http_ffi.ffi.string(cd)
-    if compat.PY3:
+    s = _ffi.string(cd)
+    if six.PY3:
         s = s.decode('iso-8859-1')
     return s
 
 
-def get_header(headers, name, default=None):
-    """Return a header value from a header list."""
+def get_field(headers, name, default=None):
+    """Return a field value from a list with (name, value) tuples."""
     name = name.lower()
     for header in headers:
         if header[0].lower() == name:
@@ -202,20 +238,21 @@ def create_chunk(buf):
     return chunk
 
 
-def last_chunk(trailers=[]):
-    """Return the last chunk."""
-    chunk = bytearray()
-    chunk.extend(b'0\r\n')
-    for name,value in trailers:
-        chunk.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
-    chunk.extend(b'\r\n')
-    return chunk
+def create_chunked_body_end(trailers=None):
+    """Create the ending that terminates a chunked body."""
+    ending = bytearray()
+    ending.extend(b'0\r\n')
+    if trailers:
+        for name,value in trailers:
+            ending.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
+    ending.extend(b'\r\n')
+    return ending
 
 
-def create_request(method, url, headers):
-    """Create a HTTP request message (no body). Always HTTP/1.1."""
+def create_request(version, method, url, headers):
+    """Create a HTTP request header."""
     message = bytearray()
-    message.extend(_s2b('{0} {1} HTTP/1.1\r\n'.format(method, url)))
+    message.extend(_s2b('{0} {1} HTTP/{2}\r\n'.format(method, url, version)))
     for name,value in headers:
         message.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
     message.extend(b'\r\n')
@@ -223,21 +260,24 @@ def create_request(method, url, headers):
 
 
 def create_response(version, status, headers):
-    """Create a HTTP response message (no body)."""
+    """Create a HTTP response header."""
     message = bytearray()
-    message.extend(_s2b('HTTP/{0[0]}.{0[1]} {1}\r\n'.format(version, status)))
+    message.extend(_s2b('HTTP/{0} {1}\r\n'.format(version, status)))
     for name,value in headers:
         message.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
     message.extend(b'\r\n')
     return message
 
 
-class HttpError(error.Error):
+class HttpError(Error):
     """Exception that is raised in case of HTTP protocol errors."""
 
 
 class HttpMessage(object):
-    """A HTTP message (request or response). Used by the parser."""
+    """A HTTP message (request or response).
+    
+    This is an internal class used by the parser.
+    """
 
     def __init__(self):
         self.message_type = None
@@ -250,38 +290,149 @@ class HttpMessage(object):
         self.parsed_url = None
         self.headers = []
         self.trailers = []
-        self.buffers = reader.BufferList()
-        self.body = reader.Reader(self.buffers)
+        self.body = None
 
-    def __len__(self):
-        # Use a fixed header size of 400. This is for flow control purposes
-        # only, this does not need to be exact.
-        return 400 + self.buffers.size
 
-    def get_wsgi_environ(self):
-        """Return a WSGI environment dictionary for the current message."""
-        if self.message_type != HttpParser.HTTP_REQUEST:
-            raise ValueError('expecting an HTTP request')
-        env = {}
-        env['REQUEST_METHOD'] = self.method
-        env['SERVER_PROTOCOL'] = 'HTTP/{0}.{1}'.format(*self.version)
-        env['REQUEST_URI'] = self.url
-        env['SCRIPT_NAME'] = ''
-        env['PATH_INFO'] = self.parsed_url[3]
-        env['QUERY_STRING'] = self.parsed_url[4]
-        for field,value in self.headers:
-            if field.title() == 'Content-Length':
-                env['CONTENT_LENGTH'] = value
-            elif field.title() == 'Content-Type':
-                env['CONTENT_TYPE'] = value
+class ErrorStream(object):
+    """Passed to the WSGI application as environ['wsgi.errors'].
+
+    Forwards messages to the Python logging facility.
+    """
+
+    __slots__ = ['_log']
+
+    def __init__(self, log=None):
+        self._log = log or logging.get_logger()
+
+    def flush(self):
+        pass
+    
+    def write(self, data):
+        self._log.error('wsgi.errors: {}', data)
+
+    def writelines(self, seq):
+        for line in seq:
+            self.write(line)
+
+
+class HttpRequest(object):
+    """A HTTP request.
+
+    Instances of this class are returned by :meth:`HttpProtocol.request` when
+    you set the *body* parameter to ``None``.
+
+    This class allows you to write the request body yourself using the
+    :meth:`write` and :meth:`end_request` methods. This can be useful if you
+    need to send a large input that cannot be easily presented as as a
+    file-like object or a generator, or if you want to use "chunked" encoding
+    trailers.
+    """
+
+    def __init__(self, transport, protocol):
+        self._transport = transport
+        self._protocol = protocol
+        self._chunked = False
+        self._charset = 'ISO-8859-1'
+        self._content_length = None
+        self._bytes_written = 0
+
+    def start_request(self, method, url, headers=None, body=None):
+        """Start a new HTTP request.
+
+        This method is called by :meth:`HttpProtocol.request`. It creates a new
+        HTTP request header and sends it to the transport.
+        
+        The *body* parameter is a hint that specifies the body that will be
+        sent in the future, but it will not actually send it. This method tries
+        to deduce the Content-Length of the body that follows from it.
+        """
+        headers = headers[:] if headers is not None else []
+        agent = host = clen = ctype = charset = None
+        # Ensure that the user doesn't provide any hop-by-hop headers. Only
+        # HTTP applications are allowed to set these.
+        for name,value in headers:
+            name = name.lower()
+            if name in hop_by_hop:
+                raise ValueError('header {0} is hop-by-hop'.format(name))
+            elif name == 'user-agent':
+                agent = value
+            elif name == 'host':
+                host = value
+            elif name == 'content-type':
+                ctype, params = parse_option_header(value)
+                self._charset = params.get('charset')
+            elif name == 'content-length':
+                clen = int(value)
+        # Check that we can support the body type.
+        if not isinstance(body, (six.binary_type, six.text_type)) \
+                    and not hasattr(body, 'read') \
+                    and not hasattr(body, '__iter__') \
+                    and not body is None:
+            raise TypeError('body: expecting a bytes or str instance, '
+                            'a file-like object or an iterable')
+        version = self._protocol._version
+        # The Host header is mandatory in 1.1. Add it if it's missing.
+        server_name = self._protocol.server_name
+        if host is None and version == '1.1' and server_name:
+            headers.append(('Host', server_name))
+        # Identify ourselves.
+        if agent is None:
+            headers.append(('User-Agent', self._protocol.identifier))
+        # Check if we know the body length. If not, then we require "chunked"
+        # encoding. Then determine if we can keep the connection alive.
+        if isinstance(body, six.text_type):
+            body = body.encode(self._charset)
+        if clen is None:
+            if isinstance(body, six.binary_type):
+                clen = len(body)
+                if clen > 0:
+                    headers.append(('Content-Length', str(clen)))
+            elif version == '1.1':
+                self._chunked = True
             else:
-                env['HTTP_{0}'.format(field.upper().replace('-', '_'))] = value
-        env['wsgi.input'] = self.body
-        return env
+                raise ValueError('headers: must have "Content-Length" header '
+                                 'for HTTP 1.0 when body size unknown')
+        self._content_length = clen
+        # On HTTP/1.0 we need to specifically indicate we want keep-alive.
+        if version == '1.0':
+            headers.append(('Connection', 'keep-alive'))
+        # If we're doing chunked then we can also do trailers.
+        if self._chunked:
+            headers.append(('Transfer-Encoding', 'chunked'))
+            headers.append(('TE', 'trailers'))
+        # Start the request
+        header = create_request(version, method, url, headers)
+        self._protocol.write(header)
+
+    def write(self, buf):
+        """Write *buf* to the request body."""
+        if not buf:
+            return
+        if isinstance(buf, six.text_type):
+            buf = buf.encode(self._charset)
+        self._bytes_written += len(buf)
+        if self._content_length is not None and self._bytes_written > self._content_length:
+            raise RuntimeError('wrote too many bytes ({0} > {1})'
+                                    .format(self._bytes_written, self._content_length))
+        if self._chunked:
+            buf = create_chunk(buf)
+        self._protocol.write(buf)
+
+    def end_request(self, trailers=None):
+        """End the request body.
+
+        The optional *trailers* argument can be used to add trailers. This
+        requires "chunked" encoding.
+        """
+        if trailers and not self._chunked:
+            raise RuntimeError('trailers require "chunked" encoding')
+        if self._chunked:
+            ending = create_chunked_body_end(trailers)
+            self._protocol.write(ending)
 
 
 class HttpResponse(object):
-    """An HTTP response as returned by :meth:`HttpClient.getresponse`."""
+    """An HTTP response as returned by :meth:`HttpClient.get_response`."""
 
     def __init__(self, message):
         self._message = message
@@ -311,267 +462,454 @@ class HttpResponse(object):
         return self._message.trailers
 
     def get_header(self, name, default=None):
-        """Return one HTTP header *name*. If no such header exists, *default*
-        is returned."""
-        return get_header(self._message.headers, name, default)
+        """Return the value of HTTP header *name*.
+
+        If the header does not exist, return *default*.
+        """
+        return get_field(self._message.headers, name, default)
+
+    def get_trailer(self, name, default=None):
+        """Return a the value of a HTTP trailer *name*.
+
+        If the trailer does not exist, return *default*.
+        """
+        return get_field(self._message.trailers, name, default)
 
     @switchpoint
-    @docfrom(reader.Reader.read)
-    def read(self, size=None):
+    def read(self, size=-1):
+        """Read up to *size* bytes from the response body.
+
+        If *size* is not specified or negative, read the entire body.
+        """
         return self._message.body.read(size)
 
     @switchpoint
-    @docfrom(reader.Reader.readline)
     def readline(self, limit=-1):
+        """Read a single line from the response body.
+
+        If the end of the body is reached before an entire line could be read,
+        a partial line is returned. If *limit* is specified, at most this many
+        bytes will be read.
+        """
         return self._message.body.readline(limit)
 
     @switchpoint
-    @docfrom(reader.Reader.readlines)
+    @docfrom(StreamReader.readlines)
     def readlines(self, hint=-1):
+        """Read the response body and return it as a list of lines.
+
+        If *hint* is specified, then lines will be read until their combined
+        size will be equal or larger than *hint*, or until the end of the body
+        is reached, whichever happens first.
+        """
         return self._message.body.readlines(hint)
 
     @property
     def __iter__(self):
+        """Generate lines from the response body."""
         return self._message.body.__iter__
 
 
-class HttpParser(protocols.Parser):
-    """A HTTP parser.
+class WsgiHandler(object):
+    """An adapter that runs a WSGI application as a :class:`MessageProtocol`
+    message handler.
 
-    This is a class based interface on top of the node.js http-parser (accessed
-    via CFFI).
+    This class is used internally by :class:`HttpProtocol`.
     """
 
-    s_header_field, s_header_value = range(2)
+    def __init__(self, application):
+        """
+        The *transport* and *protocol* arguments are the connection's
+        transport and protocol respectively.
 
-    HTTP_REQUEST = http_ffi.lib.HTTP_REQUEST
-    HTTP_RESPONSE = http_ffi.lib.HTTP_RESPONSE
-    HTTP_BOTH = http_ffi.lib.HTTP_BOTH
+        The *message* argument must be a :class:`HttpMessage`.
+        """
+        self._application = application
+        self._transport = None
+        self._protocol = None
+        self._message = None
+        self._log = logging.get_logger()
+        self._environ = {}
+        self._status = None
+        self._headers = None
+        self._prev_body = None
 
-    def __init__(self, kind=None):
-        super(HttpParser, self).__init__()
-        if kind is None:
-            kind = self.HTTP_BOTH
-        self._kind = kind
-        self._parser = http_ffi.ffi.new('http_parser *')
-        http_ffi.lib.http_parser_init(self._parser, self._kind)
-        self._setup_callbacks()
-        self._requests = collections.deque()
+    def send_headers(self):
+        """Send the HTTP headers and start the response body."""
+        # We need to figure out the transfer encoding of the body that will
+        # follow the header. Here's what we do:
+        #  - If there's a content length, don't use any TE.
+        #  - Otherwise, if the protocol is HTTP/1.1, use "chunked".
+        #  - Otherwise, close the connection after the body is sent.
+        clen = get_field(self._headers, 'Content-Length')
+        version = self._message.version
+        self._chunked = clen is None and version == '1.1'
+        if self._chunked:
+            self._headers.append(('Transfer-Encoding', 'chunked'))
+        # The client may also ask to close the connection (Connection: close)
+        self._keepalive = self._message.should_keep_alive and (self._chunked or clen)
+        # The default on HTTP/1.1 is keepalive, on HTTP/1.0 it is to close.
+        if version == 'HTTP/1.1' and not self._keepalive:
+            self._headers.append(('Connection', 'close'))
+        elif version == 'HTTP/1.0' and self._keepalive:
+            self._headers.append(('Connection', 'keep-alive'))
+        server = get_field(self._headers, 'Server')
+        if server is None:
+            self._headers.append(('Server', self._protocol.identifier))
+        date = get_field(self._headers, 'Date')
+        if date is None:
+            self._headers.append(('Date', rfc1123_date()))
+        header = create_response(version, self._status, self._headers)
+        self._protocol.write(header)
+
+    def start_response(self, status, headers, exc_info=None):
+        """Callable to be passed to the WSGI application."""
+        if exc_info:
+            try:
+                if self._headers_sent:
+                    six.reraise(*exc_info)
+            finally:
+                exc_info = None
+        elif self._status is not None:
+            raise RuntimeError('response already started')
+        for name,value in headers:
+            if name.lower() in hop_by_hop:
+                raise ValueError('header {0} is hop-by-hop'.format(name))
+        self._status = status
+        self._headers = headers
+        return self.write
+
+    def write(self, data):
+        """Callable passed to the WSGI application by :meth:`start_response`."""
+        if isinstance(data, six.text_type):
+            data = data.encode('iso-8859-1')
+        elif not isinstance(data, six.binary_type):
+            raise TypeError('data: expecting bytes or str instance')
+        elif not data:
+            return
+        if not self._headers_sent:
+            self.send_headers()
+            self._headers_sent = True
+        if self._chunked:
+            data = create_chunk(data)
+        self._protocol.write(data)
+
+    def end_response(self):
+        """End a response."""
+        if not self._headers_sent:
+            self.send_headers()
+            self._headers_sent = True
+        if self._chunked:
+            trailers = self._environ.get('gruvi.trailers')
+            ending = create_chunked_body_end(trailers)
+            self._protocol.write(ending)
+        if not self._message.should_keep_alive:
+            self._transport.close()
+
+    def __call__(self, transport, protocol, message):
+        """Run a WSGI handler."""
+        if self._transport is None:
+            self._transport = transport
+            self._protocol = protocol
+        if self._prev_body and not self._prev_body.eof:
+            self._log.error('body not fully read pipelined request, closing connection')
+            self._transport.close()
+            return
+        self._status = None
+        self._headers = None
+        self._headers_sent = False
+        self._chunked = False
+        self._message = message
+        self.create_environ()
+        self._log.debug('request: {} {}', message.method, message.url)
+        result = None
+        try:
+            result = self._application(self._environ, self.start_response)
+            if not self._status:
+                raise HttpError('WSGI handler did not call start_response()')
+            for chunk in result:
+                self.write(chunk)
+            self.end_response()
+        finally:
+            self._prev_body = self._message.body
+            if hasattr(result, 'close'):
+                result.close()
+        ctype = get_field(self._headers, 'Content-Type', 'unknown')
+        clen = get_field(self._headers, 'Content-Length', 'unknown')
+        self._log.debug('response: {0} ({1}; {2} bytes)'.format(self._status, ctype, clen))
+
+    def create_environ(self):
+        # Initialize the environment with per connection variables.
+        m = self._message
+        env = self._environ
+        # CGI variables
+        env['SCRIPT_NAME'] = ''
+        sockname = self._transport.get_extra_info('sockname')
+        if isinstance(sockname, tuple):
+            env['SERVER_NAME'] = self._protocol.server_name or sockname[0]
+            env['SERVER_PORT'] = str(sockname[1])
+        else:
+            env['SERVER_NAME'] = self._protocol.server_name or sockname
+            env['SERVER_PORT'] = ''
+        env['SERVER_SOFTWARE'] = self._protocol.identifier
+        env['SERVER_PROTOCOL'] = 'HTTP/{0}'.format(m.version)
+        env['REQUEST_METHOD'] = m.method
+        env['PATH_INFO'] = m.parsed_url[3]
+        env['QUERY_STRING'] = m.parsed_url[4]
+        for field,value in m.headers:
+            if field.title() == 'Content-Length':
+                env['CONTENT_LENGTH'] = value
+            elif field.title() == 'Content-Type':
+                env['CONTENT_TYPE'] = value
+            else:
+                env['HTTP_{0}'.format(field.upper().replace('-', '_'))] = value
+        env['REQUEST_URI'] = m.url
+        # Support the de-facto X-Forwarded-For and X-Forwarded-Proto headers
+        # that are added by reverse proxies.
+        remote = env.get('HTTP_X_FORWARDED_FOR')
+        peername = self._transport.get_extra_info('peername')
+        env['REMOTE_ADDR'] = remote if remote else peername[0] \
+                                        if isinstance(peername, tuple) else ''
+        # SSL information
+        sslinfo = self._transport.get_extra_info('sslinfo')
+        cipherinfo = sslinfo.cipher() if sslinfo else None
+        if sslinfo and cipherinfo:
+            env['HTTPS'] = '1'
+            env['SSL_CIPHER'] = cipherinfo[0]
+            env['SSL_PROTOCOL'] = cipherinfo[1]
+            env['SSL_CIPHER_USEKEYSIZE'] = int(cipherinfo[2])
+        # WSGI specific variables
+        env['wsgi.version'] = (1, 0)
+        env['wsgi.errors'] = ErrorStream(self._log)
+        env['wsgi.multithread'] = True
+        env['wsgi.multiprocess'] = True
+        env['wsgi.run_once'] = False
+        env['wsgi.input'] = m.body
+        proto = env.get('HTTP_X_FORWARDED_PROTO')
+        env['wsgi.url_scheme'] = proto if proto else 'https' \
+                                        if env.get('HTTPS') else 'http'
+        env['REQUEST_SCHEME'] = env['wsgi.url_scheme']
+        # Gruvi specific variables
+        env['gruvi.version'] = version_info['version']
+        env['gruvi.transport'] = self._transport
+        env['gruvi.protocol'] = self._protocol
+
+
+class HttpProtocol(MessageProtocol):
+    """HTTP protocol."""
+
+    identifier = '{0[name]}/{0[version]}'.format(version_info)
+
+    def __init__(self, server_side, application=None, server_name=None, version='1.1',
+                 timeout=None):
+        """
+        The *server_side* argument specifies whether this is a client or server
+        side protocol.
+        
+        If this is a server side protocol, then the *wsgi_application* argument
+        must be provided, and it must be a WSGI application callable.
+
+        The *server_name* argument can be used to override the server name for
+        server side protocols. If not provided, then the socket name of the
+        listening socket will be used.
+        """
+        if server_side and not application:
+            raise ValueError('application is required for server-side protocol')
+        message_handler = WsgiHandler(application) if server_side else None
+        super(HttpProtocol, self).__init__(message_handler)
+        self._server_side = server_side
+        self._server_name = server_name
+        if version not in ('1.0', '1.1'):
+            raise ValueError('version: unsupported version {0!s}'.format(version))
+        self._version = version
+        self._timeout = timeout
+        self._create_parser()
+        self._requests = []
+        self._header_size = 0
+        self._all_body_sizes = 0
+        if server_side:
+            target = getattr(application, '__qualname__', application.__name__)
+            self._log.debug('using wsgi handler {}', target)
+        self._response = None
 
     @property
-    def requests(self):
-        return self._requests
+    def server_side(self):
+        """Return whether the protocol is server-side."""
+        return self._server_side
 
-    def push_request(self, method):
-        """Inform the parser that a request for *method* has been made.
+    @property
+    def server_name(self):
+        """Return the server name."""
+        return self._server_name
 
-        This information is required by the parser because needs to know if a
-        response was caused by a HEAD request or not. A HEAD response is
-        special because it never has a response entity, even if it includes
-        a Content-Length that suggests otherwise.
-        """
-        if self._kind == self.HTTP_REQUEST:
-            raise RuntimeError('push_request() is for response parsers only')
-        self._requests.append(method)
-
-    def feed(self, s):
-        nbytes = http_ffi.lib.http_parser_execute(self._parser, self._settings, s, len(s))
-        if nbytes != len(s):
-            self._error = http_ffi.lib.http_errno(self._parser)
-            self._error_message = _cp2str(http_ffi.lib.http_errno_name(self._error))
-        return nbytes
-
-    def _setup_callbacks(self):
-        settings = http_ffi.ffi.new('http_parser_settings *')
-        callback_refs = {}  # prevent garbage collection of cffi callbacks
-        names = [ name for name in dir(self) if name.startswith('_on_') ]
+    def _create_parser(self):
+        # Create a new CFFI http-parser and settings object that is hooked to
+        # our callbacks.
+        self._parser = _ffi.new('http_parser *')
+        kind = _lib.HTTP_REQUEST if self._server_side else _lib.HTTP_RESPONSE
+        _lib.http_parser_init(self._parser, kind)
+        settings = _ffi.new('http_parser_settings *')
+        refs = {}  # prevent garbage collection of cffi callbacks
+        names = [name for name in dir(self) if name.startswith('on_')]
         for name in names:
-            cbtype = 'http_cb' if 'complete' in name or 'begin' in name \
-                            else 'http_data_cb'
-            cb = http_ffi.ffi.callback(cbtype, getattr(self, name))
-            callback_refs[name] = cb
-            setattr(settings, name[1:], cb)
+            cbtype = 'http_cb' if 'complete' in name or 'begin' in name else 'http_data_cb'
+            cb = refs[name] = _ffi.callback(cbtype, getattr(self, name))
+            setattr(settings, name, cb)
         self._settings = settings
-        self._callback_refs = callback_refs
+        self._callback_refs = refs
 
-    def _reinit(self):
-        self._url_data = bytearray()
-        self._header_state = self.s_header_field
-        self._header_name = None
-        self._header_data = bytearray()
-        self._message = HttpMessage()
-        self._headers_complete = False
-
-    def _on_message_begin(self, parser):
-        self._reinit()
-        return 0
-
-    def _on_url(self, parser, at, length):
-        buf = http_ffi.ffi.buffer(at, length)
-        self._url_data.extend(buf)
-        return 0
-
-    def _on_header_field(self, parser, at, length):
-        buf = http_ffi.ffi.buffer(at, length)
-        if self._header_state == self.s_header_field:
-            self._header_data.extend(buf)
-        else:
-            header_value = _ba2str(self._header_data)
-            dest = self._message.trailers if self._headers_complete \
-                        else self._message.headers
-            dest.append((self._header_name, header_value))
-            self._header_data[:] = buf
-            self._header_state = self.s_header_field
-        return 0
-
-    def _on_header_value(self, parser, at, length):
-        buf = http_ffi.ffi.buffer(at, length)
-        if self._header_state == self.s_header_value:
-            self._header_data.extend(buf)
-        else:
-            self._header_name = _ba2str(self._header_data)
-            self._header_data[:] = buf
-            self._header_state = self.s_header_value
-        return 0
-
-    def _parse_url(self, url):
-        msg = self._message
-        result = http_ffi.ffi.new('struct http_parser_url *')
-        is_connect = msg.method == 'CONNECT'
-        error = http_ffi.lib.http_parser_parse_url(bytes(url), len(url),
-                                                   is_connect, result)
-        if error:
-            raise ValueError('url parse error')
-        parsed_url = []
-        m = http_ffi.lib
-        for field in (m.UF_SCHEMA, m.UF_HOST, m.UF_PORT, m.UF_PATH, m.UF_QUERY,
-                      m.UF_FRAGMENT, m.UF_USERINFO):
-            if result.field_set & (1 << field):
-                data = result.field_data[field]
-                component = _ba2str(url[data.off:data.off+data.len])
-            else:
-                component = ''
-            parsed_url.append(component)
-        return parsed_url
-
-    def _on_headers_complete(self, parser):
-        if self._header_state == self.s_header_value:
-            header_value = _ba2str(self._header_data)
-            self._message.headers.append((self._header_name, header_value))
-            self._header_state = self.s_header_field
-            del self._header_data[:]
-        msg = self._message
-        msg.message_type = http_ffi.lib.http_message_type(parser)
-        msg.version = (parser.http_major, parser.http_minor)
-        if msg.message_type == self.HTTP_REQUEST:
-            msg.method = _cp2str(http_ffi.lib.http_method_str(parser.method))
-            msg.url = _ba2str(self._url_data)
-            try:
-                msg.parsed_url = self._parse_url(self._url_data)
-            except ValueError:
-                return 2
-            msg.is_upgrade = http_ffi.lib.http_is_upgrade(parser)
-        else:
-            msg.status_code = parser.status_code
-        msg.should_keep_alive = http_ffi.lib.http_should_keep_alive(parser)
-        # The message is made available immediately after the headers are
-        # complete. We keep a reference to it, so that we can append the entity
-        # if and when we receive it.
-        self._messages.append(msg)
-        self._headers_complete = True
-        request_method = self._requests and self._requests.popleft()
-        return 1 if request_method == 'HEAD' else 0
-
-    def _on_body(self, parser, at, length):
-        buf = http_ffi.ffi.buffer(at, length)[:]  # -> bytes
-        self._message.buffers.feed(buf)
-        return 0
-
-    def _on_message_complete(self, parser):
-        if self._header_state == self.s_header_value:
-            # last trailer in a chunked messages
-            header_value = _ba2str(self._header_data)
-            dest = self._message.trailers if self._headers_complete \
-                        else self._message.headers
-            dest.append((self._header_name, header_value))
-        self._message.buffers.feed(b'')
-        return 0
-
-
-class ErrorStream(object):
-    """Passed to the WSGI application as environ['wsgi.errors'].
-
-    Forwards messages to the Python logging facility.
-    """
-
-    def __init__(self):
-        self._log = logging.get_logger(self)
-
-    def flush(self):
-        pass
-    
-    def write(self, data):
-        self._log.error(data)
-
-    def writelines(self, seq):
-        for line in seq:
-            self.write(line)
-
-
-class HttpClient(protocols.RequestResponseProtocol):
-    """An HTTP/1.1 client."""
-
-    _exception = HttpError
-    user_agent = 'Gruvi/{0}'.format(__version__)
-
-    def __init__(self, timeout=None):
-        """The optional *timeout* argument can be used to specify a timeout for
-        the various network operations used within the client."""
-        def parser_factory():
-            return HttpParser(HttpParser.HTTP_RESPONSE)
-        super(HttpClient, self).__init__(parser_factory, timeout=timeout)
-        self._default_host = None
-
-    transport = protocols.Protocol.transport  # Have Sphinx document it
-
-    @switchpoint
-    @docfrom(protocols.Protocol._connect)
-    def connect(self, address, ssl=False, local_address=None,
-                **transport_args):
-        self._connect(address, ssl, local_address, **transport_args)
-        if isinstance(address, tuple):
-            self._default_host = address[0]
-
-    def _init_transport(self, transport):
-        super(HttpClient, self)._init_transport(transport)
-        # HTTP is a non-interactive protocol, so set TCP_NODELAY by default
-        # The client makes sure to coalesce small writes itself.
-        if hasattr(transport, 'nodelay'):
-            transport.nodelay(True)
-
-    def _dispatch_fast_path(self, transport, message):
-        # When the user reads data from the HTTP body, or when the parser feeds
-        # body data into it, the total number of bytes buffered in the queue
-        # changes, even though no element was added or removed. Whenever this
-        # happens, use the semi-private _adjust_size() method to adjust the
-        # queue size. This ensurs that transport._queue.size() is always an
-        # accurate reflection of how many bytes are buffered, and we can use it
-        # for flow control.
-        def on_size_change(oldsize, newsize):
-            transport._queue._adjust_size(newsize-oldsize)
-        message.buffers.size_changed.connect(on_size_change)
-        # Do not go through the dispatcher in the client. Put the message
-        # straight into the queue, and complete the fast path.
-        transport._queue.put(message)
+    def _update_header_size(self, length):
+        # Add *length* to the size of the current HTTP header. If the size
+        # becomes larger than the high-water mark then set an error. This is
+        # needed because we cannot consume any of the read buffer until we've
+        # got a full header and we can dispatch the message.
+        self._header_size += length
+        if self._header_size >= self._read_buffer_high:
+            self._error = HttpError('HTTP header too large')
+            return False
+        self.read_buffer_size_changed()
         return True
 
+    def _update_body_size(self, reader, oldsize, newsize):
+        # Installed as the "on_buffer_size_changed" callback to the Reader
+        # instances of all requests in the queue.
+        self._all_body_sizes += (newsize - oldsize)
+
+    def get_read_buffer_size(self):
+        return self._header_size + self._queue.qsize() + self._all_body_sizes
+
+    def on_message_begin(self, parser):
+        # http-parser callback: prepare for a new message
+        self._url = bytearray()
+        self._field_name = bytearray()
+        self._field_value = bytearray()
+        assert self._header_size == 0
+        self._message = HttpMessage()
+        return 0
+
+    def on_url(self, parser, at, length):
+        # http-parser callback: got a piece of the URL
+        if not self._update_header_size(length):
+            return 1
+        self._url.extend(_ffi.buffer(at, length))
+        return 0
+
+    def _complete_header_field(self, buf):
+        # Add a chunk to a header field. May need to store away a previous
+        # (field, value) pair.
+        if self._field_value:
+            # Store previous field_name, field_value pair
+            if not self._message.body:
+                self._message.headers.append((_ba2s(self._field_name),
+                                              _ba2s(self._field_value)))
+            else:
+                self._message.trailers.append((_ba2s(self._field_name),
+                                               _ba2s(self._field_value)))
+            del self._field_name[:]
+            del self._field_value[:]
+        self._field_name.extend(buf)
+
+    def _complete_header_value(self, buf):
+        # Add a chunk to a header value. If buf == b'', then complete any
+        # (field, value) pair that is in progress.
+        if buf:
+            self._field_value.extend(buf)
+        elif self._field_name:
+            if not self._message.body:
+                self._message.headers.append((_ba2s(self._field_name),  
+                                              _ba2s(self._field_value)))
+            else:
+                self._message.trailers.append((_ba2s(self._field_name),
+                                               _ba2s(self._field_value)))
+            del self._field_name[:]
+            del self._field_value[:]
+
+    def on_header_field(self, parser, at, length):
+        # http-parser callback: got a piece of a header name
+        if not self._update_header_size(length):
+            return 1
+        buf = _ffi.buffer(at, length)
+        self._complete_header_field(buf)
+        return 0
+
+    def on_header_value(self, parser, at, length):
+        # http-parser callback: got a piece of a header value
+        if not self._update_header_size(length):
+            return 1
+        buf = _ffi.buffer(at, length)
+        self._complete_header_value(buf)
+        return 0
+
+    def on_headers_complete(self, parser):
+        # http-parser callback: the HTTP header is complete. This is the point
+        # where we hand off the message to our consumer. Going forward,
+        # on_body() will continue to write chunks of the body to message.body.
+        self._complete_header_value(b'')
+        m = self._message
+        m.message_type = _lib.http_message_type(parser)
+        m.version = '{0}.{1}'.format(parser.http_major, parser.http_minor)
+        if self._server_side:
+            m.method = _cd2s(_lib.http_method_str(parser.method))
+            m.url = _ba2s(self._url)
+            try:
+                m.parsed_url = parse_url(self._url)
+            except ValueError as e:
+                self._error = HttpError('urlsplit(): {0!s}'.format(e))
+                return 2  # error
+            m.is_upgrade = _lib.http_is_upgrade(parser)
+        else:
+            m.status_code = parser.status_code
+        m.should_keep_alive = _lib.http_should_keep_alive(parser)
+        m.body = StreamReader(self._update_body_size)
+        # Make the message available. There is no need to call
+        # read_buffer_size_change() here as the changes sum up to 0.
+        self._queue.put_nowait(m, self._header_size)
+        self._header_size = 0
+        # Return 1 if this is a HEAD request, 0 otherwise. This instructs the
+        # parser whether or not a body follows.
+        if not self._requests:
+            return 0
+        return 1 if self._requests.pop(0) == 'HEAD' else 0
+
+    def on_body(self, parser, at, length):
+        # http-parser callback: got a body chunk
+        self._message.body.feed(bytes(_ffi.buffer(at, length)))
+        return 0
+
+    def on_message_complete(self, parser):
+        # http-parser callback: the body ended
+        # complete any trailers that might be present
+        self._complete_header_value(b'')
+        self._message.body.feed_eof()
+        return 0
+
+    def data_received(self, data):
+        # Protocol callback
+        nbytes = _lib.http_parser_execute(self._parser, self._settings, data, len(data))
+        if nbytes != len(data):
+            msg = _cd2s(_lib.http_errno_name(_lib.http_errno(self._parser)))
+            self._log.debug('http_parser_execute(): {0}'.format(msg))
+            self._error = HttpError('parse error: {0}'.format(msg))
+            self._transport.close()
+
+    def connection_lost(self, exc):
+        # Protocol callback
+        # Feed the EOF to the parser. It will tell us it if was unexpected.
+        nbytes = _lib.http_parser_execute(self._parser, self._settings, b'', 0)
+        if nbytes != 0:
+            msg = _cd2s(_lib.http_errno_name(_lib.http_errno(self._parser)))
+            self._log.debug('http_parser_execute(): {0}'.format(msg))
+            if exc is None:
+                exc = HttpError('parse error: {0}'.format(msg))
+        super(HttpProtocol, self).connection_lost(exc)
+
     @switchpoint
-    def request(self, method, url, headers=None, body=None):
+    def request(self, method, url, headers=[], body=b''):
         """Make a new HTTP request.
 
         The *method* argument is the HTTP method to be used. It must be
-        specified  as a string, for example ``'GET'`` or ``'POST'``. The *url*
-        argument must be a string containing the URL.
+        specified as a string, for example ``'GET'`` or ``'POST'``. The *url*
+        argument specifies the URL and must be a string as well.
 
         The optional *headers* argument specifies extra HTTP headers to use in
         the request. It must be a list of (name, value) tuples, with name and
@@ -579,85 +917,117 @@ class HttpClient(protocols.RequestResponseProtocol):
 
         The optional *body* argument may be used to specify a body to include
         in the request. It must be a ``bytes`` or ``str`` instance, a file-like
-        object, or an iterable producing ``bytes`` or ``str`` instances. See
-        the notes at the top about the use of strings in HTTP bodies.
+        object, or an iterable producing ``bytes`` or ``str`` instances. The
+        default value for the body is the empty string ``b''`` which sends an
+        empty body. To send potentially very large bodies, use the file or
+        iterator interface. Using these interfaces will send the body under the
+        "chunked" transfer encoding. This has the added advantage that the body
+        size does not need to be known up front.
 
-        This method sends the request and waits for it to be complete sent out.
-        It does now however wait for the response. The response can be obtained
-        using :meth:`getresponse`.
+        The body may also be the ``None``, which means that you need to send
+        the request body yourself. This is explained below.
+
+        This method sends the request header, and if a body was specified, the
+        request body as well. It then returns a :class:`HttpRequest` instance.
         
+        If however you passsed a *body* of ``None`` then you must use the
+        :meth:`HttpRequest.write` and :meth:`HttpRequest.end_request` methods
+        if the :class:`HttpRequest` instance to send the request body yourself.
+        This functionality is only useful if you want to sent trailers with the
+        HTTP "chunked" encoding. Trailers are not normally used.
+
+        The response to the request can be obtained by calling the
+        :meth:`get_response` method. 
+
         You may make multiple requests before reading a response. This is
-        called pipelining. According to the HTTP RFC, you should not use the
-        POST method when doing this. This restriction is not enforced by this
-        method.
+        called pipelining, and can improve per request latency greatly. For
+        every request that you make, you must call :meth:`get-response` exactly
+        once. The remote HTTP implementation will send by the responses in the
+        same order as the requests.
         """
-        if self._transport is None or self._transport.closed:
-            raise RuntimeError('not connected')
-        headers = [] if headers is None else headers[:]
-        for name,value in headers:
-            if name in hop_by_hop:
-                raise ValueError('header {0} is hop-by-hop'.format(name))
-        agent = get_header(headers, 'User-Agent')
-        if agent is None:
-            headers.append(('User-Agent', self.user_agent))
-        host = get_header(headers, 'Host')
-        if host is None and self._default_host:
-            headers.append(('Host', self._default_host))
+        if self._error:
+            raise self._error
+        elif self._closing or self._closed:
+            raise HttpError('protocol is closing/closed')
+        self._requests.append(method)
+        request = HttpRequest(self._transport, self)
+        request.start_request(method, url, headers, body)
         if body is None:
-            body = b''
-        if isinstance(body, (compat.binary_type, compat.text_type)):
-            body = _s2b(body)
-            headers.append(('Content-Length', str(len(body))))
-        elif hasattr(body, 'read') or hasattr(body, '__iter__'):
-            headers.append(('Transfer-Encoding', 'chunked'))
-        else:
-            raise TypeError('body: expecting a bytes or str instance, ' \
-                            'a file-like object, or an iterable')
-        self._transport._parser.push_request(method)
-        header = create_request(method, url, headers)
-        self._transport.write(header)
+            return request
         if isinstance(body, bytes):
-            self._write(self._transport, body)
+            request.write(body)
         elif hasattr(body, 'read'):
             while True:
                 chunk = body.read(4096)
                 if not chunk:
                     break
-                self._write(self._transport, create_chunk(chunk))
-            self._write(self._transport, last_chunk())
+                request.write(chunk)
         elif hasattr(body, '__iter__'):
             for chunk in body:
-                self._write(self._transport, create_chunk(chunk))
-            self._write(self._transport, last_chunk())
-        self._flush(self._transport)
+                request.write(chunk)
+        request.end_request()
 
     @switchpoint
-    def getresponse(self):
-        """Get a new response from the connection.
+    def get_response(self, timeout=-1):
+        """Wait for and return a HTTP response.
 
-        This method will wait until the reponse header is fully received. It
-        will then parse the response header, store the result in a
-        :class:`HttpResponse` instance, and return that. The rest of the body
-        may be read through the response object.
+        The return value is a :class:`HttpResponse` instance. When this method
+        returns, only the response header has been read. The response body can
+        be read using the :meth:`HttpResponse.read` and similar methods.
 
-        When using HTTP pipelining, this method will return the fist response
-        header that is received, which will correspond to the oldest request
-        that is still pending.
+        Note that it is requires  that you read the entire body of each
+        response if you use HTTP pipelining. Specifically, it is an error to
+        call :meth:`get_response` when the body of the response returned by a
+        previous invocation has not yet been fully read.
         """
-        if not self._transport._parser.requests and not self._transport._queue:
+        if self._error:
+            raise self._error
+        elif self._closed:
+            raise HttpError('protocol is closed')
+        if not self._requests and not self._queue.qsize():
             raise RuntimeError('there are no outstanding requests')
-        message = self._transport._queue.get()
-        response = HttpResponse(message)
-        return response
+        if timeout < 0:
+            timeout = self._timeout
+        if self._response and not self._response.body.eof:
+            raise RuntimeError('body of previous response not completely read')
+        message = self._queue.get(timeout=timeout)
+        self._response = message
+        return HttpResponse(message)
 
 
-class HttpServer(protocols.RequestResponseProtocol):
-    """An HTTP 1/1. server."""
+class HttpClient(Client):
+    """A HTTP client."""
 
-    _exception = HttpError
-    server_id = 'gruvi.http/{0}'.format(__version__)
+    def __init__(self, timeout=None):
+        """The optional *timeout* argument can be used to specify a timeout for
+        the various network operations used within the client."""
+        super(HttpClient, self).__init__(self._create_protocol, timeout=timeout)
+        self._server_name = None
 
-    def __init__(self, wsgi_handler, server_name=None, timeout=None):
+    @docfrom(Client.connect)
+    def connect(self, address, **kwargs):
+        # Capture the host name that we are connecting to. We need this for
+        # generating "Host" headers in HTTP/1.1
+        if isinstance(address, tuple):
+            host, port = address[:2]  # len(address) == 4 for IPv6
+            default_port = (port == HTTP_PORT and 'ssl' not in kwargs) \
+                                or (port == HTTPS_PORT and 'ssl' in kwargs)
+            if not default_port:
+                host = '{0}:{1}'.format(host, port)
+            self._server_name = host
+        return super(HttpClient, self).connect(address, **kwargs)
+
+    add_protocol_method(HttpProtocol.request, globals(), locals())
+    add_protocol_method(HttpProtocol.get_response, globals(), locals())
+
+    def _create_protocol(self):
+        return HttpProtocol(False, server_name=self._server_name, timeout=self._timeout)
+
+
+class HttpServer(Server):
+    """A HTTP server."""
+
+    def __init__(self, application, server_name=None, timeout=None):
         """The constructor takes the following arugments.  The *wsgi_handler*
         argument must be a WSGI callable. See `PEP 333
         <http://www.python.org/dev/peps/pep-0333/>`_.
@@ -670,158 +1040,10 @@ class HttpServer(protocols.RequestResponseProtocol):
         The optional *timeout* argument can be used to specify a timeout for
         the various network operations used within the server.
         """
-        def parser_factory():
-            return HttpParser(HttpParser.HTTP_REQUEST)
-        super(HttpServer, self).__init__(parser_factory, timeout)
-        self._wsgi_handler = wsgi_handler
+        super(HttpServer, self).__init__(self._create_protocol, timeout)
+        self._application = application
         self._server_name = server_name
 
-    transport = protocols.Protocol.transport  # Have Sphinx document it
-
-    @property
-    def clients(self):
-        """A set containing the transports of the currently connected
-        clients."""
-        return self._clients
-
-    @switchpoint
-    @docfrom(protocols.Protocol._listen)
-    def listen(self, address, ssl=False, **transport_args):
-        self._listen(address, ssl, **transport_args)
-
-    def _init_transport(self, transport):
-        super(HttpServer, self)._init_transport(transport)
-        if hasattr(transport, 'nodelay'):
-            transport.nodelay(True)
-        self._reinit_request(transport)
-
-    def _reinit_request(self, transport):
-        transport._version = None
-        transport._status = None
-        transport._headers = []
-        transport._trailers = []
-        transport._headers_sent = False
-        transport._chunked = None
-        transport._keepalive = None
-
-    def _dispatch_fast_path(self, transport, message):
-        def on_size_change(oldsize, newsize):
-            transport._queue._adjust_size(newsize-oldsize)
-        message.buffers.size_changed.connect(on_size_change)
-        return False
-
-    def _close_transport(self, transport, error=None):
-        if not transport.closed and not transport._headers_sent and error:
-            transport._status = '500 Internal Server Error'
-            transport._headers = [('Content-Type', 'text/plain')]
-            transport._chunked = False
-            transport._keepalive = False
-            self._write(transport, 'Internal Server Error ({0})'
-                                        .format(error.args[0]))
-        super(HttpServer, self)._close_transport(transport)
-
-    def _get_environ(self, transport, message):
-        env = message.get_wsgi_environ()
-        addr = getsockname(self.transport)
-        if isinstance(addr, (compat.binary_type, compat.text_type)):
-            addr = (addr, None)
-        env['SERVER_NAME'] = self._server_name or addr[0]
-        env['SERVER_PORT'] = addr[1]
-        env['wsgi.version'] = (1, 0)
-        errors = env['wsgi.errors'] = ErrorStream()
-        transport._log.debug('logging to {}', logging.objref(errors))
-        env['wsgi.multithread'] = True
-        env['wsgi.multiprocess'] = True
-        env['wsgi.run_once'] = False
-        env['gruvi.transport'] = transport
-        return env
-
-    def _send_headers(self, transport):
-        clen = get_header(transport._headers, 'Content-Length')
-        transport._chunked = clen is None and transport._version == (1, 1)
-        if transport._chunked:
-            transport._headers.append(('Transfer-Encoding', 'chunked'))
-        if not clen and transport._version == (1, 0):
-            transport._keepalive = False
-        if transport._version == (1, 1) and not transport._keepalive:
-            transport._headers.append(('Connection', 'close'))
-        elif transport._version == (1, 0) and transport._keepalive:
-            transport._headers.append(('Connection', 'keep-alive'))
-        server = get_header(transport._headers, 'Server')
-        if server is None:
-            transport._headers.append(('Server', self.server_id))
-        date = get_header(transport._headers, 'Date')
-        if date is None:
-            transport._headers.append(('Date', rfc1123_date()))
-        header = create_response(transport._version, transport._status,
-                                 transport._headers)
-        transport.write(header)
-        transport._headers_sent = True
-
-    @switchpoint
-    def _write(self, transport, data, last=False):
-        if isinstance(data, compat.text_type):
-            data = data.encode('iso-8859-1')
-        elif not isinstance(data, compat.binary_type):
-            raise TypeError('data: expecting bytes or str instance')
-        if not data and not last:
-            return
-        if transport._error:
-            raise transport._error
-        if not transport._headers_sent:
-            self._send_headers(transport)
-        if transport._chunked:
-            if data:
-                data = create_chunk(data)
-            if last:
-                data += last_chunk(transport._trailers)
-        super(HttpServer, self)._write(transport, data)
-
-    def _start_response(self, transport, status, headers, exc_info=None):
-        if exc_info:
-            try:
-                if transport._headers_sent:
-                    compat.reraise(*exc_info)
-            finally:
-                exc_info = None
-        elif transport._status is not None:
-            raise RuntimeError('response already started')
-        for name,value in headers:
-            if name in hop_by_hop:
-                raise ValueError('header {0} is hop-by-hop'.format(name))
-        transport._status = status
-        transport._headers = headers
-        def write(data):
-            return self._write(transport, data, last=False)
-        return write
-
-    def _dispatch_message(self, transport, message):
-        transport._log.debug('request: {} {}', message.method, message.url)
-        transport._version = message.version
-        transport._keepalive = message.should_keep_alive
-        environ = self._get_environ(transport, message)
-        def start_response(status, headers, exc_info=None):
-            return self._start_response(transport, status, headers, exc_info)
-        result = self._wsgi_handler(environ, start_response)
-        try:
-            if not transport._status:
-                raise RuntimeError('start_response() not called')
-            for chunk in result:
-                if transport.closed:
-                    break
-                if chunk:
-                    self._write(transport, chunk)
-            self._write(transport, b'', last=True)
-            self._flush(transport)
-        finally:
-            if hasattr(result, 'close'):
-                result.close()
-        ctype = get_header(transport._headers, 'Content-Type', 'unknown')
-        clen = get_header(transport._headers, 'Content-Length', 'unknown')
-        transport._log.debug('response: {0} ({1}; {2} bytes)'
-                                .format(transport._status, ctype, clen))
-        if transport._keepalive:
-            transport._log.debug('keeping connection alive')
-            self._reinit_request(transport)
-        else:
-            self._close_transport(transport)
+    def _create_protocol(self):
+        return HttpProtocol(True, self._application, server_name=self._server_name,
+                            timeout=self._timeout)

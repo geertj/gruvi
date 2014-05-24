@@ -1,0 +1,26 @@
+TODO:
+
+* Increase test coverage.
+* Should we expose a Protocol.transport? If so the message handler signature
+  can be simplied to handler(protocol, message) or handler(message, protocol)
+* Implement sub-processes. Probably just implement the asyncio API.
+* Fibers in the Fiber pool should be single shot.
+* Futures should have a .cancel() method.
+* Threads that exit without calling Hub.close() are not garbage collected. Not
+  sure how this can be implemented. I think it is not possible without this
+  Python RFE: http://bugs.python.org/issue14073
+* Add a "trace id" around MessageProtocol.message_received() Or add it for a
+  connection?
+* http.parse_option_header() should ignore LWS. A better way to implement this
+  function would be to use the parsing infrastructure from bluepass.parsing and
+  then do a proper tokenization + parsing.
+* gruvi.http needs better test coverage
+* Add tests for JoinableQueue API
+* Investigate low HTTP parsing speed (20MB/sec)
+* perf_fibers.py doesn't run as part of the suite (does run individually)
+* Get rid of get_log_level() and $DEBUG / $VERBOSE variables in logging.
+
+Things that could be done if they are useful:
+
+* Graceful shutdown in Server: drain a protocol's queue.
+* Missing synchronization primitives from asyncio: Semaphore, BoundedSemaphore.

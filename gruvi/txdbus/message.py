@@ -3,7 +3,6 @@ Module to represent DBus Messages
 
 @author: Tom Cocagne
 """
-
 from __future__ import absolute_import, print_function
 
 from . import marshal, error
@@ -11,7 +10,7 @@ from . import marshal, error
 
 _headerFormat = 'yyyyuua(yv)'
 
-
+    
 class DBusMessage (object):
     """
     Abstract base class for DBus messages
@@ -336,7 +335,7 @@ def parseMessage( rawMessage ):
     """
 
     lendian = rawMessage[0] == b'l'[0]
-
+    
     nheader, hval = marshal.unmarshal(_headerFormat, rawMessage, 0, lendian)
 
     messageType = hval[1]
@@ -345,12 +344,6 @@ def parseMessage( rawMessage ):
         raise error.MarshallingError('Unknown Message Type: ' + str(messageType))
 
     m = object.__new__( _mtype[messageType] )
-
-    m.endian = hval[0]
-
-    m.expectReply = not (hval[2] & 0x1)
-
-    m.autoStart = not (hval[2] & 0x2)
 
     m.rawHeader = rawMessage[:nheader]
 

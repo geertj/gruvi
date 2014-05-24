@@ -3,72 +3,56 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
 
 import gruvi
-from tests.support import *
+from support import *
 
 
 class TestFiber(UnitTest):
 
     def test_spawn(self):
-        def fiber(i):
-            if i == 0:
-                done.emit('foo')
-            else:
-                gruvi.spawn(fiber, i-1)
-        done = gruvi.Signal()
-        gruvi.spawn(fiber, 100)
-        self.assertEqual(done.wait(), ('foo',))
-
-    def test_run_fibers(self):
-        hub = gruvi.get_hub()
         counter = [0]
-        done = gruvi.Signal()
         def worker():
             counter[0] += 1
-            if counter[0] == 1000:
-                done.emit()
+        fibers = []
         for i in range(1000):
-            gr = gruvi.Fiber(worker)
-            gr.start()
-        done.wait()
+            fibers.append(gruvi.spawn(worker))
+        for fiber in fibers:
+            fiber.join()
         self.assertEqual(counter[0], 1000)
+
+    def test_join(self):
+        joined = []
+        def spawn_fibers(i):
+            if i == 0:
+                return
+            fiber = gruvi.spawn(spawn_fibers, i-1)
+            fiber.join()
+            joined.append(i-1)
+        fiber = gruvi.spawn(spawn_fibers, 1000)
+        fiber.join()
+        self.assertEqual(joined, list(range(1000)))
 
     def test_pass_args(self):
         hub = gruvi.get_hub()
         result = []
         def target1(*args):
-            result.extend(args)
-            gruvi.switch_back()(1, 2)
-            args, kwargs = hub.switch()
-            result.extend(args)
-            return True
+            result.append(args)
+            gruvi.switch_back()(1, 2, foo='bar')
+            result.extend(hub.switch())
         def target2(*args):
-            result.extend(args)
-            gruvi.switch_back()(3, 4)
-            args, kwargs = hub.switch()
-            result.extend(args)
-            return True
-        gr1 = gruvi.Fiber(target1, args=('a', 'b'))
-        gr1.start()
-        gr2 = gruvi.Fiber(target2, args=('c', 'd'))
-        gr2.start()
-        for siginfo in gruvi.waitall([gr1.done, gr2.done]):
-            self.assertIsInstance(siginfo[0], gruvi.Signal)
-            self.assertTrue(siginfo[1])
-        self.assertEqual(result, ['a', 'b', 'c', 'd', 1, 2, 3, 4])
-
-    def test_log_exception(self):
-        hub = gruvi.get_hub()
-        def target():
-            raise ValueError
-        gr1 = gruvi.Fiber(target)
-        gr1.start()
-        gruvi.sleep(0)
+            result.append(args)
+            gruvi.switch_back()(3, 4, baz='qux')
+            result.extend(hub.switch())
+        f1 = gruvi.spawn(target1, 'a', 'b')
+        f2 = gruvi.spawn(target2, 'c', 'd')
+        f1.join(); f2.join()
+        self.assertEqual(result, [('a', 'b'), ('c', 'd'), (1, 2), {'foo': 'bar'},
+                                  (3, 4), {'baz': 'qux'}])
 
 
 if __name__ == '__main__':

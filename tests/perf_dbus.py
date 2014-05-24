@@ -10,30 +10,44 @@ from __future__ import absolute_import, print_function, division
 
 import time
 
-from gruvi import dbus_ffi
-from tests.support import *
-from tests.test_dbus import set_buffer
+from gruvi.dbus import *
+from support import *
+from test_dbus import echo_app
 
 
 class PerfDBus(PerformanceTest):
 
-    def perf_dbus_parsing_speed(self):
-        m = b'l\1\0\1\x64\0\0\0\1\0\0\0\0\0\0\0' + (b'x'*100)
-        buf = m * 100
-        ctx = dbus_ffi.ffi.new('struct context *')
-        nbytes = 0
+    def perf_message_throughput_pipe(self):
+        # Test roundtrips of a simple method call over a Pipe
+        server = DbusServer(echo_app)
+        addr = 'unix:path=' + self.pipename()
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(addr)
+        nmessages = 0
         t0 = t1 = time.time()
         while t1 - t0 < 1:
-            set_buffer(ctx, buf)
-            while ctx.offset != len(buf):
-                error = dbus_ffi.lib.split(ctx)
-                self.assertEqual(error, 0)
-                self.assertEqual(ctx.error, error)
-                self.assertEqual(ctx.offset % len(m), 0)
-            nbytes += len(buf)
+            client.call_method('bus.name', '/path', 'my.iface', 'Echo')
             t1 = time.time()
-        speed = nbytes / (1024 * 1024) / (t1 - t0)
-        self.add_result(speed)
+            nmessages += 1
+        throughput = nmessages / (t1 - t0)
+        self.add_result(throughput)
+
+    def perf_message_throughput_tcp(self):
+        # Test roundtrips of a simple method call over TCP.
+        server = DbusServer(echo_app)
+        addr = 'tcp:host=127.0.0.1,port=0'
+        server.listen(addr)
+        client = DbusClient()
+        client.connect(server.addresses[0])
+        nmessages = 0
+        t0 = t1 = time.time()
+        while t1 - t0 < 1:
+            client.call_method('bus.name', '/path', 'my.iface', 'Echo')
+            t1 = time.time()
+            nmessages += 1
+        throughput = nmessages / (t1 - t0)
+        self.add_result(throughput)
 
 
 if __name__ == '__main__':

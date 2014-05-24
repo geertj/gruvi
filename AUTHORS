@@ -2,5 +2,8 @@ Main author:
 
 * Geert Jansen <geertj@gmail.com>
 
-Gruvi includes parts of http://github.com/cogagne/txdbus by Tom Cocagne,
-(tom.cocagne@gmail.com) which is licensed under the MIT license as well.
+Gruvi includes some third party code:
+
+* The gruvi/txdbus package contains code from the "txdbus" project by Tom
+  Cocagne (tom.cocagne@gmail.com). MIT licensed. Source code is at
+  http://github.com/cocagne/txdbus.

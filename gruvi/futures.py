@@ -13,8 +13,9 @@ import time
 import threading
 
 import pyuv
-from . import sync, fibers
+from . import fibers
 from .hub import switchpoint
+from .sync import Event, Queue
 
 __all__ = ['Future', 'Pool', 'FiberPool', 'ThreadPool', 'get_io_pool',
            'get_cpu_pool', 'blocking']
@@ -25,61 +26,40 @@ class Future(object):
 
     Futures are created by :class:`FiberPool.submit` and :class:`ThreadPool.submit`
     and represent the not-yet-available result of the submitted functions.
-
-    This class is loosely modeled after :class:`concurrent.futures.Future` and
-    :class:`asyncio.Future`, but with an API that uses Gruvi signals.
     """
 
-    def __init__(self, lock=None):
-        self._value = None
+    __slots__ = ['_result', '_exception', '_done']
+
+    def __init__(self):
+        self._result = None
         self._exception = None
-        self._completed = False
-        self._done = sync.Signal(lock)
+        self._done = Event()
 
-    @property
-    def value(self):
-        """The result of the async function, if available."""
-        return self._value
-
-    @property
-    def exception(self):
-        """The exception that was raised by the async function, if available."""
-        return self._exception
-
-    @property
-    def completed(self):
-        """Whether the async function has already completed."""
-        return self._completed
-
-    @property
     def done(self):
-        """A signal that is raised when the future is done.
+        """Return whether this future is done."""
+        return bool(self._done)
 
-        You can call ``wait()`` on this signal, or ``connect()`` to it.
-
-        Callback arguments: ``callback(value, exception)``.
-        """
-        return self._done
-
-    def result(self, timeout=None):
-        """Wait for the asynchronous function to complete, and return its
-        result.
-
-        If the function returned a value, it is returned here. If an exception
-        was raised instead, it is re-raised here.
-        """
-        if not self._completed:
-            self.done.wait(timeout=timeout)
+    def result(self):
+        """The result of the async function, if available."""
+        self._done.wait()
         if self._exception:
             raise self._exception
-        return self._value
+        return self._result
 
-    def set_result(self, value=None, exception=None):
-        """Set the result of the future."""
-        self._value = value
+    def exception(self):
+        """The exception that was raised by the async function, if available."""
+        self._done.wait()
+        return self._exception
+
+    def set_result(self, result):
+        """Mark the future as done and set its result."""
+        self._result = result
+        self._done.set()
+
+    def set_exception(self, exception):
+        """Mark the future as done and set an exception."""
         self._exception = exception
-        self._completed = True
-        self.done.emit(value, exception)
+        self._done.set()
 
 
 class PoolBase(object):
@@ -87,13 +67,15 @@ class PoolBase(object):
 
     _StopWorker = object()
 
-    def __init__(self, maxsize=4, name=None):
+    def __init__(self, maxsize=None, single_shot=False, name=None):
         self.maxsize = maxsize
+        self.single_shot = single_shot
         self.name = name
         self._workers = set()
-        self._queue = sync.Queue()
-        self._active = 0
+        self._queue = Queue()
         self._closed = False
+        # The lock is short lived so no need for a fiber aware lock.
+        self._lock = threading.Lock()
 
     def _current_worker(self):
         raise NotImplemented
@@ -101,65 +83,49 @@ class PoolBase(object):
     def _spawn_worker(self):
         raise NotImplemented
 
-    def _create_future(self):
-        raise NotImplemented
-
     def _worker_main(self):
         # Main function for each worker in the pool.
         while True:
-            with self._queue.lock:
-                if self.maxsize is not None and len(self._workers) > self.maxsize:
-                    break  # Die voluntarily
-                work = self._queue.get()
+            work = self._queue.get()
+            try:
                 if work is self._StopWorker:
                     break
                 func, args, fut = work
-                self._active += 1
-            res = exc = None
-            try:
-                res = func(*args)
-            except Exception as e:
-                exc = e
-            fut.set_result(res, exc)
-            with self._queue.lock:
-                self._active -= 1
+                try:
+                    res = func(*args)
+                except Exception as e:
+                    fut.set_exception(e)
+                else:
+                    fut.set_result(res)
+            finally:
+                self._queue.task_done()
+            if self.single_shot:
+                break
         self._workers.remove(self._current_worker())
 
     def _spawn_workers(self):
-        # Spawn new threads if required.
-        with self._queue.lock:
+        # Spawn new workers if required.
+        with self._lock:
+            active = self._queue.unfinished_tasks
+            idle = max(0, len(self._workers) - active)
             if self.maxsize is None:
-                idle = len(self._workers) - self._active
-                tospawn = len(self._queue) - idle
+                tospawn = self._queue.qsize() - idle
             else:
                 available = max(0, self.maxsize - len(self._workers))
-                idle = len(self._workers) - self._active
-                wanted = max(0, len(self._queue) - idle)
+                wanted = max(0, self._queue.qsize() - idle)
                 tospawn = min(available, wanted)
             for i in range(tospawn):
-                worker = self._spawn_worker()
-                self._workers.add(worker)
+                self._spawn_worker()
 
-    @property
-    def closed(self):
-        """Return whether the pool has been closed."""
-        return self._closed
-
-    @property
-    def size(self):
-        """Return the current size of the pool."""
-        return len(self._workers)
-
-    def submit(self, func, *args, **kwargs):
+    def submit(self, func, *args):
         """Submit function *func* to the pool, which will run it asynchronously.
         
         The function is called with positional argument *args*.
         """
         if self._closed:
-            raise RuntimeError('Pool is closed')
-        result = self._create_future()
-        with self._queue.lock:
-            self._queue.put((func, args, result))
+            raise RuntimeError('pool is closed')
+        result = Future()
+        self._queue.put((func, args, result))
         self._spawn_workers()
         return result
 
@@ -177,46 +143,45 @@ class PoolBase(object):
         This returns a generator yielding the results.
         """
         if self._closed:
-            raise RuntimeError('ThreadPool is closed')
+            raise RuntimeError('pool is closed')
         timeout = kwargs.pop('timeout', None)
         futures = [self.submit(func, *args) for args in zip(*iterables)]
         for future in futures:
             yield future.result()
 
     @switchpoint
+    def join(self):
+        """Wait until all jobs in the pool have completed."""
+        self._queue.join()
+
+    @switchpoint
     def close(self):
-        """Close down the threadpool for new submissions, and then wait until
-        all work is completed."""
-        if self._closed:
-            return
-        self._closed = True
-        with self._queue.lock:
-            for i in range(len(self._workers)):
-                self._queue.put(self._StopWorker)
-            if len(self._queue) > 0:
-                self._queue.size_changed.wait(lambda old,new: new == 0)
-        assert len(self._queue) == 0
+        """Close the pool.
+
+        New submissions will be blocked. Once all current jobs have finished,
+        the workers will be stopped, and this method will return.
+        """
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+        self._queue.join()
+        for i in range(len(self._workers)):
+            self._queue.put(self._StopWorker)
+        self._queue.join()
 
 
 class FiberPool(PoolBase):
     """Execute functions asynchronously in a pool of fibers."""
 
-    def __init__(self, maxsize=None, name=None):
-        """Spawn up to *maxsize* fibers in the fiber pool. If maxsize is not
-        provided, then there is no limit to the size of the pool.
-        """
-        super(Pool, self).__init__(maxsize, name)
-
     def _current_worker(self):
         return fibers.current_fiber()
 
     def _spawn_worker(self):
-        worker = fibers.Fiber(self._worker_main)
-        worker.start()
-        return worker
-
-    def _create_future(self):
-        return Future()
+        name = '{0}-{1}'.format(self.name, len(self._workers)) if self.name else None
+        fiber = fibers.Fiber(self._worker_main, name=name)
+        fiber.start()
+        self._workers.add(fiber)
 
 Pool = FiberPool
 
@@ -224,65 +189,38 @@ Pool = FiberPool
 class ThreadPool(PoolBase):
     """Execute functions asynchronously in a pool of threads."""
 
-    _lock = threading.Lock()
-    _io_pool = None
-    _cpu_pool = None
-
-    def __init__(self, maxsize=None, name=None):
-        """Spawn up to *maxsize* threads in the thread pool. If maxsize is not
-        provided, then it will be set to the number of cores in the system."""
-        if maxsize is None:
-            maxsize = len(pyuv.util.cpu_info())
-        super(ThreadPool, self).__init__(maxsize, name)
-
     def _current_worker(self):
         return threading.current_thread()
 
     def _spawn_worker(self):
         name = '{0}-{1}'.format(self.name, len(self._workers)) if self.name else None
-        worker = threading.Thread(target=self._worker_main, name=name)
-        worker.daemon = True
-        worker.start()
-        return worker
+        thread = threading.Thread(target=self._worker_main, name=name)
+        # Don't block program exit if the user forgot to close() the pool,
+        # especially because there's implicitly created pools.
+        thread.daemon = True
+        thread.start()
+        self._workers.add(thread)
 
-    def _create_future(self):
-        return Future(sync.Lock())
 
-    @classmethod
-    def get_io_pool(cls):
-        """Return the IO thread pool."""
-        if cls._io_pool is None:
-            with cls._lock:
-                if cls._io_pool is None:
-                    cls._io_pool = ThreadPool(20, 'IoPool')
-        return cls._io_pool
+# When constructing a pool it doesn't start any workers until they are needed.
+# This makes it OK to instantiate the pools ahead of time.
 
-    @classmethod
-    def get_cpu_pool(cls):
-        """Return the CPU thread pool."""
-        if cls._cpu_pool is None:
-            with cls._lock:
-                if cls._cpu_pool is None:
-                    ncores = len(pyuv.util.cpu_info())
-                    cls._cpu_pool = ThreadPool(ncores, 'CpuPool')
-        return cls._cpu_pool
-
+_io_pool = ThreadPool(20, name='Io')
+_cpu_pool = ThreadPool(len(pyuv.util.cpu_info()), name='Cpu')
 
 def get_io_pool():
     """Return the thread pool for IO tasks.
 
     By default there is one IO thread pool that is shared with all threads.
-    This method is equivalent to :meth:`ThreadPool.get_io_pool`.
     """
-    return ThreadPool.get_io_pool()
+    return _io_pool
 
 def get_cpu_pool():
     """Return the thread pool for CPU intenstive tasks.
     
     By default there is one CPU thread pool that is shared with all threads.
-    This method is equivalent to :meth:`ThreadPool.get_cpu_pool`.
     """
-    return ThreadPool.get_cpu_pool()
+    return _cpu_pool
 
 
 def blocking(func, *args, **kwargs):

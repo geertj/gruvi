@@ -1,4 +1,4 @@
-pycparser
-cffi
-fibers
-pyuv
+cffi >= 0.8
+fibers >= 0.4
+git+https://github.com/saghul/pyuv.git#egg=pyuv
+six

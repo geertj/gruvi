@@ -12,9 +12,9 @@ import fibers
 import threading
 
 from . import logging
-from .hub import get_hub, switchpoint
-from .sync import Signal, Queue
-from .error import Cancelled
+from .hub import get_hub
+from .sync import Event
+from .errors import Cancelled
 
 __all__ = ['current_fiber', 'Fiber', 'spawn']
 
@@ -36,48 +36,34 @@ class Fiber(fibers.Fiber):
     package are the root fiber and the :class:`Hub`.
     """
 
-    def __init__(self, target, args=(), kwargs={}):
-        self._hub = get_hub()
+    __slots__ = ('name', 'context', '_target', '_log', '_thread', '_done')
+
+    def __init__(self, target, args=(), kwargs={}, name=None, hub=None):
+        self._hub = hub or get_hub()
         super(Fiber, self).__init__(self.run, args, kwargs, self._hub)
-        if not hasattr(self._hub, 'last_fiber'):
-            self._hub.last_fiber = 0
-        self._hub.last_fiber += 1
-        self._name = 'Fiber-{0}'.format(self._hub.last_fiber)
+        if name is None:
+            fid = self._hub.data.setdefault('next_fiber', 1)
+            name = 'Fiber-{0}'.format(fid)
+            self._hub.data['next_fiber'] += 1
+        self.name = name
+        self.context = ''
         self._target = target
-        self._log = logging.get_logger(self)
-        self._done = Signal()
-        self._thread = threading.get_ident()
-        self.context = None
-
-    @property
-    def name(self):
-        """Return the fiber name."""
-        return self._name
-
-    @property
-    def done(self):
-        """Signal that is raised when the fiber exits.
-
-        Signal arguments: ``(return_value, exc)``.
-        """
-        return self._done
-
-    @property
-    def alive(self):
-        """Returns wether the file is alive."""
-        return self.is_alive()
+        self._log = logging.get_logger()
+        self._thread = threading.current_thread()
+        self._done = Event()
 
     def start(self):
         """Schedule the fiber to be started in the next iteration of the
         event loop."""
-        self._log.debug('starting fiber, target = {!s}', self._target)
+        target = getattr(self._target, '__qualname__', self._target.__name__)
+        self._log.debug('starting fiber {}, target {}', self.name, target)
         self._hub.run_callback(self.switch)
 
     def switch(self, value=None):
         """Switch to this fiber."""
         if self.current() is not self._hub:
             raise RuntimeError('only the Hub may switch() to a fiber')
-        if threading.get_ident() != self._thread:
+        if threading.current_thread() is not self._thread:
             raise RuntimeError('cannot switch from different thread')
         if not self.is_alive():
             self._log.warning('attempt to switch to a dead Fiber')
@@ -91,9 +77,12 @@ class Fiber(fibers.Fiber):
         inside it.
         """
         if not self.is_alive():
-            self._log.warning('attempt to cancel an already dead Fiber')
             return
-        self.throw(Cancelled('cancelled by Fiber.cancel()'))
+        self._hub.run_callback(self.throw, Cancelled('cancelled by Fiber.cancel()'))
+
+    def join(self, timeout=None):
+        """Wait until the fiber completes."""
+        self._done.wait(timeout)
 
     def run(self, *args, **kwargs):
         # Target of the first :meth:`switch()` call.
@@ -102,13 +91,16 @@ class Fiber(fibers.Fiber):
         value = exc = None
         try:
             value = self._target(*args, **kwargs)
+        except Cancelled as e:
+            self._log.debug(str(e))
         except Exception as e:
             self._log.exception('uncaught exception in fiber')
             exc = e
-        self.done.emit(value, exc)
+        self._done.set()
 
 
 def spawn(func, *args, **kwargs):
     """Spawn function *func* in a separate greenlet."""
     fiber = Fiber(func, args, kwargs)
     fiber.start()
+    return fiber

@@ -3,390 +3,415 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
 
+import six
+
 import gruvi
 from gruvi.http import *
-from gruvi.http import HttpParser, HttpMessage, urlsplit2, split_header_options
-from tests.support import *
+from gruvi.http import HttpMessage, HttpProtocol, HttpRequest, HttpResponse
+from gruvi.http import parse_url, parse_option_header
+from gruvi.http_ffi import lib as _lib
+from gruvi.stream import StreamReader
+from gruvi.compat import memoryview
+
+from support import *
 
 
-class TestUrlsplit2(UnitTest):
-
-    def test_basic(self):
-        parsed = urlsplit2('foo.org')
-        self.assertEqual(parsed.scheme, 'http')
-        self.assertEqual(parsed.netloc, 'foo.org:80')
-        self.assertEqual(parsed.hostname, 'foo.org')
-        self.assertEqual(parsed.port, 80)
-        self.assertEqual(parsed.path, '/')
-
-    def test_scheme(self):
-        parsed = urlsplit2('foo.org', default_scheme='https')
-        self.assertEqual(parsed.scheme, 'https')
-        parsed = urlsplit2('http://foo.org', default_scheme='https')
-        self.assertEqual(parsed.scheme, 'http')
-
-    def test_port(self):
-        parsed = urlsplit2('http://foo.org')
-        self.assertEqual(parsed.port, 80)
-        parsed = urlsplit2('https://foo.org')
-        self.assertEqual(parsed.port, 443)
-        parsed = urlsplit2('http://foo.org:81')
-        self.assertEqual(parsed.port, 81)
-        parsed = urlsplit2('https://foo.org:444')
-        self.assertEqual(parsed.port, 444)
-
-    def test_path(self):
-        parsed = urlsplit2('foo.org')
-        self.assertEqual(parsed.path, '/')
-        parsed = urlsplit2('foo.org/a')
-        self.assertEqual(parsed.path, '/a')
-
-
-class TestSplitHeaderOptions(UnitTest):
+class TestParseUrl(UnitTest):
 
     def test_basic(self):
-        parsed = split_header_options('text/plain; charset=foo')
+        parsed = parse_url('http://foo.org/bar')
+        self.assertEqual(parsed, ['http', 'foo.org', '', '/bar', '', '', ''])
+
+    def test_bytes(self):
+        parsed = parse_url(b'http://foo.org/bar')
+        self.assertEqual(parsed, ['http', 'foo.org', '', '/bar', '', '', ''])
+
+    def test_bytearray(self):
+        parsed = parse_url(bytearray(b'http://foo.org/bar'))
+        self.assertEqual(parsed, ['http', 'foo.org', '', '/bar', '', '', ''])
+
+    def test_memoryview(self):
+        parsed = parse_url(memoryview(b'http://foo.org/bar'))
+        self.assertEqual(parsed, ['http', 'foo.org', '', '/bar', '', '', ''])
+
+    def test_full_url(self):
+        parsed = parse_url('http://foo.org:80/bar?query#fragment')
+        self.assertEqual(parsed, ['http', 'foo.org', '80', '/bar', 'query', 'fragment', ''])
+
+
+class TestSplitOptionHeader(UnitTest):
+
+    def test_basic(self):
+        parsed = parse_option_header('text/plain; charset=foo')
         self.assertIsInstance(parsed, tuple)
         self.assertEqual(len(parsed), 2)
         self.assertEqual(parsed[0], 'text/plain')
         self.assertEqual(parsed[1], {'charset': 'foo'})
 
     def test_plain(self):
-        parsed = split_header_options('text/plain')
+        parsed = parse_option_header('text/plain')
         self.assertEqual(parsed, ('text/plain', {}))
 
     def test_iso8859_1(self):
-        parsed = split_header_options('text/plain; foo="bar\xfe"')
+        parsed = parse_option_header('text/plain; foo="bar\xfe"')
         self.assertEqual(parsed, ('text/plain', {'foo': 'bar\xfe'}))
 
     def test_whitespace(self):
-        parsed = split_header_options('text/plain;   charset=foo    ')
+        parsed = parse_option_header('text/plain;   charset=foo    ')
         self.assertEqual(parsed, ('text/plain', {'charset': 'foo'}))
 
     def test_quoted(self):
-        parsed = split_header_options('text/plain; charset="foo bar"')
+        parsed = parse_option_header('text/plain; charset="foo bar"')
         self.assertEqual(parsed, ('text/plain', {'charset': 'foo bar'}))
 
     def test_multiple(self):
-        parsed = split_header_options('text/plain; foo=bar baz=qux')
+        parsed = parse_option_header('text/plain; foo=bar baz=qux')
         self.assertEqual(parsed, ('text/plain', {'foo': 'bar', 'baz': 'qux'}))
 
     def test_empty(self):
-        parsed = split_header_options('text/plain; charset=""')
+        parsed = parse_option_header('text/plain; charset=""')
         self.assertEqual(parsed, ('text/plain', {'charset': ''}))
 
 
-class TestHttpParser(UnitTest):
+class TestHttpProtocol(UnitTest):
+
+    def setUp(self):
+        super(TestHttpProtocol, self).setUp()
+        self.environs = []
+
+    def store_request(self, environ, start_response):
+        environ['test.message'] = start_response.__self__._message
+        environ['test.body'] = environ['wsgi.input'].read()
+        self.environs.append(environ.copy())
+        start_response('200 OK', [])
+        return b''
+
+    def parse_request(self, *chunks):
+        # Parse the HTTP request made up of *chunks.
+        transport = MockTransport()
+        protocol = HttpProtocol(True, self.store_request)
+        transport.start(protocol)
+        for chunk in chunks:
+            protocol.data_received(chunk)
+        self.assertIsNone(protocol._error)
+        self.transport = transport
+        self.protocol = protocol
+
+    def get_request(self):
+        # Get a parsed request.
+        # The sleep here will run the dispatcher.
+        gruvi.sleep(0)
+        self.assertGreaterEqual(len(self.environs), 1)
+        env = self.environs.pop(0)
+        self.assertIsInstance(env, dict)
+        message = env.get('test.message')
+        self.assertIsInstance(message, HttpMessage)
+        self.assertEqual(message.message_type, _lib.HTTP_REQUEST)
+        body = env.get('test.body')
+        self.assertIsInstance(body, six.binary_type)
+        return env
+
+    # Tests that parse a request
 
     def test_simple_request(self):
         r = b'GET / HTTP/1.1\r\nHost: example.com\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_REQUEST)
-        self.assertEqual(msg.url, '/')
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Host', 'example.com')])
-        self.assertEqual(msg.body.read(), b'')
+        self.parse_request(r)
+        env = self.get_request()
+        m = env['test.message']
+        self.assertEqual(m.version, '1.1')
+        self.assertIsNone(m.status_code)
+        self.assertEqual(m.method, 'GET')
+        self.assertEqual(m.url, '/')
+        self.assertFalse(m.is_upgrade)
+        self.assertTrue(m.should_keep_alive)
+        self.assertEqual(m.parsed_url, ['', '', '', '/', '', '', ''])
+        self.assertEqual(m.headers, [('Host', 'example.com')])
+        self.assertEqual(m.trailers, [])
+        self.assertIsInstance(m.body, StreamReader)
+        self.assertTrue(m.body.eof)
+        self.assertEqual(env['test.body'], b'')
 
     def test_request_with_body(self):
         r = b'GET / HTTP/1.1\r\nHost: example.com\r\n' \
             b'Content-Length: 3\r\n\r\nFoo'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_REQUEST)
-        self.assertEqual(msg.url, '/')
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Host', 'example.com'), ('Content-Length', '3')])
-        self.assertEqual(msg.body.read(), b'Foo')
+        self.parse_request(r)
+        env = self.get_request()
+        m = env['test.message']
+        self.assertEqual(m.url, '/')
+        self.assertEqual(m.version, '1.1')
+        self.assertEqual(m.headers, [('Host', 'example.com'), ('Content-Length', '3')])
+        self.assertTrue(m.body.eof)
+        self.assertEqual(env['test.body'], b'Foo')
 
     def test_request_with_body_incremental(self):
         r = b'GET / HTTP/1.1\r\nHost: example.com\r\n' \
             b'Content-Length: 3\r\n\r\nFoo'
-        parser = HttpParser()
-        for i in range(len(r)):
-            nbytes = parser.feed(r[i:i+1])
-            self.assertEqual(nbytes, 1)
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_REQUEST)
-        self.assertEqual(msg.url, '/')
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Host', 'example.com'), ('Content-Length', '3')])
-        self.assertEqual(msg.body.read(), b'Foo')
+        self.parse_request([r[i:i+1] for i in range(len(r))])
+        env = self.get_request()
+        m = env['test.message']
+        self.assertEqual(m.url, '/')
+        self.assertEqual(m.version, '1.1')
+        self.assertEqual(m.headers, [('Host', 'example.com'), ('Content-Length', '3')])
+        self.assertTrue(m.body.eof)
+        self.assertEqual(env['test.body'], b'Foo')
 
     def test_request_with_chunked_body(self):
         r = b'GET / HTTP/1.1\r\nHost: example.com\r\n' \
             b'Transfer-Encoding: chunked\r\n\r\n' \
             b'3\r\nFoo\r\n0\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_REQUEST)
-        self.assertEqual(msg.url, '/')
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Host', 'example.com'),
-                                       ('Transfer-Encoding', 'chunked')])
-        self.assertEqual(msg.body.read(), b'Foo')
+        self.parse_request(r)
+        env = self.get_request()
+        m = env['test.message']
+        self.assertEqual(m.url, '/')
+        self.assertEqual(m.version, '1.1')
+        self.assertEqual(m.headers, [('Host', 'example.com'),
+                                     ('Transfer-Encoding', 'chunked')])
+        self.assertTrue(m.body.eof)
+        self.assertEqual(env['test.body'], b'Foo')
 
     def test_request_with_chunked_body_incremental(self):
         r = b'GET / HTTP/1.1\r\nHost: example.com\r\n' \
             b'Transfer-Encoding: chunked\r\n\r\n' \
             b'3\r\nFoo\r\n0\r\n\r\n'
-        parser = HttpParser()
-        for i in range(len(r)):
-            nbytes = parser.feed(r[i:i+1])
-            self.assertEqual(nbytes, 1)
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_REQUEST)
-        self.assertEqual(msg.url, '/')
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Host', 'example.com'),
-                                       ('Transfer-Encoding', 'chunked')])
-        self.assertEqual(msg.body.read(), b'Foo')
+        self.parse_request([r[i:i+1] for i in range(len(r))])
+        env = self.get_request()
+        m = env['test.message']
+        self.assertEqual(m.url, '/')
+        self.assertEqual(m.version, '1.1')
+        self.assertEqual(m.headers, [('Host', 'example.com'),
+                                     ('Transfer-Encoding', 'chunked')])
+        self.assertTrue(m.body.eof)
+        self.assertEqual(env['test.body'], b'Foo')
 
     def test_request_with_chunked_body_and_trailers(self):
         r = b'GET / HTTP/1.1\r\nHost: example.com\r\n' \
             b'Transfer-Encoding: chunked\r\n\r\n' \
             b'3\r\nFoo\r\n0\r\nETag: foo\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_REQUEST)
-        self.assertEqual(msg.url, '/')
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Host', 'example.com'),
-                                       ('Transfer-Encoding', 'chunked')])
-        self.assertEqual(msg.trailers, [('ETag', 'foo')])
-        self.assertEqual(msg.body.read(), b'Foo')
+        self.parse_request(r)
+        env = self.get_request()
+        m = env['test.message']
+        self.assertEqual(m.url, '/')
+        self.assertEqual(m.version, '1.1')
+        self.assertEqual(m.headers, [('Host', 'example.com'),
+                                     ('Transfer-Encoding', 'chunked')])
+        self.assertEqual(m.trailers, [('ETag', 'foo')])
+        self.assertTrue(m.body.eof)
+        self.assertEqual(env['test.body'], b'Foo')
 
     def test_pipelined_requests(self):
         r = b'GET /0 HTTP/1.1\r\nHost: example0.com\r\n\r\n' \
             b'GET /1 HTTP/1.1\r\nHost: example1.com\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
+        self.parse_request(r)
         for i in range(2):
-            msg = parser.pop_message()
-            self.assertIsInstance(msg, HttpMessage)
-            self.assertEqual(msg.message_type, parser.HTTP_REQUEST)
-            self.assertEqual(msg.url, '/{0}'.format(i))
-            self.assertEqual(msg.version, (1, 1))
-            self.assertEqual(msg.headers, [('Host', 'example{0}.com'.format(i))])
-            self.assertEqual(msg.body.read(), b'')
+            env = self.get_request()
+            m = env['test.message']
+            self.assertEqual(m.url, '/{0}'.format(i))
+            self.assertEqual(m.version, '1.1')
+            self.assertEqual(m.headers, [('Host', 'example{0}.com'.format(i))])
+            self.assertTrue(m.body.eof)
+            self.assertEqual(env['test.body'], b'')
 
     def test_pipelined_requests_with_body(self):
         r = b'GET / HTTP/1.1\r\nHost: example.com\r\n' \
             b'Content-Length: 4\r\n\r\nFoo0' \
             b'GET / HTTP/1.1\r\nHost: example.com\r\n' \
             b'Content-Length: 4\r\n\r\nFoo1'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
+        self.parse_request(r)
         for i in range(2):
-            msg = parser.pop_message()
-            self.assertIsInstance(msg, HttpMessage)
-            self.assertEqual(msg.message_type, parser.HTTP_REQUEST)
-            self.assertEqual(msg.url, '/')
-            self.assertEqual(msg.version, (1, 1))
-            self.assertEqual(msg.headers, [('Host', 'example.com'), ('Content-Length', '4')])
-            self.assertEqual(msg.body.read(), 'Foo{0}'.format(i).encode('ascii'))
+            env = self.get_request()
+            m = env['test.message']
+            self.assertEqual(m.url, '/')
+            self.assertEqual(m.version, '1.1')
+            self.assertEqual(m.headers, [('Host', 'example.com'), ('Content-Length', '4')])
+            self.assertEqual(env['test.body'], 'Foo{0}'.format(i).encode('ascii'))
 
     def test_request_url(self):
-        r = b'GET http://user:pass@example.com:80/foo/bar?baz=qux#quux HTTP/1.1\r\n' \
-            b'Host: example.com\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        parsed_url = msg.parsed_url
-        self.assertEqual(parsed_url, ['http', 'example.com', '80', '/foo/bar',
-                                      'baz=qux', 'quux', 'user:pass'])
-
-    def test_short_request_url(self):
         r = b'GET /foo/bar HTTP/1.1\r\n' \
             b'Host: example.com\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        parsed_url = msg.parsed_url
-        self.assertEqual(parsed_url, ['', '', '', '/foo/bar', '', '', ''])
+        self.parse_request(r)
+        env = self.get_request()
+        m = env['test.message']
+        self.assertEqual(m.parsed_url, ['', '', '', '/foo/bar', '', '', ''])
+
+    def test_long_request_url(self):
+        r = b'GET http://user:pass@example.com:80/foo/bar?baz=qux#quux HTTP/1.1\r\n' \
+            b'Host: example.com\r\n\r\n'
+        self.parse_request(r)
+        env = self.get_request()
+        m = env['test.message']
+        self.assertEqual(m.parsed_url, ['http', 'example.com', '80', '/foo/bar',
+                                        'baz=qux', 'quux', 'user:pass'])
+
+    # Tests that parse a response
+
+    def parse_response(self, *chunks, **kwargs):
+        # Parse the HTTP resposne made up of *chunks.
+        transport = MockTransport()
+        protocol = HttpProtocol(False)
+        transport.start(protocol)
+        methods = kwargs.get('methods', [])
+        if methods:
+            protocol._requests = methods
+        for chunk in chunks:
+            protocol.data_received(chunk)
+        self.assertIsNone(protocol._error)
+        self.transport = transport
+        self.protocol = protocol
+
+    def get_response(self):
+        # Get a parsed resposne.
+        # The sleep here will run the dispatcher.
+        response = self.protocol.get_response()
+        self.assertIsInstance(response, HttpResponse)
+        message = response._message
+        self.assertIsInstance(message, HttpMessage)
+        self.assertEqual(message.message_type, _lib.HTTP_RESPONSE)
+        return response
 
     def test_simple_response(self):
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-        self.assertEqual(msg.status_code, 200)
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Content-Length', '0')])
-        self.assertEqual(msg.body.read(), b'')
+        self.parse_response(r)
+        ro = self.get_response()
+        self.assertEqual(ro.version, '1.1')
+        self.assertEqual(ro.status, 200)
+        self.assertEqual(ro.headers, [('Content-Length', '0')])
+        self.assertEqual(ro.get_header('Content-Length'), '0')
+        self.assertEqual(ro.trailers, [])
+        self.assertEqual(ro.read(), b'')
 
     def test_response_with_body(self):
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nFoo'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-        self.assertEqual(msg.status_code, 200)
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Content-Length', '3')])
-        self.assertEqual(msg.body.read(), b'Foo')
+        self.parse_response(r)
+        ro = self.get_response()
+        self.assertEqual(ro.version, '1.1')
+        self.assertEqual(ro.status, 200)
+        self.assertEqual(ro.headers, [('Content-Length', '3')])
+        self.assertEqual(ro.get_header('Content-Length'), '3')
+        self.assertEqual(ro.trailers, [])
+        self.assertEqual(ro.read(), b'Foo')
+        self.assertEqual(ro.read(), b'')
 
     def test_response_with_body_incremental(self):
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nFoo'
-        parser = HttpParser()
-        for i in range(len(r)):
-            nbytes = parser.feed(r[i:i+1])
-            self.assertEqual(nbytes, 1)
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-        self.assertEqual(msg.status_code, 200)
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Content-Length', '3')])
-        self.assertEqual(msg.body.read(), b'Foo')
+        self.parse_response([r[i:i+1] for i in range(len(r))])
+        ro = self.get_response()
+        self.assertEqual(ro.version, '1.1')
+        self.assertEqual(ro.status, 200)
+        self.assertEqual(ro.headers, [('Content-Length', '3')])
+        self.assertEqual(ro.read(), b'Foo')
+        self.assertEqual(ro.read(), b'')
 
     def test_response_with_chunked_body(self):
         r = b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n' \
             b'3\r\nFoo\r\n0\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-        self.assertEqual(msg.status_code, 200)
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Transfer-Encoding', 'chunked')])
-        self.assertEqual(msg.body.read(), b'Foo')
+        self.parse_response(r)
+        ro = self.get_response()
+        self.assertEqual(ro.version, '1.1')
+        self.assertEqual(ro.status, 200)
+        self.assertEqual(ro.headers, [('Transfer-Encoding', 'chunked')])
+        self.assertEqual(ro.read(), b'Foo')
+        self.assertEqual(ro.read(), b'')
 
     def test_response_with_chunked_body_incremental(self):
         r = b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n' \
             b'3\r\nFoo\r\n0\r\n\r\n'
-        parser = HttpParser()
-        for i in range(len(r)):
-            nbytes = parser.feed(r[i:i+1])
-            self.assertEqual(nbytes, 1)
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-        self.assertEqual(msg.status_code, 200)
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Transfer-Encoding', 'chunked')])
-        self.assertEqual(msg.body.read(), b'Foo')
+        self.parse_response([r[i:i+1] for i in range(len(r))])
+        ro = self.get_response()
+        self.assertEqual(ro.version, '1.1')
+        self.assertEqual(ro.status, 200)
+        self.assertEqual(ro.headers, [('Transfer-Encoding', 'chunked')])
+        self.assertEqual(ro.read(), b'Foo')
+        self.assertEqual(ro.read(), b'')
 
     def test_response_with_chunked_body_and_trailers(self):
         r = b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n' \
             b'3\r\nFoo\r\n0\r\nETag: foo\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-        self.assertEqual(msg.status_code, 200)
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Transfer-Encoding', 'chunked')])
-        self.assertEqual(msg.trailers, [('ETag', 'foo')])
-        self.assertEqual(msg.body.read(), b'Foo')
+        self.parse_response(r)
+        ro = self.get_response()
+        self.assertEqual(ro.version, '1.1')
+        self.assertEqual(ro.status, 200)
+        self.assertEqual(ro.headers, [('Transfer-Encoding', 'chunked')])
+        self.assertEqual(ro.get_header('Transfer-Encoding'), 'chunked')
+        self.assertEqual(ro.trailers, [('ETag', 'foo')])
+        self.assertEqual(ro.get_trailer('ETag'), 'foo')
+        self.assertEqual(ro.read(), b'Foo')
+        self.assertEqual(ro.read(), b'')
 
     def test_pipelined_responses(self):
-        r = b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\nCookie: foo0\r\n\r\n' \
-            b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\nCookie: foo1\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
+        r = b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\nSet-Cookie: foo=0\r\n\r\n' \
+            b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\nSet-Cookie: foo=1\r\n\r\n'
+        self.parse_response(r)
         for i in range(2):
-            msg = parser.pop_message()
-            self.assertIsInstance(msg, HttpMessage)
-            self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-            self.assertEqual(msg.status_code, 200)
-            self.assertEqual(msg.version, (1, 1))
-            self.assertEqual(msg.headers, [('Content-Length', '0'),
-                                           ('Cookie', 'foo{0}'.format(i))])
-            self.assertEqual(msg.body.read(), b'')
+            ro = self.get_response()
+            self.assertEqual(ro.version, '1.1')
+            self.assertEqual(ro.status, 200)
+            cookie = 'foo={0}'.format(i)
+            self.assertEqual(ro.headers, [('Content-Length', '0'), ('Set-Cookie', cookie)])
+            self.assertEqual(ro.read(), b'')
 
     def test_pipelined_responses_with_body(self):
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nFoo0' \
             b'HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nFoo1'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
+        self.parse_response(r)
         for i in range(2):
-            msg = parser.pop_message()
-            self.assertIsInstance(msg, HttpMessage)
-            self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-            self.assertEqual(msg.status_code, 200)
-            self.assertEqual(msg.version, (1, 1))
-            self.assertEqual(msg.headers, [('Content-Length', '4')])
-            self.assertEqual(msg.body.read(), 'Foo{0}'.format(i).encode('ascii'))
+            ro = self.get_response()
+            self.assertEqual(ro.version, '1.1')
+            self.assertEqual(ro.status, 200)
+            self.assertEqual(ro.headers, [('Content-Length', '4')])
+            self.assertEqual(ro.read(), 'Foo{0}'.format(i).encode('ascii'))
+            self.assertEqual(ro.read(), b'')
 
     def test_pipelined_head_responses(self):
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n' \
             b'HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n'
-        parser = HttpParser()
-        parser.push_request('HEAD')
-        parser.push_request('HEAD')
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
+        self.parse_response(r, methods=['HEAD', 'HEAD'])
         for i in range(2):
-            msg = parser.pop_message()
-            self.assertIsInstance(msg, HttpMessage)
-            self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-            self.assertEqual(msg.status_code, 200)
-            self.assertEqual(msg.version, (1, 1))
-            self.assertEqual(msg.headers, [('Content-Length', '3')])
-            self.assertEqual(msg.body.read(), b'')
+            ro = self.get_response()
+            self.assertEqual(ro.version, '1.1')
+            self.assertEqual(ro.status, 200)
+            self.assertEqual(ro.headers, [('Content-Length', '3')])
+            self.assertEqual(ro.read(), b'')
 
     def test_pipelined_empty_responses(self):
         r = b'HTTP/1.1 100 OK\r\nCookie: foo0\r\n\r\n' \
             b'HTTP/1.1 204 OK\r\nCookie: foo1\r\n\r\n' \
             b'HTTP/1.1 304 OK\r\nCookie: foo2\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r)
-        self.assertEqual(nbytes, len(r))
+        self.parse_response(r)
         for i in range(3):
-            msg = parser.pop_message()
-            self.assertIsInstance(msg, HttpMessage)
-            self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-            self.assertEqual(msg.version, (1, 1))
-            self.assertEqual(msg.headers, [('Cookie', 'foo{0}'.format(i))])
-            self.assertEqual(msg.body.read(), b'')
+            ro = self.get_response()
+            self.assertEqual(ro.version, '1.1')
+            self.assertEqual(ro.headers, [('Cookie', 'foo{0}'.format(i))])
+            self.assertEqual(ro.read(), b'')
 
-    def test_pipelined_responses_eof(self):
-        r = b'HTTP/1.1 200 OK\r\nCookie: foo0\r\n\r\n' \
-            b'HTTP/1.1 204 OK\r\nCookie: foo1\r\n\r\n'
-        parser = HttpParser()
-        nbytes = parser.feed(r); parser.feed(b'')  # EOF
-        self.assertEqual(nbytes, len(r))
-        msg = parser.pop_message()
-        self.assertIsInstance(msg, HttpMessage)
-        self.assertEqual(msg.message_type, parser.HTTP_RESPONSE)
-        self.assertEqual(msg.version, (1, 1))
-        self.assertEqual(msg.headers, [('Cookie', 'foo0')])
-        self.assertEqual(msg.body.read(), b'HTTP/1.1 204 OK\r\nCookie: foo1\r\n\r\n')
+    def test_pipelined_200_response_eof(self):
+        # No content-length so 200 requires and EOF to indicate the end of
+        # message. The second request is therefore interpreted as a the body of
+        # the first.
+        r = b'HTTP/1.1 200 OK\r\nCookie: foo0\r\n\r\nfoo'
+        self.parse_response(r)
+        ro = self.get_response()
+        self.assertEqual(ro.version, '1.1')
+        self.assertEqual(ro.headers, [('Cookie', 'foo0')])
+        self.assertEqual(ro.read(100), b'foo')
+        self.assertFalse(ro._message.body.eof)
+        self.protocol.connection_lost(None)
+        self.assertTrue(ro._message.body.eof)
+        self.assertEqual(ro.read(), b'')
+
+    def test_pipelined_204_response_eof(self):
+        # A 204 never has a body so the absence of a Content-Length header
+        # still does not require it to see an EOF.
+        r = b'HTTP/1.1 204 OK\r\nCookie: foo0\r\n\r\n'
+        self.parse_response(r)
+        ro = self.get_response()
+        self.assertEqual(ro.version, '1.1')
+        self.assertEqual(ro.headers, [('Cookie', 'foo0')])
+        self.assertEqual(ro.read(), b'')
 
 
 def hello_app(environ, start_response):
@@ -407,72 +432,72 @@ class TestHttp(UnitTest):
     def test_simple(self):
         server = HttpServer(hello_app)
         server.listen(('localhost', 0))
-        port = server.transport.getsockname()[1]
+        addr = server.addresses[0]
         client = HttpClient()
-        client.connect(('localhost', port))
+        client.connect(addr)
         client.request('GET', '/')
-        response = client.getresponse()
-        self.assertEqual(response.version, (1, 1))
+        response = client.get_response()
+        self.assertEqual(response.version, '1.1')
         self.assertEqual(response.status, 200)
-        server = response.get_header('Server')
-        self.assertTrue(server.startswith('gruvi.http'))
+        ident = response.get_header('Server')
+        self.assertTrue(ident.startswith('gruvi'))
         ctype = response.get_header('Content-Type')
         self.assertEqual(ctype, 'text/plain')
         self.assertEqual(response.read(), b'Hello!')
 
-    def test_request_headers_not_changed(self):
+    def test_simple_pipe(self):
         server = HttpServer(hello_app)
-        server.listen(('localhost', 0))
-        addr = gruvi.getsockname(server.transport)
+        server.listen(self.pipename())
+        addr = server.addresses[0]
         client = HttpClient()
         client.connect(addr)
-        headers = []
-        client.request('GET', '/', headers)
-        self.assertEqual(headers, [])
-        client.close()
-        server.close()
+        client.request('GET', '/')
+        response = client.get_response()
+        self.assertEqual(response.read(), b'Hello!')
+
+    def test_simple_ssl(self):
+        server = HttpServer(hello_app)
+        context = self.get_ssl_context()
+        server.listen(('localhost', 0), ssl=context)
+        addr = server.addresses[0]
+        client = HttpClient()
+        client.connect(addr, ssl=context)
+        client.request('GET', '/')
+        response = client.get_response()
+        self.assertEqual(response.read(), b'Hello!')
 
     def test_request_body_bytes(self):
         server = HttpServer(echo_app)
         server.listen(('localhost', 0))
-        addr = gruvi.getsockname(server.transport)
+        addr = server.addresses[0]
         client = HttpClient()
         client.connect(addr)
         client.request('POST', '/', body=b'foo')
-        response = client.getresponse()
+        response = client.get_response()
         body = response.read()
         self.assertEqual(body, b'foo')
 
     def test_request_body_string(self):
+        # When making a request with a string body, it should be encoded as
+        # ISO-8859-1.
         server = HttpServer(echo_app)
         server.listen(('localhost', 0))
-        addr = gruvi.getsockname(server.transport)
+        addr = server.addresses[0]
         client = HttpClient()
         client.connect(addr)
         client.request('POST', '/', body='foo')
-        response = client.getresponse()
+        response = client.get_response()
         body = response.read()
         self.assertEqual(body, b'foo')
 
-    def test_request_body_bytes_sequence(self):
+    def test_request_body_sequence(self):
         server = HttpServer(echo_app)
         server.listen(('localhost', 0))
-        addr = gruvi.getsockname(server.transport)
+        addr = server.addresses[0]
         client = HttpClient()
         client.connect(addr)
-        client.request('POST', '/', body=[b'foo', b'bar'])
-        response = client.getresponse()
-        body = response.read()
-        self.assertEqual(body, b'foobar')
-
-    def test_request_body_string_sequence(self):
-        server = HttpServer(echo_app)
-        server.listen(('localhost', 0))
-        addr = gruvi.getsockname(server.transport)
-        client = HttpClient()
-        client.connect(addr)
-        client.request('POST', '/', body=['foo', 'bar'])
-        response = client.getresponse()
+        client.request('POST', '/', body=[b'foo', 'bar'])
+        response = client.get_response()
         body = response.read()
         self.assertEqual(body, b'foobar')
 

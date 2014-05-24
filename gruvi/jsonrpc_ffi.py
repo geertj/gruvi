@@ -11,13 +11,16 @@ from __future__ import absolute_import, print_function
 import os.path
 from cffi import FFI
 
+__all__ = []
+
+
 ffi = FFI()
 ffi.cdef("""
     #define OK ...
     #define INCOMPLETE ...
     #define ERROR ...
 
-    struct context {
+    struct split_context {
         const char *buf;
         int buflen;
         int offset;
@@ -25,10 +28,11 @@ ffi.cdef("""
         ...;
     };
 
-    int split(struct context *ctx);
+    int json_split(struct split_context *ctx);
 """)
 
 parent, _ = os.path.split(os.path.abspath(__file__))
 topdir, _ = os.path.split(parent)
-lib = ffi.verify('#include "src/json_splitter.c"',
-                 modulename='gruvi_jsonrpc_cffi', include_dirs=[topdir])
+lib = ffi.verify("""
+        #include "src/json_splitter.c"
+        """, modulename='_jsonrpc_ffi', ext_package='gruvi', include_dirs=[topdir])

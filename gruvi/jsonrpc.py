@@ -3,49 +3,66 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 """
-This module implements a JSON-RPC verson 1 client and server.
+This module implements a JSON-RPC client and server.
 
-The JSON-RPC protocol itself does not distinguish between client and servers.
-This module does provide two different classes however, one for a client and
-one for a server. The only difference between them is who initiates the
-connection: the server has a ``listen()`` method and the client has a
-``connect()`` method.
+There are two main version of JSON-RPC: version 1.0 and version 2.0. These
+version are not compatible with each other. Fortunately though, it is possible
+to distinguish a version 1.0 from a version 2.0 message, and also the RPC model
+in both versions is identical. This module therefore implements both versions
+at the same time, in the following way:
+
+ * A reply to an incoming message will always be of the same version as the
+   incoming message.
+ * A message originated by this module will use version 2.0 by default, but
+   the default can be changed.
+
+The "batch" feature of version 2.0 is not supported. It more relevant for
+JSON-RPC over HTTP rather for that clients and servers that operate directly on
+top of a connection.
+
+This module provides to main classes: :class:`JsonRpcClient` and
+:class:`JsonRpcServer`. The difference is merely who initiates the connection
+at the transport level. The JSON-RPC protocol itself does not distinguish
+between clients and servers.
 
 Both the client and the server can get incoming messages. These may be method
-calls (more common for servers), or notifications. These incoming messages may
-be handled by providing the client or server with a message handler.
+calls (more common for servers), or notifications (in both cases). These
+incoming messages may be handled by providing a message handler. Providing a
+messasge handler is mandatory for a server while it's optional for a client.
+Note that for getting regular or error returns to method calls it is not
+required to have a message handler. These are taken care of by the protocol
+implementation itself.
 
-The signature of the message handler is: ``message_handler(message, protocol,
-client)``. Here, the *message* argument is a dictionary containing the parsed
-JSON-RPC message.  The *protocol* is either the client or the server instance,
-while the *client* is the transport this message was received on. In case of a
-server socket, *client* will be an element of :attr:`JsonRpcServer.clients`, in
-case of a client socket, *client* will :attr:`JsonRpcClient.transport`.
+The signature of the message handler is: ``message_handler(message,
+protocol)``.  Here, the *message* argument is a dictionary containing the
+parsed JSON-RPC message, while *protocol* is the protocol instance for the
+connection. The message handler is entirely responsible for dealing with the
+message including sending a response if applicable.
 
-The return value of the message handler may be ``None``, or a dictionary
-containing the message to send back. This will typically be a reply to a method
-call, but this is not required.
-
-Message handlers runs in their own fiber. This allows a message handler to call
-into a switchpoint. There will be one fiber for every connection. So on the
-client side there will be at most one fiber, and on the server side as many as
-there are connections.
+Message handlers run in a separate "distpacher" fiber, one per connection. This
+means that a client will have at most one dispatcher fiber, while a server will
+have exactly one fiber per connection. The fact that message handlers run in a
+separate fiber allows them to call into a switchpoint.
 """
 
 from __future__ import absolute_import, print_function
 
 import json
+import six
 
-from . import hub, error, protocols, jsonrpc_ffi, compat
-from .hub import switchpoint
-from .util import docfrom
-from .protocols import ProtocolError
+from .hub import get_hub, switchpoint, switch_back
+from .errors import *
+from .protocols import ProtocolError, MessageProtocol
+from .endpoints import Client, Server, add_protocol_method
+from .sync import Queue
+from .jsonrpc_ffi import lib as _lib, ffi as _ffi
 
-__all__ = ['JsonRpcError', 'JsonRpcClient', 'JsonRpcServer']
+__all__ = ['JsonRpcError', 'JsonRpcMethodCallError', 'JsonRpcProtocol',
+           'JsonRpcClient', 'JsonRpcServer']
 
 
 # JSON-RPC v2.0 error codes
@@ -75,53 +92,87 @@ class JsonRpcError(ProtocolError):
     """Exception that is raised in case of JSON-RPC protocol errors."""
 
 
-_allowed_keys = frozenset(('jsonrpc', 'id', 'method', 'params', 'result', 'error'))
+class JsonRpcMethodCallError(JsonRpcError):
+    """Exception that is raised when a error reply is received for a JSON-RPC
+    method call."""
+
+    def __init__(self, message, error):
+        super(JsonRpcMethodCallError, self).__init__(message)
+        self._error = error
+
+    @property
+    def error(self):
+        return self._error
+
+
+_request_keys = frozenset(('jsonrpc', 'id', 'method', 'params'))
+_response_keys = frozenset(('jsonrpc', 'id', 'result', 'error'))
 
 def check_message(message):
     """Validate a JSON-RPC message.
     
-    The message must be a dictionary. Return True if the message is valid,
-    False otherwise.
+    The message must be a dictionary. Return the detected version number, or
+    raise an exception on error.
     """
     if not isinstance(message, dict):
-        return False
-    if 'jsonrpc' in message and message['jsonrpc'] != '2.0':
-        return False
-    if 'method' in message:
+        raise ValueError('message must be an object')
+    version = message.get('jsonrpc', '1.0')
+    if version not in ('1.0', '2.0'):
+        raise ValueError('illegal version: {0!r}'.format(version))
+    method = message.get('method')
+    if method is not None:
         # Request or notification
-        if not isinstance(message['method'], compat.string_types):
-            return False
-        if not isinstance(message.get('params', []), (list, tuple)):
-            return False
-        if message.get('result') or message.get('error'):
-            return False
+        if not isinstance(method, six.string_types):
+            raise ValueError('method must be str, got {0!r}'.format(type(method).__name__))
+        params = message.get('params')
+        # There's annoying differences between v1.0 and v2.0. v2.0 allows
+        # params to be absent while v1.0 doesn't. Also v2.0 allows keyword
+        # params. Be lenient and allow both absent and none in both cases (but
+        # never allow keyword arguments in v1.0).
+        if version == '1.0':
+            if not isinstance(params, (list, tuple)) and params is not None:
+                raise ValueError('params must be list, got {0!r}'.format(type(params).__name__))
+        elif version == '2.0':
+            if not isinstance(params, (dict, list, tuple)) and params is not None:
+                raise ValueError('params must be dict/list, got {0!r}'.format(type(params).__name__))
+        allowed_keys = _request_keys
     else:
         # Success or error response
         if message.get('id') is None:
-            return False
-        if 'result' not in message and 'error' not in message or \
-                    message.get('result') is not None and \
-                        message.get('error') is not None:
-            return False
-        if 'params' in message:
-            return False
-    if set(message) - _allowed_keys:
-        return False
-    return True
+            raise ValueError('null or absent id not allowed in response')
+        # There's again annoying differences between v1.0 and v2.0. 
+        # v2.0 insists on absent result/error memmbers while v1.0 wants null.
+        # Be lenient again and allow both for both versions.
+        if message.get('result') and message.get('error'):
+            raise ValueError('both result and error cannot be not-null')
+        allowed_keys = _response_keys
+    extra = set(message) - allowed_keys
+    if extra:
+        raise ValueError('extra keys: {0}', ', '.join(extra))
+    return version
 
 
-def message_type(msg):
-    """Return the message type of *msg*."""
-    if msg.get('method') and msg.get('id'):
+def message_type(message):
+    """Return the type of *message*.
+
+    The message must be valid, i.e. it should pass :func:`check_message`.
+    """
+    version = message.get('jsonrpc', '1.0')
+    # JSON-RPC version 2.0 allows (but discourages) a "null" id for request...
+    # It's pretty silly especially because null means a notification in version
+    # 1.0. But we support it..
+    if message.get('method') and 'id' in message and \
+                (message['id'] is not None or version == '2.0'):
         return 'request'
-    elif msg.get('method'):
+    elif message.get('method'):
         return 'notification'
-    elif msg.get('error'):
+    elif message.get('error'):
         return 'error'
-    elif msg.get('result'):
+    # Result may be null and it's not an error unless error is not-null
+    elif 'result' in message:
         return 'response'
     else:
-        return 'unknown'
+        raise ValueError('illegal message')
 
 
 _last_request_id = 0
@@ -133,7 +184,7 @@ def _get_request_id():
     return reqid
 
 
-def create_request(method, args=(), version='2.0'):
+def create_request(method, args=[], version='2.0'):
     """Create a JSON-RPC request."""
     msg = { 'id': _get_request_id(), 'method': method, 'params': args }
     if version == '2.0':
@@ -142,19 +193,16 @@ def create_request(method, args=(), version='2.0'):
 
 def create_response(request, result):
     """Create a JSON-RPC response message."""
-    if request.get('id') is None:
-        return
     msg = { 'id': request['id'], 'result': result }
-    if 'jsonrpc' not in request:
+    version = request.get('jsonrpc', '1.0')
+    if version == '1.0':
         msg['error'] = None
-    elif request['jsonrpc'] == '2.0':
-        msg['jsonrpc'] = request['jsonrpc']
+    elif version == '2.0':
+        msg['jsonrpc'] = version
     return msg
 
 def create_error(request, code=None, message=None, data=None, error=None):
     """Create a JSON-RPC error response message."""
-    if request.get('id') is None:
-        return
     if code is None and error is None:
         raise ValueError('either "code" or "error" must be set')
     msg = { 'id': request['id'] }
@@ -164,13 +212,14 @@ def create_error(request, code=None, message=None, data=None, error=None):
         if data:
             error['data'] = data
     msg['error'] = error
-    if 'jsonrpc' not in request:
+    version = request.get('jsonrpc', '1.0')
+    if version == '1.0':
         msg['result'] = None
-    elif request['jsonrpc'] == '2.0':
-        msg['jsonrpc'] = request['jsonrpc']
+    elif version == '2.0':
+        msg['jsonrpc'] = version
     return msg
 
-def create_notification(method, args=(), version='2.0'):
+def create_notification(method, args=[], version='2.0'):
     """Create a JSON-RPC notification message."""
     msg = { 'method': method, 'params': args }
     if version == '1.0':
@@ -180,229 +229,222 @@ def create_notification(method, args=(), version='2.0'):
     return msg
 
 
-class JsonRpcParser(protocols.Parser):
-    """A JSON-RPC Parser."""
+class JsonRpcProtocol(MessageProtocol):
+    """JSON-RPC protocol."""
 
-    max_message_size = 128*1024
+    # Read buffer size is also the max message size
+    # Total buffer size (split buffer + queue) may grow up to high watermark +
+    # read_buffer_size.
+    read_buffer_size = 65536
 
-    def __init__(self):
-        super(JsonRpcParser, self).__init__()
+    def __init__(self, message_handler=None, version='2.0', timeout=None):
+        super(JsonRpcProtocol, self).__init__(message_handler)
+        self._version = version
+        self._timeout = timeout
         self._buffer = bytearray()
-        self._context = jsonrpc_ffi.ffi.new('struct context *')
+        self._context = _ffi.new('struct split_context *')
+        self._method_calls = {}
+        self._tracefile = None
 
-    def feed(self, buf):
-        # len(buf) == 0 means EOF received
-        if len(buf) == 0:
-            if len(self._buffer) > 0:
-                self._error = protocols.errno.FRAMING_ERROR
-                self._error_message = 'partial message'
-                return -1
-            return 0
-        # "struct context" is a C object and does *not* take a reference
+    def connection_lost(self, exc):
+        # Protocol callback
+        super(JsonRpcProtocol, self).connection_lost(exc)
+        for switcher in self._method_calls.values():
+            switcher.throw(self._error)
+        self._method_calls.clear()
+        if self._tracefile:
+            self._tracefile.close()
+            self._tracefile = None
+
+    def get_read_buffer_size(self):
+        # Return the size of the read buffer
+        return len(self._buffer) + self._queue.qsize()
+
+    def _set_buffer(self, data):
+        # Note: "struct split_context" does not keep a reference to its fields!
         # Therefore use a Python variable to keep the cdata object alive
-        cdata = self._context.buf = jsonrpc_ffi.ffi.new('char[]', buf)
-        self._context.buflen = len(buf)
-        offset = self._context.offset = 0
-        while offset != len(buf):
-            error = jsonrpc_ffi.lib.split(self._context)
-            if error and error != jsonrpc_ffi.lib.INCOMPLETE:
-                self._error = protocols.errno.FRAMING_ERROR
-                self._error_message = 'jsonrpc_ffi.split(): error {0}'.format(error)
+        self._keepalive = self._context.buf = _ffi.new('char[]', data)
+        self._context.buflen = len(data)
+        self._context.offset = 0
+
+    def data_received(self, data):
+        # Protocol callback
+        self._set_buffer(data)
+        offset = 0
+        # Use the CFFI JSON splitter to delineate a single JSON dictionary from
+        # the input stream. Then decode, parse and check it.
+        while offset != len(data):
+            error = _lib.json_split(self._context)
+            if error and error != _lib.INCOMPLETE:
+                self._error = JsonRpcError('json_split() error: {0}'.format(error))
                 break
-            nbytes = self._context.offset - offset
-            if len(self._buffer) + nbytes > self.max_message_size:
-                self._error = protocols.errno.MESSAGE_TOO_LARGE
+            size = len(self._buffer) + self._context.offset - offset
+            if size > self._read_buffer_high or size == self._read_buffer_high \
+                            and error == _lib.INCOMPLETE:
+                self._error = JsonRpcError('message too large')
                 break
-            if error == jsonrpc_ffi.lib.INCOMPLETE:
-                self._buffer.extend(buf[offset:])
-                offset = self._context.offset
+            if error == _lib.INCOMPLETE:
+                self._buffer.extend(data[offset:])
                 break
-            chunk = buf[offset:self._context.offset]
+            chunk = data[offset:self._context.offset]
             if self._buffer:
                 self._buffer.extend(chunk)
                 chunk = self._buffer
                 self._buffer = bytearray()
             try:
                 chunk = chunk.decode('utf8')
-            except UnicodeDecodeError as e:
-                self._error = protocols.errno.ENCODING_ERROR
-                self._error_message = 'UTF-8 decoding error: {0!s}'.format(e)
-                break
-            try:
                 message = json.loads(chunk)
+                version = check_message(message)
+            except UnicodeDecodeError as e:
+                self._error = JsonRpcError('UTF-8 decoding error: {0!s}'.format(e))
+                break
             except ValueError as e:
-                self._error = protocols.errno.PARSE_ERROR
-                self._error_message = 'invalid JSON: {0!s}'.format(e)
+                self._error = JsonRpcError('Illegal JSON-RPC message: {0!s}'.format(e))
                 break
-            if not check_message(message):
-                self._error = protocols.errno.PARSE_ERROR
-                self._error_message = 'invalid JSON-RPC message'
-                break
-            self._messages.append(message)
+            mtype = message_type(message)
+            if self._tracefile:
+                peername = self._transport.get_extra_info('peername', '(n/a)')
+                self._tracefile.write('\n\n/* <- {} ({}; version {})*/\n'
+                                       .format(peername, mtype, version))
+                self._tracefile.write(serialized)
+                self._tracefile.write('\n')
+                self._tracefile.flush()
+            # Now route the message to its correct destination
+            if mtype in ('response', 'error') and message['id'] in self._method_calls:
+                # Response to a method call issues through call_method()
+                switcher = self._method_calls.pop(message['id'])
+                switcher(message)
+            elif self._dispatcher:
+                # Queue to the dispatcher
+                self._queue.put_nowait(message, size=size)
+            else:
+                self._log.warning('inbound {} but no message handler', mtype)
             offset = self._context.offset
-        if self._error and offset == len(buf):
-            offset = 0
-        return offset
+        if self._error:
+            self._transport.close()
+            return
+        self.read_buffer_size_changed()
 
-
-class JsonRpcBase(protocols.RequestResponseProtocol):
-    """Base class for the JSON-RPC client and server implementations."""
-    
-    _exception = JsonRpcError
-    default_version = '2.0'
-
-    def __init__(self, message_handler=None, timeout=None):
-        """The constructor takes the following arguments. The *message_handler*
-        argument specifies an optional message handler. See the notes at the
-        top for more information on the message handler.
-
-        The optional *timeout* argument can be used to specify a timeout for
-        the various network operations used.
-        """
-        super(JsonRpcBase, self).__init__(JsonRpcParser, timeout)
-        self._message_handler = message_handler
-
-    def _dispatch_fast_path(self, transport, message):
-        if 'result' in message or 'error' in message:
-            event = 'MethodResponse:{0}'.format(message['id'])
-            if transport._events.emit(event, message):
-                return True
-        if not self._message_handler:
-            transport._log.debug('no handler, dropping incoming message')
-            return True
-        return False
-
-    def _dispatch_message(self, transport, message):
-        assert self._message_handler is not None
-        result = self._message_handler(message, self, transport)
-        if result:
-            self._send_message(transport, result)
-
-    @switchpoint
-    def _call_method(self, transport, method, *args):
-        if transport is None or transport.closed:
-            raise RuntimeError('not connected')
-        message = create_request(method, args, version=self.default_version)
-        self._send_message(transport, message)
-        events = ('MethodResponse:{0}'.format(message['id']), 'HandleError')
-        response = transport._events.wait(lambda event,*args: event in events,
-                                          timeout=self._timeout)
-        if response == 'HandleError':
-            raise self._transport._error
-        event, response = response
-        assert isinstance(response, dict)
-        assert check_message(response)
-        error = response.get('error')
-        if error:
-            raise JsonRpcError(protocols.errno.INVALID_REQUEST, error)
-        return response.get('result')
-
-    @switchpoint
-    def _send_notification(self, transport, method, *args):
-        if transport is None or transport.closed:
-            raise RuntimeError('not connected')
-        message = create_notification(method, args, version=self.default_version)
-        self._send_message(transport, message)
-
-    @switchpoint
-    def _send_message(self, transport, message):
-        if transport is None or transport.closed:
-            raise RuntimeError('not connected')
-        if not check_message(message):
-            raise ValueError('illegal JSON-RPC message')
-        self._log_response(message)
-        serialized = json.dumps(message).encode('utf8')
-        self._write(transport, serialized)
-
-
-class JsonRpcClient(JsonRpcBase):
-    """A JSON-RPC version 1 client."""
-
-    @switchpoint
-    @docfrom(JsonRpcBase._connect)
-    def connect(self, address, ssl=False, local_address=None, **transport_args):
-        self._connect(address, ssl, local_address, **transport_args)
-
-    @switchpoint
-    def call_method(self, method, *args):
-        """Call a JSON-RPC method and wait for its response.
-
-        The specified *method* is called with the given positional arguments.
-
-        On success, the 'result' member of the JSON-RPC reply is returned, in
-        the following way: if result is null or zero-length, None is returned.
-        If result has length 1, then the first item is returned. If result
-        contains more than 1 element, the list itself is returned.
-
-        On error, an exception is raised with two arguments: the error code and
-        an error message. In case the error is caused by the reception of a
-        JSON-RPC error reply, the code will be ``INVALID_REQUEST`` and the
-        error message will be the 'error' field from the error reply.
-        """
-        return self._call_method(self._transport, method, *args)
-
-    @switchpoint
-    def send_notification(self, notification, *args):
-        """Send a JSON-RPC notification.
-
-        The specified *notification* is called with the given positional
-        arguments.
-        """
-        self._send_notification(self._transport, notification, *args)
+    def set_trace(self, tracefile):
+        """Log protocol exchanges to *tracefile*."""
+        if isinstance(tracefile, six.text_types):
+            tracefile = open(tracefile, 'w')
+        self._tracefile = tracefile
 
     @switchpoint
     def send_message(self, message):
-        """Send a raw JSON-RPC message.
+        """Send a JSON-RPC message.
 
-        The message must be a dictionary that corresponds to the JSON-RPC
-        specification.
+        The *message* argument must be a dictionary, and must be a valid
+        JSON-RPC message.
         """
-        self._send_message(self._transport, message)
-
-
-class JsonRpcServer(JsonRpcBase):
-    """A JSON-RPC version 1 server."""
-
-    @property
-    def clients(self):
-        """A set containing the transports of the currently connected
-        clients."""
-        return self._clients
+        if self._error:
+            raise self._error
+        version = check_message(message)
+        serialized = json.dumps(message, indent=2).encode('utf8')
+        if self._tracefile:
+            mtype = message_type(message)
+            peername = self._transport.get_extra_info('peername', '(n/a)')
+            self._tracefile.write('\n\n/* -> {} ({}; version {}*/\n'
+                                    .format(peername, mtype, version))
+            self._tracefile.write(serialized)
+            self._tracefile.write('\n')
+            self._tracefile.flush()
+        self._may_write.wait()
+        self._transport.write(serialized)
 
     @switchpoint
-    @docfrom(JsonRpcBase._listen)
-    def listen(self, address, ssl=False, **transport_args):
-        self._listen(address, ssl, **transport_args)
+    def send_notification(self, method, *args):
+        """Send a JSON-RPC notification.
+
+        The notification *method* is sent with positional arguments *args*.
+        """
+        if self._error:
+            raise self._error
+        message = create_notification(method, args, version=self._version)
+        self.send_message(message)
 
     @switchpoint
-    def call_method(self, client, method, *args):
-        """Call a JSON-RPC method on a connected client.
+    def call_method(self, method, *args, **kwargs):
+        """Call a JSON-RPC method and wait for its result.
 
-        The *client* argument specifies the transport of the client to call the
-        method on. It must be one of the transports in :attr:`clients`.
+        The method *method* is called with positional arguments *args*. On
+        success, the ``'result'`` attribute of the JSON-RPC response is
+        returned. On error, an exception is raised.
 
-        For for information, see :meth:`JsonRpcClient.call_method`.
+        This method also takes a an optional *timeout* keyword argument that
+        overrides the default :attr:`timeout`.
         """
-        return self._call_method(client, method, *args)
+        if self._error:
+            raise self._error
+        timeout = kwargs.get('timeout', self._timeout)
+        message = create_request(method, args, version=self._version)
+        msgid = message['id']
+        try:
+            with switch_back(timeout) as switcher:
+                self._method_calls[msgid] = switcher
+                self.send_message(message)
+                args, _ = self._hub.switch()
+        finally:
+            self._method_calls.pop(msgid, None)
+        response = args[0]
+        assert response['id'] == msgid
+        error = response.get('error')
+        if error:
+            raise JsonRpcMethodCallError('error calling {0!r} method'.format(method), error)
+        return response.get('result')
 
-    @switchpoint
-    def send_notification(self, client, notification, *args):
-        """Send a JSON-RPC notification to a connected client.
 
-        The *client* argument specifies the transport of the client to send the
-        message to. It must be one of the transports in :attr:`clients`.
+class JsonRpcClient(Client):
+    """A JSON-RPC client."""
 
-        For for information, see :meth:`JsonRpcClient.send_notification`.
+    def __init__(self, message_handler=None, version='2.0', timeout=30):
         """
-        self._send_notification(client, notification, *args)
+        The *message_handler* argument specifies an optional JSON-RPC message
+        handler. You need to use a message handler if you want to listen to
+        notifications or you want to implement server-to-client method calls.
+        If provided, the message handler it must be a callable with signature
+        ``message_handler(message, protocol)``.
 
-    @switchpoint
-    def send_message(self, client, message):
-        """Send a raw JSON-RPC message to a connected client.
-
-        The *client* argument specifies the transport of the client to send the
-        message to. It must be one of the transports in :attr:`clients`.
-
-        For for information, see :meth:`JsonRpcClient.send_message`.
+        The *version* argument specifies the JSON-RPC version to use. The
+        *timeout* argument specifies the default timeout in seconds.
         """
-        self._send_message(client, message)
+        super(JsonRpcClient, self).__init__(self._create_protocol, timeout=timeout)
+        self._message_handler = message_handler
+        if version not in ('1.0', '2.0'):
+            raise ValueError('version: must be "1.0" or "2.0"')
+        self._version = version
+
+    def _create_protocol(self):
+        # Protocol factory
+        return JsonRpcProtocol(self._message_handler, self._version, self._timeout)
+
+    add_protocol_method(JsonRpcProtocol.send_message, globals(), locals())
+    add_protocol_method(JsonRpcProtocol.send_notification, globals(), locals())
+    add_protocol_method(JsonRpcProtocol.call_method, globals(), locals())
+
+
+class JsonRpcServer(Server):
+    """A JSON-RPC server."""
+
+    max_connections = 1000
+
+    def __init__(self, message_handler, version='2.0', timeout=30):
+        """
+        The *message_handler* argument specifies the JSON-RPC message handler.
+        It must be a callable with signature ``message_handler(message,
+        protocol)``. The message handler is called in a separate dispatcher
+        fiber (one per connection).
+
+        The *version* argument specifies the default JSON-RPC version. The
+        *timeout* argument specifies the default timeout.
+        """
+        super(JsonRpcServer, self).__init__(self._create_protocol, timeout=timeout)
+        self._message_handler = message_handler
+        if version not in ('1.0', '2.0'):
+            raise ValueError('version: must be "1.0" or "2.0"')
+        self._version = version
+
+    def _create_protocol(self):
+        # Protocol factory
+        return JsonRpcProtocol(self._message_handler, self._version, self._timeout)

@@ -8,22 +8,38 @@
 
 from __future__ import absolute_import, print_function, division
 
+import os
 import time
+import ssl
 
-from gruvi.ssl import SSLPipe
-from tests.support import *
-from tests.test_ssl import communicate
+import gruvi
+from gruvi.ssl import SslPipe
+from support import *
+from test_ssl import communicate
+
+if hasattr(ssl, 'SSLContext'):
+    from ssl import SSLContext
+else:
+    from gruvi.sslcompat import SSLContext
 
 
-class PerfSSL(PerformanceTest):
+class PerfSsl(PerformanceTest):
 
-    def perf_ssl_throughput(self):
-        server = SSLPipe(keyfile=self.certname, certfile=self.certname, server_side=True)
-        client = SSLPipe(server_side=False)
+    def setUp(self):
+        if not os.access(self.certname, os.R_OK):
+            raise SkipTest('no certificate available')
+        super(PerfSsl, self).setUp()
+        context = SSLContext(ssl.PROTOCOL_SSLv23)
+        context.load_cert_chain(self.certname, self.certname)
+        self.client = SslPipe(context, False)
+        self.server = SslPipe(context, True)
+
+    def perf_throughput(self):
+        client, server = self.client, self.server
         buf = b'x' * 65536
         nbytes = 0
-        clientssl = client.start_handshake()
-        server.start_handshake()
+        clientssl = client.do_handshake()
+        server.do_handshake()
         t0 = t1 = time.time()
         while t1 - t0 < 1:
             received = communicate(buf, client, server, clientssl, [])
@@ -31,8 +47,10 @@ class PerfSSL(PerformanceTest):
                 clientssl = []
             nbytes += len(received)
             t1 = time.time()
+        cipher = server.sslinfo.cipher()[0].lower().replace('-', '_')
+        name = 'ssl_throughput_{0}'.format(cipher)
         speed = nbytes / (t1 - t0) / (1024 * 1024)
-        self.add_result(speed)
+        self.add_result(speed, name=name)
         client.close()
         server.close()
 

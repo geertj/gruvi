@@ -10,34 +10,27 @@ from __future__ import absolute_import, print_function, division
 
 import time
 
-from gruvi import dbus_ffi
-from gruvi.http import HttpParser
-from tests.support import *
-from tests.test_dbus import set_buffer
+from gruvi.http import HttpProtocol
+from support import *
 
 
 class PerfHttp(PerformanceTest):
 
-    def perf_http_parsing_speed(self):
+    def perf_parsing_speed(self):
+        transport = MockTransport()
+        protocol = HttpProtocol(False)
+        transport.start(protocol)
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n'
         r += b'x' * 1000
         reqs = 10 * r
-        parser = HttpParser()
         nbytes = 0
         t0 = t1 = time.time()
         while t1 - t0 < 1:
-            nparsed = parser.feed(reqs)
-            self.assertEqual(nparsed, len(reqs))
-            nmessages = 0
-            while True:
-                msg = parser.pop_message()
-                if msg is None:
-                    break
-                nmessages += 1
-            self.assertEqual(nmessages, 10)
-            nbytes += nparsed
+            protocol.data_received(reqs)
+            protocol._queue.clear()
+            nbytes += len(reqs)
             t1 = time.time()
-        speed = nbytes / (1024 * 1024) / (t1 - t0)
+        speed = nbytes / (t1 - t0) / (1024 * 1024)
         self.add_result(speed)
 
 

@@ -19,7 +19,7 @@
 
 enum state { s_preamble = 0, s_object, s_string, s_string_escape };
 
-struct context
+struct split_context
 {
     const char *buf;
     int buflen;
@@ -29,7 +29,7 @@ struct context
     int error;
 };
 
-int split(struct context *ctx)
+int json_split(struct split_context *ctx)
 {
     char ch;
 

@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -13,31 +13,18 @@ import sys
 import logging
 import threading
 import fibers
-import re
-from weakref import WeakKeyDictionary
+import six
 
-from . import compat
+from . import util
 
 __all__ = ['get_logger']
 
 
-_objrefs = WeakKeyDictionary()  # obj -> objref
-_lastids = {}  # classname -> lastid
-
-def objref(obj):
-    """Return a string that uniquely and compactly identifies an object."""
-    ref = _objrefs.get(obj)
-    if ref is None:
-        clsname = obj.__class__.__name__.split('.')[-1]
-        seqno = _lastids.setdefault(clsname, 1)
-        ref = '{0}#{1}'.format(clsname, seqno)
-        _objrefs[obj] = ref
-        _lastids[clsname] += 1
-    return ref
-
+PY26 = sys.version_info[:2] == (2, 6)
 
 _logger_name = 'gruvi'
 _logger_dict = {}
+
 
 def get_logger(context='', name=None):
     """Return a logger for *context*.
@@ -52,8 +39,8 @@ def get_logger(context='', name=None):
         logger = _logger_dict.get(name)
         if logger is not None:
             return logger
-    elif not isinstance(context, compat.string_types):
-        context = objref(context)
+    elif not isinstance(context, six.string_types):
+        context = util.objref(context)
     logger = logging.getLogger(name)
     patch_logger(logger)
     show_stack = os.environ.get('DEBUG', '0') != '0'
@@ -83,23 +70,21 @@ def get_log_level():
     try:
         verbose = int(os.environ['VERBOSE'])
     except (KeyError, ValueError):
-        verbose = None
+        verbose = 3
     try:
         debug = int(os.environ['DEBUG'])
     except (KeyError, ValueError):
-        debug = None
-    if verbose is None:
-        level = logging.DEBUG if debug else logging.INFO
-    elif verbose <= 0:
-        level = logging.CRITICAL
-    elif verbose == 1:
-        level = logging.ERROR
-    elif verbose == 2:
-        level = logging.WARNING
+        debug = 0
+    if verbose >= 4 or debug:
+        level = logging.DEBUG
     elif verbose == 3:
         level = logging.INFO
-    elif verbose >= 4:
-        level = logging.DEBUG
+    elif verbose == 2:
+        level = logging.WARNING
+    elif verbose == 1:
+        level = logging.ERROR
+    elif verbose <= 0:
+        level = logging.CRITICAL
     return level
 
 
@@ -108,6 +93,8 @@ class ContextLogger(object):
     
     It also supports passing arguments via '{}' format operations.
     """
+
+    __slots__ = ('logger', 'context', 'show_stack')
 
     # This is not based on logging.LoggingAdapter because the 2.x and 3.x
     # implementations differ quite a bit, which means we would need to
@@ -122,12 +109,21 @@ class ContextLogger(object):
         tid = threading.current_thread().name
         if tid == 'MainThread': tid = 'Main'
         current = fibers.current()
-        fid = getattr(current, 'name', objref(current)) if current.parent else 'Root'
+        fid = getattr(current, 'name', util.objref(current)) if current.parent else 'Root'
         if tid == 'Main' and fid == 'Root':
             return '@'
         return '{0}:{1}'.format(tid, fid)
 
+    def context_info(self):
+        log_context = self.context
+        fiber_context = getattr(fibers.current(), 'context', '')
+        if not fiber_context:
+            return log_context
+        return '{0}:{1}'.format(log_context, fiber_context)
+
     def stack_info(self):
+        if not self.show_stack:
+            return ''
         f = sys._getframe(3)
         fname = os.path.split(f.f_code.co_filename)[1]
         funcname = f.f_code.co_name
@@ -136,16 +132,13 @@ class ContextLogger(object):
     def log(self, level, exc, msg, *args, **kwargs):
         if not self.logger.isEnabledFor(level):
             return
-        prefix = [self.thread_info()]
-        prefix.append(self.stack_info() if self.show_stack else '')
-        prefix.append(getattr(fibers.current(), 'context', None) or '')
-        prefix.append(self.context)
+        prefix = [self.thread_info(), self.context_info(), self.stack_info()]
         while not prefix[-1]:
             prefix.pop()
         prefix = '|'.join(prefix)
         if args or kwargs:
-            if compat.PY26:
-                msg = compat.fixup_format_string(msg)
+            if PY26:
+                msg = util.fixup_format_string(msg)
             msg = msg.format(*args, **kwargs)
         msg = '[{0}] {1}'.format(prefix, msg)
         self.logger._log(level, msg, (), exc_info=exc)

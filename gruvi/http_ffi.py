@@ -92,4 +92,4 @@ lib = ffi.verify("""
     unsigned char http_errno(http_parser *p) { return p->http_errno; }
     unsigned char http_is_upgrade(http_parser *p) { return p->upgrade; }
 
-    """, modulename='gruvi_http_cffi', include_dirs=[topdir])
+    """, modulename='_http_ffi', ext_package='gruvi', include_dirs=[topdir])

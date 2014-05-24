@@ -1,7 +1,3 @@
-pycparser
-cffi
-pyuv
-fibers
-nose
+-r requirements.txt
 sphinx
 wheel

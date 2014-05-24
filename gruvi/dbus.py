@@ -3,163 +3,83 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 """
-This module implements a D-BUS client.
+This module implements a D-BUS client and server.
 
-The implementation uses Tom Cocagne's excellent `txdbus
-<https://github.com/cocagne/txdbus>`_ for marshalling and demarshalling
-messages. A cut down copy of it, containing only the functionality needed by
-Gruvi, is available as :mod:`gruvi.txdbus`. You need this if you are providing
-a message handler (see below).
+The implementation uses various pieces from Tom Cocagne's excellent `txdbus
+<https://github.com/cocagne/txdbus>`_ project. A cut down copy of txdbus,
+containing only those parts needed by Gruvi, is available as
+:mod:`gruvi.txdbus`. You need this if you are providing a message handler (see
+below).
 
-Currently only a client is implemented. The missing piece for a server
-implementation is the server-side authentication mechanism.
+Both a client and a server/bus-side implementation are provided. The bus-side
+implementation is very bare bones and apart from the "Hello" message it does
+not implement any of the "org.freedestkop.DBus" interface. It also does not
+implement any message routing. The server side is provided mostly for testing
+purposes (but it could serve as the basis for a real D-BUS server).
 
-The D-BUS client can react to incoming messages by providing a message handler
-to the constructor. This message handler will be called for incoming messages
-that are not replies to method calls made with :meth:`DBusClient.call_method`.
+The client side of a D-BUS connection is implemented by :class:`DbusClient` and
+the server/bus-side by :class:`DbusServer`. Both implement a procedural
+interface. Messages can be send using e.g. :meth:`DbusClient.send_message` or
+:meth:`DbusClient.call_method`. An object-oriented interface that represents
+D-BUS objects as Python objects, like the one txdbus provides, is currently not
+available. The procedural interface can be used as a basis for your own
+object-oriented interface though.
 
-The signature of the message handler is: ``message_handler(message, protocol,
-client)``. Here, the *message* argument is an instance of a subclass of
-:class:`txdbus.DBusMessage`. The *protocol* will always be the DBusClient
-instance since currently there is no DBusServer. The *client* will be the
-transport this message was received on, which will currently always be
-:attr:`DBusClient.transport`. 
+To receive notifications or to respond to method calls, you need to provide a
+*message handler* to the client or the server constructor. The signature of the
+message handler is: ``message_handler(message, protocol)``. Here, the *message*
+argument is an instance of :class:`gruvi.txdbus.DbusMessage`, and the
+*protocol* will be the :class:`DbusProtocol` instance for the current
+connection.
 
-The return value of the message handler may be ``None``, or an instance of a
-:class:`txdbus.DBusMessage` subclass. The latter is useful when you are
-responding to a method call.
-
-Message handlers runs in their own fiber. This allows a message handler to call
-into a switchpoint. There will be one fiber for every transport.
+Message handlers runs in their own fiber, which allows them to call into
+switchpoints. There is one fiber for every connection.
 """
 
 from __future__ import absolute_import, print_function
 
 import os
 import struct
+import binascii
+import codecs
+import six
 
-from . import hub, error, txdbus, protocols, dbus_ffi, compat
-from .hub import switchpoint
-from .protocols import errno, ProtocolError
+from . import hub, txdbus
+from .hub import switchpoint, switch_back
+from .sync import Event
+from .transports import UvError
+from .protocols import ProtocolError, MessageProtocol
+from .endpoints import Client, Server, add_protocol_method
+from .compat import memoryview
 
-__all__ = ['DBusError', 'DBusClient']
+__all__ = ['DbusError', 'DbusMethodCallError', 'DbusProtocol', 'DbusClient', 'DbusServer']
 
 
-class DBusError(ProtocolError):
+class DbusError(ProtocolError):
     """Exception that is raised in case of D-BUS protocol errors."""
 
 
-class DBusClientAuthenticator(object):
-    """A client-side D-BUS authenticator."""
+class DbusMethodCallError(DbusError):
+    """Exception that is raised when a error reply is received for a D-BUS
+    method call."""
 
-    # Currently this only supports the EXTERNAL mechanism. EXTERNAL works for
-    # any type of local sockets except TCP sockets on Windows. In real life
-    # this should not be a limitation, at least not for now.
-
-    s_start, s_auth_external, s_authenticated, s_failed = range(4)
-
-    def __init__(self):
-        self._state = self.s_start
-        self._username = b''
+    def __init__(self, method, reply):
+        message = 'error calling {0!r} method ({1})'.format(method, reply.error_name)
+        super(DbusMethodCallError, self).__init__(message)
+        self._error = reply.error_name
+        self._args = tuple(reply.body) if reply.body else ()
 
     @property
-    def username(self):
-        return self._username
+    def error(self):
+        return self._error
 
-    def feed(self, line):
-        """Feed *line* into the authenticator. Return authentication data that
-        must be sent to the remote peer."""
-        if self._state == self.s_authenticated:
-            return b''
-        elif self._state == self.s_failed:
-            raise ValueError('authentication failed')
-        if self._state == self.s_start:
-            if line:
-                raise ValueError('client must initiate handshake')
-            self._state = self.s_auth_external
-            return b'\0AUTH EXTERNAL\r\n'
-        if not line.endswith(b'\r\n'):
-            raise ValueError('Incomplete line')
-        pos = line.find(b' ')
-        if pos != -1:
-            command = line[:pos]
-            args = line[pos+1:-2]
-        else:
-            command = line[:-2]
-            args = b''
-        if command == b'OK':
-            self._state = self.s_authenticated
-            self._username = '<external>'
-            return b'BEGIN\r\n'
-        elif command == b'REJECTED':
-            self._state = self.s_failed
-            raise ValueError('authentication failed')
-        elif command == b'DATA':
-            return b'DATA\r\n'
-        else:
-            self._state = self.s_failed
-            raise ValueError('unexpected command {0!r}'.format(command))
-
-
-class DBusParser(protocols.Parser):
-    """A D-BUS message parser."""
-
-    # According to the D-BUS spec the max message size is 128MB. However since
-    # we want to limited memory usage we are much more conservative here.
-    max_message_size = 128*1024
-
-    def __init__(self):
-        super(DBusParser, self).__init__()
-        self._buffer = bytearray()
-        self._context = dbus_ffi.ffi.new('struct context *')
-
-    def feed(self, buf):
-        # len(buf) == 0 means EOF received
-        if len(buf) == 0:
-            if len(self._buffer) > 0:
-                self._error = errno.FRAMING_ERROR
-                self._error_message = 'partial message'
-                return -1
-            return 0
-        # "struct context" is a C object and does *not* take a reference
-        # Therefore use a Python variable to keep the cdata object alive
-        cdata = self._context.buf = dbus_ffi.ffi.new('char[]', buf)
-        self._context.buflen = len(buf)
-        offset = self._context.offset = 0
-        while offset != len(buf):
-            error = dbus_ffi.lib.split(self._context)
-            if error and error != dbus_ffi.lib.INCOMPLETE:
-                self._error = errno.FRAMING_ERROR
-                self._error_message = 'dbus_ffi.split(): error {0}'.format(error)
-                offset = self._context.offset
-                break
-            nbytes = self._context.offset - offset
-            if len(self._buffer) + nbytes > self.max_message_size:
-                self._error = errno.MESSAGE_TOO_LARGE
-                self._offset = 0
-                break
-            if error == dbus_ffi.lib.INCOMPLETE:
-                self._buffer.extend(buf[offset:])
-                return
-            chunk = buf[offset:self._context.offset]
-            if self._buffer:
-                self._buffer.extend(chunk)
-                chunk = bytes(self._buffer)
-                self._buffer = bytearray()
-            try:
-                message = txdbus.parseMessage(chunk)
-            except (txdbus.MarshallingError, struct.error) as e:
-                self._error = errno.PARSE_ERROR
-                self._error_message = 'txdbus.parseMessage(): {0!s}'.format(e)
-                offset = 0
-                break
-            self._messages.append(message)
-            offset = self._context.offset
-        return offset
+    @property
+    def args(self):
+        return self._args
 
 
 def parse_dbus_address(address):
@@ -170,12 +90,12 @@ def parse_dbus_address(address):
             raise ValueError('$DBUS_SESSION_BUS_ADDRESS not set')
     elif address == 'system':
         address = os.environ.get('DBUS_SYSTEM_BUS_ADDRESS',
-                                'unix:path=/var/run/dbus/system_bus_socket')
+                                 'unix:path=/var/run/dbus/system_bus_socket')
     addresses = []
     for addr in address.split(';'):
         p1 = addr.find(':')
         if p1 == -1:
-            raise ValueError('illegal address string: {0}'.formnat(addr))
+            raise ValueError('illegal address string: {0}'.format(addr))
         kind = addr[:p1]
         args = dict((kv.split('=') for kv in addr[p1+1:].split(',')))
         if kind == 'unix':
@@ -195,145 +115,323 @@ def parse_dbus_address(address):
     return addresses
 
 
-class DBusBase(protocols.RequestResponseProtocol):
+class TxdbusAuthenticator(object):
+    """A adapter to use the txdbus client and server authenticators with our
+    transports and protocols."""
 
-    _exception = DBusError
-    _authenticator = None
+    # For testing, cookie_dir is set to a temporary path. Otherwise, txdbus
+    # uses ~/.dbus-keyrings as specified in the spec.
+    cookie_dir = None
 
-    def __init__(self, message_handler=None, timeout=None):
-        """The constructor accepts the following arguments. The
-        *message_handler* argument specifies an optional message handler that
-        can be used to react to inbound messages. See the notes at the top for
-        more information on the message handler.
+    def __init__(self, transport, protocol, server_side, server_guid=None):
+        self._transport = transport
+        self._protocol = protocol
+        self._server_side = server_side
+        if self._server_side:
+            self._authenticator = txdbus.BusAuthenticator(server_guid)
+            self._authenticator.authenticators['DBUS_COOKIE_SHA1'].keyring_dir = self.cookie_dir
+        else:
+            self._authenticator = txdbus.ClientAuthenticator()
+            self._authenticator.cookie_dir = self.cookie_dir
+        self._authenticator.beginAuthentication(self)
 
-        The optional *timeout* argument can be used to specify a timeout for
-        the various network operations used in the client.
-        """
-        super(DBusBase, self).__init__(DBusParser, timeout)
-        self._message_handler = message_handler
-        self._buffer = b''
+    def sendAuthMessage(self, message):
+        # Called by the txdbus authenticators
+        message = message.encode('ascii') + b'\r\n'
+        self._protocol._transport.write(message)
 
-    def _init_transport(self, transport):
-        super(DBusBase, self)._init_transport(transport)
-        transport._authenticator = self._authenticator()
-        transport._authenticated = False
-        transport._unique_name = None
-        transport._queue._sizefunc = lambda msg: len(msg.rawMessage or b'')
+    @property
+    def _unix_creds(self):
+        # Used by txdbus.BusExternalAuthenticator
+        return self._transport.get_extra_info('unix_creds')
 
-    def _start_authentication(self, transport):
-        authdata = transport._authenticator.feed(b'')
-        assert authdata != b''
-        transport.write(authdata)
+    def handleAuthMessage(self, line):
+        # Called by our protocol
+        self._authenticator.handleAuthMessage(line)
 
-    def _on_transport_readable(self, transport, data, error):
-        if transport._authenticated or error:
-            super(DBusBase, self)._on_transport_readable(transport, data, error)
+    def authenticationSucceeded(self):
+        """Return whether the authentication succeeded."""
+        return self._authenticator.authenticationSucceeded()
+
+    def getMechanismName(self):
+        """Return the authentication mechanism name."""
+        if self._server_side:
+            mech = self._authenticator.current_mech
+            return mech.getMechanismName() if mech else None
+        else:
+            return getattr(self._authenticator, 'authMech', None)
+
+    def getUserName(self):
+        """Return the authenticated user name (server side)."""
+        if not self._server_side:
             return
-        # Handle authentication
-        self._buffer += data
-        pos = self._buffer.find(b'\r\n')
-        if pos == -1:
-            if len(self._buffer) > 1024:
-                self._close_transport(transport)
-            return
-        line = self._buffer[:pos+2]
-        self._buffer = self._buffer[pos+2:]
+        mech = self._authenticator.current_mech
+        return mech.getUserName() if mech else None
+
+    def getGUID(self):
+        """Return the GUID of the authenticated server."""
+        return self._authenticator.getGUID()
+
+
+def parse_dbus_header(header):
+    """Parse a D-BUS header. Return the message size."""
+    if six.indexbytes(header, 0) == ord('l'):
+        endian = '<'
+    elif six.indexbytes(header, 0) == ord('B'):
+        endian = '>'
+    else:
+        raise ValueError('illegal endianness')
+    if not 1 <= six.indexbytes(header, 1) <= 4:
+        raise ValueError('illegel message type')
+    if struct.unpack(endian + 'I', header[8:12])[0] == 0:
+        raise ValueError('illegal serial number')
+    harrlen = struct.unpack(endian + 'I', header[12:16])[0]
+    padlen = (8 - harrlen) % 8
+    bodylen = struct.unpack(endian + 'I', header[4:8])[0]
+    return 16 + harrlen + padlen + bodylen
+
+
+def new_server_guid():
+    """Return a new GUID for a server."""
+    return binascii.hexlify(os.urandom(16)).decode('ascii')
+
+
+class DbusProtocol(MessageProtocol):
+    """D-BUS Protocol."""
+
+    # According to the D-BUS spec the max message size is 128MB. However since
+    # we want to limited memory usage we are much more conservative here.
+    read_buffer_size = 128*1024
+
+    # Maximum size for an authentication line
+    max_line_size = 1000
+
+    _next_unique_name = 0
+
+    S_CREDS_BYTE, S_AUTHENTICATE, S_MESSAGE_HEADER, S_MESSAGE = range(4)
+
+    def __init__(self, server_side, message_handler=None, server_guid=None, timeout=None):
+        super(DbusProtocol, self).__init__(message_handler)
+        self._server_side = server_side
+        self._name_acquired = Event()
+        self._timeout = timeout
+        self._buffer = bytearray()
+        self._method_calls = {}
+        self._authenticator = None
+        if self._server_side:
+            self._server_guid = server_guid or new_server_guid()
+            self._unique_name = ':{0}'.format(self._next_unique_name)
+            type(self)._next_unique_name += 1
+        else:
+            self._server_guid = None
+            self._unique_name = None
+        self._state = None
+
+    @property
+    def server_guid(self):
+        return self._server_guid
+
+    def connection_made(self, transport):
+        # Protocol callback
+        super(DbusProtocol, self).connection_made(transport)
+        # The client initiates by sending a '\0' byte, as per the D-BUS spec.
+        if self._server_side:
+            self._state = self.S_CREDS_BYTE
+        else:
+            self._state = self.S_AUTHENTICATE
+            self._transport.write(b'\0')
+        self._authenticator = TxdbusAuthenticator(transport, self, self._server_side,
+                                                  self._server_guid)
+        self._message_size = 0
+
+    def connection_lost(self, exc):
+        # Protocol callback
+        super(DbusProtocol, self).connection_lost(exc)
+        for notify in self._method_calls.values():
+            if hasattr(notify, 'throw'):
+                notify.throw(self._error)
+        self._method_calls.clear()
+        self._name_acquired.set()
+        self._authenticator = None  # break cycle
+
+    def get_read_buffer_size(self):
+        # Return the size of the read buffer.
+        return len(self._buffer) + self._queue.qsize()
+
+    def on_creds_byte(self, byte):
+        if byte != 0:
+            self._error = DbusError('first byte needs to be zero')
+            return False
+        self._state = self.S_AUTHENTICATE
+        return True
+
+    def on_partial_auth_line(self, line):
+        if len(line) > self.max_line_size:
+            self._error = DbusError('auth line too long ({0} bytes)'.format(len(line)))
+            return False
+        return True
+
+    def on_auth_line(self, line):
+        if not self.on_partial_auth_line(line):
+            return False
+        if line[-2:] != b'\r\n':
+            self._error = DbusError('auth line does not end with \\r\\n')
+            return False
         try:
-            authdata = transport._authenticator.feed(line)
+            line = codecs.decode(line[:-2], 'ascii')  # codecs.decode allows memoryview
+        except UnicodeDecodeError as e:
+            self._error = DbusError('auth line contain non-ascii chars')
+            return False
+        try:
+            self._authenticator.handleAuthMessage(line)
+        except txdbus.DBusAuthenticationFailed as e:
+            self._error = DbusError('authentication failed: {0!s}'.format(e))
+            return False
+        if self._authenticator.authenticationSucceeded():
+            if not self._server_side:
+                message = txdbus.MethodCallMessage('/org/freedesktop/DBus', 'Hello',
+                                    'org.freedesktop.DBus', 'org.freedesktop.DBus')
+                self._transport.write(message.rawMessage)
+                self._method_calls[message.serial] = self.on_hello_response
+            self._state = self.S_MESSAGE_HEADER
+            self._server_guid = self._authenticator.getGUID()
+        return True
+
+    def on_hello_response(self, message):
+        self._unique_name = message.body[0]
+        self._name_acquired.set()
+
+    def on_message_header(self, header):
+        try:
+            size = parse_dbus_header(header)
         except ValueError as e:
-            transport._log.error('authentication error: {!s}', e)
-            error = DBusError(errno.AUTH_ERROR, str(e))
-            self._close_transport(transport, error)
+            self._error = DbusError('invalid message header')
+            return False
+        if size > self._read_buffer_high:
+            self._error = DbusError('message too large ({0} bytes)'.format(size))
+            return False
+        self._message_size = size
+        self._state = self.S_MESSAGE
+        return True
+
+    def on_message(self, message):
+        try:
+            parsed = txdbus.parseMessage(message)
+        except (txdbus.MarshallingError, struct.error) as e:
+            self._error = DbusError('parseMessage() error: {0!s}'.format(e))
+            return False
+        if self._server_side and not self._name_acquired:
+            if isinstance(parsed, txdbus.MethodCallMessage) \
+                        and parsed.member == 'Hello' \
+                        and parsed.path == '/org/freedesktop/DBus' \
+                        and parsed.interface == 'org.freedesktop.DBus' \
+                        and parsed.destination == 'org.freedesktop.DBus':
+                response = txdbus.MethodReturnMessage(parsed.serial, signature='s',
+                                                      body=[self._unique_name])
+                self._name_acquired.set()
+                self._transport.write(response.rawMessage)
+            else:
+                self._error = DbusError('Hello method not called')
+                return False
+        elif isinstance(parsed, (txdbus.MethodReturnMessage, txdbus.ErrorMessage)) \
+                    and getattr(parsed, 'reply_serial', 0) in self._method_calls:
+            notify = self._method_calls.pop(parsed.reply_serial)
+            notify(parsed)
+        elif self._dispatcher:
+            self._queue.put_nowait(parsed, len(message))
+        else:
+            mtype = type(parsed).__name__[:-7].lower()
+            info = ' {0!r}'.format(getattr(parsed, 'member', getattr(parsed, 'error_name', '')))
+            self._log.warning('no handler, ignoring inbound {}{}', mtype, info)
+        self._state = self.S_MESSAGE_HEADER
+        return True
+
+    def prepend_buffer(self, buf):
+        if self._buffer:
+            self._buffer.extend(buf)
+            buf = self._buffer
+            self._buffer = bytearray()
+        return memoryview(buf)
+
+    def data_received(self, data):
+        view = memoryview(data)
+        offset = 0
+        while offset != len(data):
+            if self._state == self.S_CREDS_BYTE:
+                credsbyte = six.indexbytes(view, offset)
+                offset += 1
+                if not self.on_creds_byte(credsbyte):
+                    break
+            if self._state == self.S_AUTHENTICATE:
+                pos = data.find(b'\n', offset)
+                if pos == -1:
+                    self._buffer.extend(view[offset:])
+                    self.on_partial_auth_line(self._buffer)
+                    break
+                line = self.prepend_buffer(view[offset:pos+1])
+                offset = pos+1
+                if not self.on_auth_line(line):
+                    break
+            if self._state == self.S_MESSAGE_HEADER:
+                needbytes = 16 - len(self._buffer)
+                if len(data) - offset < needbytes:
+                    self._buffer.extend(view[offset:])
+                    break
+                header = self.prepend_buffer(view[offset:offset+needbytes])
+                if not self.on_message_header(header):
+                    break
+                offset += len(header)
+                self._buffer.extend(header)
+            if self._state == self.S_MESSAGE:
+                needbytes = self._message_size - len(self._buffer)
+                if len(data) - offset < needbytes:
+                    self._buffer.extend(view[offset:])
+                    break
+                message = self.prepend_buffer(view[offset:offset+needbytes])
+                offset += needbytes
+                if not self.on_message(message):
+                    break
+        if self._error:
+            self._transport.close()
             return
-        if authdata:
-            transport.write(authdata)
-        if transport._authenticator.username:
-            transport._authenticated = True
-            transport._events.emit('AuthenticationComplete')
-            super(DBusBase, self)._on_transport_readable(transport,
-                                        self._buffer, 0)
-            self._buffer = b''
-
-    def _dispatch_fast_path(self, transport, message):
-        if isinstance(message, txdbus.MethodReturnMessage):
-            event = 'MethodResponse:{0}'.format(message.reply_serial)
-            if transport._events.emit(event, message):
-                return True
-        if not self._message_handler:
-            transport._log.debug('no handler, dropping incoming message')
-            return True
-        return False
-    
-    def _dispatch_message(self, transport, message):
-        """Dispatch a single message."""
-        result = self._message_handler(message, self, transport)
-        if result:
-            self._write(transport, result.rawMessage)
+        self.read_buffer_size_changed()
 
     @switchpoint
-    def _send_message(self, transport, message):
-        if self._transport is None and not self._transport.closed:
-            raise RuntimeError('not connected')
-        if not isinstance(message, txdbus.DBusMessage):
-            raise TypeError('expecting DBusMessage instance')
-        self._write(transport, message.rawMessage)
-
-
-class DBusClient(DBusBase):
-    """A D-BUS client."""
-
-    _authenticator = DBusClientAuthenticator
+    def get_unique_name(self):
+        """Return the unique name of the D-BUS connection."""
+        self._name_acquired.wait()
+        if self._error:
+            raise self._error
+        elif self._closing or self._closed:
+            raise RuntimeError('protocol is closing/closed')
+        return self._unique_name
 
     @switchpoint
-    def connect(self, address='session'):
-        """Connect to *address* and wait until the connection is established.
+    def send_message(self, message):
+        """Send a D-BUS message.
 
-        The *address* argument must be a D-BUS "server address", as explained
-        in the `D-BUS specification
-        <http://dbus.freedesktop.org/doc/dbus-specification.html>`_. It may
-        also be one of the special addresses ``'session'`` or ``'system'``, to
-        connect to the D-BUS session and system bus, respectively.
+        The *message* argument must be :class:`gruvi.txdbus.DbusMessage`
+        instance.
         """
-        if isinstance(address, (compat.binary_type, compat.text_type)):
-            addresses = parse_dbus_address(address)
-        elif hasattr(address, 'connect'):
-            addresses = [address]
-        else:
-            raise TypeError('address: expecting a string or a transport')
-        for addr in addresses:
-            try:
-                self._connect(addr)
-            except error.Error:
-                continue
-            break
-        else:
-            raise DBusError('could not connect to any address')
-        self._start_authentication(self._transport)
-        events = ('AuthenticationComplete', 'HandleError')
-        self._transport._events.wait(lambda event: event in events,
-                                     timeout=self._timeout)
-        if self._transport._error:
-            raise self._transport._error
-        elif not self._transport._authenticated:
-            raise DBusError(errno.TIMEOUT, 'timeout authenticating to the bus')
-        unique_name = self.call_method('org.freedesktop.DBus',
-                                       '/org/freedesktop/DBus',
-                                       'org.freedesktop.DBus', 'Hello')
-        self._transport._unique_name = unique_name
-
-    def unique_name(self):
-        """Return the unique bus name of the connection."""
-        if self._transport is None or self._transport.closed:
-            raise RuntimeError('not connected')
-        return self._transport._unique_name
+        if not isinstance(message, txdbus.DbusMessage):
+            raise TypeError('message: expecting DbusMessage instance (got {0!r})',
+                                type(message).__name__)
+        self._name_acquired.wait()
+        self._may_write.wait()
+        if self._error:
+            raise self._error
+        elif self._closing or self._closed:
+            raise RuntimeError('protocol is closing/closed')
+        self._transport.write(message.rawMessage)
 
     @switchpoint
     def call_method(self, service, path, interface, method, signature=None,
-                    args=None, no_reply=False, auto_start=False):
+                    args=None, no_reply=False, auto_start=False, timeout=-1):
         """Call a D-BUS method and wait for its reply.
 
-        This method calls the D-BUS method that resides on the object at bus
-        address *service*, at path *path*, on interface *interface*.
+        This method calls the D-BUS method with name *method* that resides on
+        the object at bus address *service*, at path *path*, on interface
+        *interface*.
 
         The *signature* and *args* are optional arguments that can be used to
         add parameters to the method call. The signature is a D-BUS signature
@@ -346,42 +444,107 @@ class DBusClient(DBusBase):
         The flags *no_reply* and *auto_start* control the NO_REPLY_EXPECTED and
         NO_AUTO_START flags on the D-BUS message.
 
-        The return value is the result of the D-BUS method call, in the
-        following way: if there were no values in the response, then None is
-        returned. If there was one value in the response, then that value is
-        returned. And if there were multiple values in the response then the
-        values are returned in a list.
+        The return value is the result of the D-BUS method call. This will be a
+        possibly empty sequence of values.
         """
-        if self._transport is None or self._transport.closed:
-            raise RuntimeError('not connected')
         message = txdbus.MethodCallMessage(path, method, interface=interface,
-                                           destination=service,
-                                           signature=signature, body=args,
-                                           expectReply=not no_reply,
-                                           autoStart=auto_start)
-        self.send_message(message)
-        events = ('MethodResponse:{0}'.format(message.serial), 'HandleError')
-        response = self._transport._events.wait(lambda event,*args: event in events,
-                                                timeout=self._timeout)
-        if response == 'HandleError':
-            raise self._transport._error
-        event, response = response
-        assert isinstance(response, txdbus.DBusMessage)
-        assert response.reply_serial == message.serial
+                                destination=service, signature=signature, body=args,
+                                expectReply=not no_reply, autoStart=auto_start)
+        serial = message.serial
+        if timeout == -1:
+            timeout = self._timeout
+        try:
+            with switch_back(timeout) as switcher:
+                self._method_calls[serial] = switcher
+                self.send_message(message)
+                args, _ = self._hub.switch()
+        finally:
+            self._method_calls.pop(serial, None)
+        response = args[0]
+        assert response.reply_serial == serial
         if isinstance(response, txdbus.ErrorMessage):
-            raise DBusError(errno.REQUEST_ERROR, response)
-        body = response.body
-        if body is None or len(body) == 0:
-            body = None
-        elif len(body) == 1:
-            body = body[0]
-        return body
+            raise DbusMethodCallError(method, response)
+        args = tuple(response.body) if response.body else ()
+        return args
+
+
+class DbusClient(Client):
+    """A D-BUS client."""
+
+    def __init__(self, message_handler=None, timeout=30):
+        """
+        The *message_handler* argument specifies an optional message handler.
+
+        The optional *timeout* argument specifies a default timeout for
+        protocol operations in seconds.
+        """
+        super(DbusClient, self).__init__(self._create_protocol, timeout)
+        self._message_handler = message_handler
+ 
+    @switchpoint
+    def connect(self, address='session'):
+        """Connect to *address* and wait until the connection is established.
+
+        The *address* argument must be a D-BUS server address, in the format
+        described in the D-BUS specification. It may also be one of the special
+        addresses ``'session'`` or ``'system'``, to connect to the D-BUS
+        session and system bus, respectively.
+        """
+        if isinstance(address, six.string_types):
+            addresses = parse_dbus_address(address)
+        else:
+            addresses = [address]
+        for addr in addresses:
+            try:
+                super(DbusClient, self).connect(addr)
+            except UvError as e:
+                continue
+            break
+        else:
+            raise DbusError('could not connect to any address')
+        # Wait for authentication to complete
+        self.get_unique_name()
+
+    def _create_protocol(self):
+        return DbusProtocol(False, self._message_handler, self._timeout)
+
+    add_protocol_method(DbusProtocol.get_unique_name, globals(), locals())
+    add_protocol_method(DbusProtocol.send_message, globals(), locals())
+    add_protocol_method(DbusProtocol.call_method, globals(), locals())
+
+
+class DbusServer(Server):
+    """A D-BUS server."""
+
+    def __init__(self, message_handler, timeout=30):
+        """
+        The *message_handler* argument specifies the message handler.
+
+        The optional *timeout* argument specifies a default timeout for
+        protocol operations in seconds.
+        """
+        super(DbusServer, self).__init__(self._create_protocol, timeout)
+        self._message_handler = message_handler
 
     @switchpoint
-    def send_message(self, message):
-        """Send a D-BUS message.
+    def listen(self, address='session'):
+        """Start listening on *address* for new connection.
 
-        The *message* argument must a valid :class:`txdbus.DBusMessage`
-        instance.
+        The *address* argument must be a D-BUS server address, in the format
+        described in the D-BUS specification. It may also be one of the special
+        addresses ``'session'`` or ``'system'``, to connect to the D-BUS
+        session and system bus, respectively.
         """
-        self._send_message(self.transport, message)
+        if isinstance(address, six.string_types):
+            addresses = parse_dbus_address(address)
+        else:
+            addresses = [address]
+        for addr in addresses:
+            try:
+                super(DbusServer, self).listen(addr)
+            except UvError as e:
+                self._log.error('skipping address {}', saddr(addr))
+
+    def _create_protocol(self):
+        # Protocol factory
+        return DbusProtocol(True, self._message_handler, timeout=self._timeout)

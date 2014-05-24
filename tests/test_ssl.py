@@ -9,16 +9,25 @@
 from __future__ import print_function, absolute_import
 
 import os
+import sys
 import time
+import ssl
+import socket
+import pyuv
 
 import gruvi
-from gruvi.ssl import SSLPipe, SSL
-from gruvi.stream import StreamClient, StreamServer
-from tests.support import *
+from gruvi.ssl import SslPipe, SslTransport
+from support import *
+from test_transports import EventLoopTest, TransportTest
+
+if hasattr(ssl, 'SSLContext'):
+    from ssl import SSLContext
+else:
+    from gruvi.sslcompat import SSLContext
 
 
 def communicate(buf, client, server, clientssl, serverssl):
-    """Send *buf* from *client* to *server*.
+    """Send *buf* from *client* to *server* over SSL.
     
     The *clientssl* and *serverssl* arguments are potentially empty list of
     initial SSL data. The clientssl list is SSL data from the client to send to
@@ -29,80 +38,104 @@ def communicate(buf, client, server, clientssl, serverssl):
     """
     received = []
     offset = bytes_received = 0
-    initial_serverssl = serverssl
-    while bytes_received != len(buf):
-        serverssl, appdata = server.feed_ssldata(b''.join(clientssl))
-        if initial_serverssl:
-            serverssl = initial_serverssl + serverssl
-            initial_serverssl = None
-        for data in appdata:
-            assert len(data) > 0
-            bytes_received += len(data)
-        received.extend(appdata)
-        clientssl, appdata = client.feed_ssldata(b''.join(serverssl))
-        for data in appdata:
-            assert len(data) == 0
-        if offset != len(buf):
-            ssldata, offset = client.feed_appdata(buf, offset)
-            clientssl.extend(ssldata)
+    while True:
+        ssldata, appdata = server.feed_ssldata(b''.join(clientssl))
+        serverssl += ssldata
+        received += appdata
+        for chunk in appdata:
+            if not chunk:
+                break  # close_notify
+            bytes_received += len(chunk)
+        clientssl = []
+        ssldata, appdata = client.feed_ssldata(b''.join(serverssl))
+        clientssl += ssldata
+        for chunk in appdata:
+            assert len(chunk) == 0
+        serverssl = []
+        ssldata, offset = client.feed_appdata(buf, offset)
+        clientssl += ssldata
+        if not clientssl and not serverssl:
+            break
     received = b''.join(received)
     return received
 
 
-class TestSSLPipe(UnitTest):
-    """Test suite for the (internal) SSLPipe class."""
+class TestSslPipe(UnitTest):
+    """Test suite for the SslPipe class."""
 
-    @classmethod
-    def setUpClass(cls):
-        super(TestSSLPipe, cls).setUpClass()
-        if not os.access(cls.certname, os.R_OK):
+    def setUp(self):
+        if not os.access(self.certname, os.R_OK):
             raise SkipTest('no certificate available')
+        super(TestSslPipe, self).setUp()
+        context = SSLContext(ssl.PROTOCOL_SSLv23)
+        context.load_cert_chain(self.certname, self.certname)
+        self.client = SslPipe(context, False)
+        self.server = SslPipe(context, True)
 
     def test_wrapped(self):
-        client = SSLPipe(server_side=False)
-        server = SSLPipe(server_side=True, keyfile=self.certname, certfile=self.certname)
+        # Send a simple chunk of data over SSL from client to server.
         buf = b'x' * 1000
-        # start client handshake
-        clientssl = client.start_handshake()
+        client, server = self.client, self.server
+        # The client starts the handshake.
+        clientssl = client.do_handshake()
         self.assertEqual(len(clientssl), 1)
-        self.assertGreater(len(clientssl[0]), 0)  # client initiates
-        serverssl = server.start_handshake()
-        self.assertEqual(len(serverssl), 0)  # server waits
+        self.assertGreater(len(clientssl[0]), 0)
+        # The server waits.
+        serverssl = server.do_handshake()
+        self.assertEqual(len(serverssl), 0)
         received = communicate(buf, client, server, clientssl, serverssl)
+        self.assertEqual(received, buf)
+        # This is an unclean shutdown.
+        client.close()
+        server.close()
+
+    def test_echo(self):
+        # Send a chunk from client to server and echo it back.
+        buf = b'x' * 1000
+        client, server = self.client, self.server
+        clientssl = client.do_handshake()
+        serverssl = server.do_handshake()
+        received = communicate(buf, client, server, clientssl, serverssl)
+        self.assertEqual(received, buf)
+        received = communicate(buf, server, client, [], [])
         self.assertEqual(received, buf)
         client.close()
         server.close()
 
     def test_shutdown(self):
-        client = SSLPipe(server_side=False)
-        server = SSLPipe(server_side=True, keyfile=self.certname, certfile=self.certname)
+        # Test a clean shutdown of the SSL protocol.
+        client, server = self.client, self.server
         buf = b'x' * 1000
-        # start client handshake
-        clientssl = client.start_handshake()
-        serverssl = server.start_handshake()
+        clientssl = client.do_handshake()
+        serverssl = server.do_handshake()
         received = communicate(buf, client, server, clientssl, serverssl)
         self.assertEqual(received, buf)
-        # the client initiates a shutdown
-        clientssl = client.start_shutdown()
+        # The client initiates a shutdown.
+        clientssl = client.shutdown()
         self.assertEqual(len(clientssl), 1)
         self.assertGreater(len(clientssl[0]), 0)  # the c->s close_notify alert
-        # communicate the close_notify to the server
+        # Communicate the close_notify to the server.
         serverssl, appdata = server.feed_ssldata(clientssl[0])
+        # b'' means close notify: acknowledge it
+        self.assertEqual(serverssl, [])
+        self.assertEqual(appdata, [b''])
+        serverssl = server.shutdown()
+        # Now we should have a close_notify
         self.assertEqual(len(serverssl), 1)
         self.assertGreater(len(serverssl[0]), 0)  # the s->c close_notify
-        self.assertEqual(len(appdata), 0)
-        self.assertEqual(server.state, SSLPipe.s_unwrapped)
-        # send back the server response to the client
+        self.assertEqual(appdata, [b''])
+        self.assertIsNone(server.sslinfo)
+        # Send back the server response to the client.
         clientssl, appdata = client.feed_ssldata(serverssl[0])
-        self.assertEqual(len(clientssl), 0)
-        self.assertEqual(len(appdata), 0)
-        self.assertEqual(client.state, SSLPipe.s_unwrapped)
+        self.assertEqual(clientssl, [])
+        self.assertEqual(appdata, [])
+        self.assertIsNone(client.sslinfo)
         client.close()
         server.close()
 
     def test_unwrapped(self):
-        client = SSLPipe()
-        server = SSLPipe()
+        # Send data over an unencrypted channel.
+        client, server = self.client, self.server
         buf = b'x' * 1000
         received = communicate(buf, client, server, [], [])
         self.assertEqual(received, buf)
@@ -110,178 +143,87 @@ class TestSSLPipe(UnitTest):
         server.close()
 
     def test_unwrapped_after_wrapped(self):
-        client = SSLPipe(server_side=False)
-        server = SSLPipe(server_side=True, keyfile=self.certname,
-                         certfile=self.certname)
+        # Send data over SSL, then unwrap, and send data in the clear.
+        client, server = self.client, self.server
         buf = b'x' * 1000
-        # send some data in the clear
+        # Send some data in the clear.
         received = communicate(buf, client, server, [], [])
         self.assertEqual(received, buf)
-        # now start the handshake and send some encrypted data
-        clientssl = client.start_handshake()
-        server.start_handshake()
+        # Now start the handshake and send some encrypted data.
+        clientssl = client.do_handshake()
+        server.do_handshake()
         received = communicate(buf, client, server, clientssl, [])
         self.assertEqual(received, buf)
-        # move back to clear again
-        clientssl = client.start_shutdown()
+        # Move back to clear again.
+        clientssl = client.shutdown()
         received = communicate(buf, client, server, clientssl, [])
+        self.assertEqual(received, b'')
+        serverssl = server.shutdown()
+        received = communicate(buf, client, server, [], serverssl)
         self.assertEqual(received, buf)
-        # and back to encrypted again..
-        clientssl = client.start_handshake()
-        server.start_handshake()
+        # And back to encrypted again..
+        clientssl = client.do_handshake()
+        server.do_handshake()
         received = communicate(buf, client, server, clientssl, [])
         self.assertEqual(received, buf)
         client.close()
         server.close()
 
     def test_simultaneous_shutdown(self):
-        client = SSLPipe(server_side=False)
-        server = SSLPipe(server_side=True, keyfile=self.certname,
-                         certfile=self.certname)
+        # Test a simultaenous shutdown.
+        client, server = self.client, self.server
         buf = b'x' * 1000
-        # start an encrypted session
-        clientssl = client.start_handshake()
-        server.start_handshake()
+        # Start an encrypted session.
+        clientssl = client.do_handshake()
+        server.do_handshake()
         received = communicate(buf, client, server, clientssl, [])
         self.assertEqual(received, buf)
-        # tear it down concurrently
-        clientssl = client.start_shutdown()
-        serverssl = server.start_shutdown()
+        # Tear it down concurrently.
+        clientssl = client.shutdown()
+        serverssl = server.shutdown()
         received = communicate(buf, client, server, clientssl, serverssl)
-        self.assertEqual(client.state, SSLPipe.s_unwrapped)
-        self.assertEqual(server.state, SSLPipe.s_unwrapped)
+        self.assertIsNone(client.sslinfo)
+        self.assertIsNone(server.sslinfo)
         self.assertEqual(received, buf)  # this was sent in the clear
         client.close()
         server.close()
 
 
-class TestSSL(UnitTest):
+class SslTransportTest(TransportTest):
 
-    @classmethod
-    def setUpClass(cls):
-        super(TestSSL, cls).setUpClass()
-        if not os.access(cls.certname, os.R_OK):
+    def setUp(self):
+        if not os.access(self.certname, os.R_OK):
             raise SkipTest('no certificate available')
+        super(SslTransportTest, self).setUp()
+        self.context = SSLContext(ssl.PROTOCOL_SSLv3)
+        self.context.load_cert_chain(self.certname, self.certname)
 
-    def test_read_write(self):
-        nbytes = [0]
-        cipher = [None]
-        received = []
-        buf = b'x' * 1000
-        done = gruvi.Signal()
-        def make_ssl_client(transport, error):
-            serverssl = gruvi.ssl.SSL(server_side=True, keyfile=self.certname,
-                                      certfile=self.certname, do_handshake_on_connect=False)
-            transport.accept(serverssl)
-            serverssl.do_handshake(server_handshake_complete)
-        def server_handshake_complete(transport, error):
-            cipher[0] = transport.ssl.cipher()
-            transport.start_read(server_read)
-        def server_read(transport, data, error):
-            if error:
-                transport.close()
-                done.emit()
-                return
-            nbytes[0] += len(data)
-            received.append(data)
-        def client_write(transport, error):
-            if error:
-                return
-            transport.write(buf)
-            transport.close()
-        lsock = gruvi.pyuv.TCP()
-        lsock.bind(('127.0.0.1', 0))
-        addr = lsock.getsockname()
-        lsock.listen(make_ssl_client)
-        clientssl = gruvi.ssl.SSL()
-        clientssl.connect(addr, client_write)
-        done.wait()
-        self.assertEqual(nbytes[0], len(buf))
-        self.assertEqual(b''.join(received), buf)
-        self.assertEqual(len(cipher[0]), 3)
-        print('Cipher: {0}'.format(cipher[0][0]))
+    def create_transport(self, handle, protocol, server_side):
+        transport = SslTransport(handle, self.context, server_side)
+        transport.start(protocol)
+        return transport
 
-    def test_handshake_unwrap(self):
-        nbytes = [0]
-        received = []
-        buf_clear = b'x' * 1000
-        buf_ssl = b'y' * 1000
-        ciphers = []
-        transports = []
-        done = gruvi.Signal()
-        def make_ssl_client(transport, error):
-            serverssl = gruvi.ssl.SSL(server_side=True, keyfile=self.certname,
-                                      certfile=self.certname, do_handshake_on_connect=False)
-            transport.accept(serverssl)
-            serverssl.start_read(server_read)
-            transports.append(serverssl)  # don't let the GC collect it
-        def server_read(transport, data, error):
-            if error:
-                transport.close()
-                done.emit()
-                return
-            nbytes[0] += len(data)
-            received.append(data)
-            if nbytes[0] == len(buf_clear):
-                transport.write(b'x')  # invite client to start handshake
-                transport.do_handshake()
-        def on_client_connect(transport, error):
-            transports.append(transport)
-            if error:
-                transport.close()
-                return
-            transport.write(buf_clear)
-            transport.start_read(client_read)
-        def client_read(transport, data, error):
-            if error:
-                transport.close()
-                return
-            transport.stop_read()
-            ciphers.append(transport.ssl)
-            transport.do_handshake(client_write_ssl)
-        def client_write_ssl(transport, error):
-            transport.write(buf_ssl)
-            ciphers.append(transport.ssl.cipher())
-            transport.unwrap(client_unwrap)
-        def client_unwrap(transport, error):
-            transport.write(buf_clear)
-            ciphers.append(transport.ssl)
-            transport.shutdown(lambda h,e: transport.close())
-        lsock = gruvi.pyuv.TCP()
-        lsock.bind(('127.0.0.1', 0))
-        addr = lsock.getsockname()
-        lsock.listen(make_ssl_client)
-        clientssl = gruvi.ssl.SSL(do_handshake_on_connect=False)
-        clientssl.connect(addr, on_client_connect)
-        done.wait()
-        self.assertEqual(nbytes[0], 2*len(buf_clear) + len(buf_ssl))
-        self.assertEqual(b''.join(received), buf_clear + buf_ssl + buf_clear)
-        self.assertEqual(len(ciphers), 3)
-        self.assertIsNone(ciphers[0])
-        self.assertEqual(len(ciphers[1]), 3)
-        self.assertIsNone(ciphers[2])
 
-    def test_stream(self):
-        def echo_handler(stream, protocol, client):
-            while True:
-                buf = stream.read(4096)
-                if not buf:
-                    break
-                nbytes = stream.write(buf)
-        server = StreamServer(echo_handler)
-        server.listen(('localhost', 0), ssl=True,
-                      keyfile=self.certname, certfile=self.certname)
-        addr = server.transport.getsockname()
-        client = StreamClient()
-        client.connect(addr, ssl=True)
-        buf = b'x' * 1024
-        client.write(buf)
-        result = b''
-        while len(result) != 1024:
-            result += client.read(1024)
-        self.assertEqual(result, buf)
-        client.close()
-        server.close()
+class TestSslTcpTransport(SslTransportTest, EventLoopTest):
+
+    def create_handle(self):
+        return pyuv.TCP(self.loop)
+
+    def bind_handle(self, handle):
+        host = socket.gethostbyname('localhost')
+        handle.bind((host, 0))
+        return handle.getsockname()
+
+
+class TestSslPipeTransport(SslTransportTest, EventLoopTest):
+
+    def create_handle(self):
+        return pyuv.Pipe(self.loop)
+
+    def bind_handle(self, handle):
+        addr = self.pipename('test-pipe')
+        handle.bind(addr)
+        return addr
 
 
 if __name__ == '__main__':
