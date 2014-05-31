@@ -25,5 +25,6 @@ from .ssl import *
 from .futures import *
 from .transports import *
 from .protocols import *
+from .endpoints import *
 
 from . import jsonrpc, dbus
