@@ -146,7 +146,7 @@ class BaseTransport(object):
 
 class Transport(BaseTransport):
     """A stream transport.
-    
+
     This is an adapter class that adapts the :class:`pyuv.Stream` API to a
     stream transport as specified in PEP 3156.
     """
@@ -272,10 +272,10 @@ class Transport(BaseTransport):
         """Wether this transport can close the write direction."""
         return True
 
- 
+
 class DatagramTransport(BaseTransport):
     """A datagram transport.
-    
+
     This is an adapter class that adapts the :class:`pyuv.UDP` API to a
     datagram transport as specified in PEP 3156.
     """
@@ -302,7 +302,7 @@ class DatagramTransport(BaseTransport):
             self._log.warning('pyuv error {} in recv callback', error)
             self._protocol.error_received(TransportError.from_errno(error))
         elif flags:
-            assert flag & pyuv.UV_UDP_PARTIAL
+            assert flags & pyuv.UV_UDP_PARTIAL
             self._log.warning('ignoring partial datagram')
         elif data and not self._closing:
             self._protocol.datagram_received(data, addr)

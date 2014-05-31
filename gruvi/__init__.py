@@ -9,6 +9,10 @@
 from __future__ import absolute_import, print_function
 del absolute_import, print_function  # clean up module namespace
 
+# Suppress warnings about 'import *' here. The submodules are designed to
+# export their symbols to a global package namespace like this.
+# flake8: noqa
+
 # should not use "from gruvi import *"
 __all__ = []
 

@@ -7,12 +7,9 @@
 
 from __future__ import absolute_import, print_function
 
-import sys
 import pyuv
-import time
 import threading
 
-import pyuv
 from . import fibers
 from .hub import switchpoint
 from .sync import Event, Queue
@@ -119,7 +116,7 @@ class PoolBase(object):
 
     def submit(self, func, *args):
         """Submit function *func* to the pool, which will run it asynchronously.
-        
+
         The function is called with positional argument *args*.
         """
         if self._closed:
@@ -217,7 +214,7 @@ def get_io_pool():
 
 def get_cpu_pool():
     """Return the thread pool for CPU intenstive tasks.
-    
+
     By default there is one CPU thread pool that is shared with all threads.
     """
     return _cpu_pool
@@ -226,7 +223,7 @@ def get_cpu_pool():
 def blocking(func, *args, **kwargs):
     """Run a function that uses blocking IO.
 
-    The function is run in the IO thread pool. 
+    The function is run in the IO thread pool.
     """
     pool = get_io_pool()
     fut = pool.submit(func, *args, **kwargs)

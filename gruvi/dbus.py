@@ -48,12 +48,12 @@ import binascii
 import codecs
 import six
 
-from . import hub, txdbus
+from . import txdbus
 from .hub import switchpoint, switch_back
 from .sync import Event
 from .transports import UvError
 from .protocols import ProtocolError, MessageProtocol
-from .endpoints import Client, Server, add_protocol_method
+from .endpoints import Client, Server, add_protocol_method, saddr
 from .compat import memoryview
 
 __all__ = ['DbusError', 'DbusMethodCallError', 'DbusProtocol', 'DbusClient', 'DbusServer']
@@ -304,7 +304,7 @@ class DbusProtocol(MessageProtocol):
     def on_message_header(self, header):
         try:
             size = parse_dbus_header(header)
-        except ValueError as e:
+        except ValueError:
             self._error = DbusError('invalid message header')
             return False
         if size > self._read_buffer_high:
@@ -480,7 +480,7 @@ class DbusClient(Client):
         """
         super(DbusClient, self).__init__(self._create_protocol, timeout)
         self._message_handler = message_handler
- 
+
     @switchpoint
     def connect(self, address='session'):
         """Connect to *address* and wait until the connection is established.
@@ -497,7 +497,7 @@ class DbusClient(Client):
         for addr in addresses:
             try:
                 super(DbusClient, self).connect(addr)
-            except UvError as e:
+            except UvError:
                 continue
             break
         else:
@@ -542,7 +542,7 @@ class DbusServer(Server):
         for addr in addresses:
             try:
                 super(DbusServer, self).listen(addr)
-            except UvError as e:
+            except UvError:
                 self._log.error('skipping address {}', saddr(addr))
 
     def _create_protocol(self):

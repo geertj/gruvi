@@ -30,7 +30,7 @@ class StreamReader(object):
     """
 
     def __init__(self, on_buffer_size_change=None):
-        self._can_read =  Event()
+        self._can_read = Event()
         self._buffers = []
         self._buffer_size = 0
         self._offset = 0
@@ -121,7 +121,7 @@ class StreamReader(object):
     @switchpoint
     def read(self, size=-1):
         """Read up to *size* bytes.
-        
+
         If *size* is not specified or negative, read until EOF.
         """
         return self._read_until(b'', size)
@@ -147,7 +147,7 @@ class StreamReader(object):
         while True:
             try:
                 line = self.readline()
-            except Exception as e:
+            except Exception:
                 # If there's already some lines read, we return those without
                 # an exception first. Future invocatations of methods on
                 # StreamReader will raise the exception again.
@@ -238,7 +238,7 @@ class StreamClient(Client):
     add_protocol_method(StreamProtocol.write, globals(), locals())
     add_protocol_method(StreamProtocol.writelines, globals(), locals())
     add_protocol_method(StreamProtocol.write_eof, globals(), locals())
-    
+
 
 class StreamServer(Server):
     """A stream server."""
@@ -257,7 +257,7 @@ class StreamServer(Server):
             self._stream_handler(protocol)
         except Cancelled:
             self._log.debug('stream handler cancelled')
-        except Exception as e:
+        except Exception:
             self._log.exception('uncaught exception in stream handler')
         transport.close()
         self._log.debug('stream handler exiting')

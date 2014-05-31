@@ -55,7 +55,7 @@ def patch_logger(logger):
 
     This method uses :func:`sys._getframe` to look up the name and line number
     of its caller, causing a huge slowdown on PyPy.
-    
+
     This function is used when debugging is not enabled.
     """
     if logger.findCaller is not logging.Logger.findCaller:
@@ -90,7 +90,7 @@ def get_log_level():
 
 class ContextLogger(object):
     """A logger adapter that prepends a context string to log messages.
-    
+
     It also supports passing arguments via '{}' format operations.
     """
 
@@ -107,7 +107,8 @@ class ContextLogger(object):
 
     def thread_info(self):
         tid = threading.current_thread().name
-        if tid == 'MainThread': tid = 'Main'
+        if tid == 'MainThread':
+            tid = 'Main'
         current = fibers.current()
         fid = getattr(current, 'name', util.objref(current)) if current.parent else 'Root'
         if tid == 'Main' and fid == 'Root':

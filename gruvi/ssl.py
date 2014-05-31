@@ -63,7 +63,7 @@ class SslSocketInfo(object):
         """Channel bindings."""
         if cb_type != 'tls_unique':
             raise ValueError('unknown channel binding: {0}'.format(cb_type))
-        if hasattr(self, _sslobj, 'tls_unique_cb'):
+        if hasattr(self._sslobj, 'tls_unique_cb'):
             return self._sslobj.tls_unique_cb()
         return sslcompat.tls_unique_sb(self._sslobj)
 
@@ -153,7 +153,7 @@ class SslPipe(object):
 
         The *server_side* argument indicates whether this is a server side or
         client side socket.
-        
+
         The optional *server_hostname* argument can be used to specify the
         hostname you are connecting to. You may only specify this parameter if
         the _ssl module supports Server Name Indication (SNI).
@@ -210,7 +210,7 @@ class SslPipe(object):
 
     def feed_eof(self):
         """Send a potentially "ragged" EOF.
-        
+
         This method will raise an SSL_ERROR_EOF exception if the EOF is
         unexpected.
         """
@@ -348,7 +348,7 @@ class SslTransport(Transport):
 
         The *server_side* argument specifies whether this is a server side or a
         client side transport.
-        
+
         The optional *server_hostname* argument can be used to specify the
         hostname you are connecting to. You may only specify this parameter if
         your Python version supports SNI.
@@ -489,7 +489,7 @@ class SslTransport(Transport):
         warning at any future point in time if a handshake occurs.
 
         The right way to handle this is as follows:
-        
+
          * In :meth:`Transport.data_received` you should set a flag called
            "currently reading" every time the callback is called. Also you
            should call :meth:`pause_reading` if the buffer size is above the
@@ -533,7 +533,7 @@ class SslTransport(Transport):
         If the unwrap is initiated by us, then any data sent after it will be
         buffered until the corresponding close_notify response is received from
         our peer.
-  
+
         If the unwrap is initiated by the remote peer, then this method will
         acknowledge it. You need an application level protocol to determine
         when to do this because the receipt of a close_notify is not

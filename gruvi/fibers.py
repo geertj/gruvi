@@ -72,7 +72,7 @@ class Fiber(fibers.Fiber):
 
     def cancel(self):
         """Cancel this fiber.
-        
+
         The fiber is cancelled by throwing a :class:`Cancelled` exception
         inside it.
         """
@@ -88,14 +88,12 @@ class Fiber(fibers.Fiber):
         # Target of the first :meth:`switch()` call.
         if self.current() is not self:
             raise RuntimeError('run() may only be called from self')
-        value = exc = None
         try:
-            value = self._target(*args, **kwargs)
+            self._target(*args, **kwargs)
         except Cancelled as e:
             self._log.debug(str(e))
-        except Exception as e:
+        except Exception:
             self._log.exception('uncaught exception in fiber')
-            exc = e
         self._done.set()
 
 

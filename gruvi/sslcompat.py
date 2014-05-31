@@ -13,7 +13,8 @@ import sys
 if sys.version_info[0] == 3:
     raise ImportError('Only import this module in Python 2.6 or 2.7.')
 
-import ssl, _ssl
+import _ssl
+import ssl
 from . import _sslcompat
 
 __all__ = []
@@ -111,11 +112,11 @@ def compression(sslobj):
     """Return the current compression method for *sslobj*."""
     if hasattr(sslobj, '_sslobj'):
         sslobj = sslobj._sslobj
-    return _sslcompat.compression(_sslobj)
+    return _sslcompat.compression(sslobj)
 
 
 def tls_unique_cb(sslobj):
     """Get the "tls-unique" channel bindings for *sslobj."""
     if hasattr(sslobj, '_sslobj'):
         sslobj = sslobj._sslobj
-    return _sslcompat.tls_unique_cb(_sslobj)
+    return _sslcompat.tls_unique_cb(sslobj)

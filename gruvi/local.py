@@ -16,7 +16,7 @@ __all__ = ['local']
 
 class local(object):
     """Fiber local storage.
-    
+
     The API for local storage is the same as that of :class:`threading.local`.
     To create a fiber local value, instantiate this class and store attributes
     on it::

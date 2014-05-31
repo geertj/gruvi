@@ -52,7 +52,6 @@ from __future__ import absolute_import, print_function
 
 import re
 import time
-import collections
 import six
 
 from . import logging
@@ -75,8 +74,10 @@ for name in dir(http_client):
     value = getattr(http_client, name)
     if name.isupper() and value in http_client.responses:
         globals()[name] = value
-for name in ('HTTP_PORT', 'HTTPS_PORT', 'responses'):
-    globals()[name] = getattr(http_client, name)
+
+HTTP_PORT = http_client.HTTP_PORT
+HTTPS_PORT = http_client.HTTPS_PORT
+responses = http_client.responses
 
 
 # The "Hop by Hop" headers as defined in RFC 2616. These may not be set by the
@@ -93,7 +94,7 @@ _url_fields = (_lib.UF_SCHEMA, _lib.UF_HOST, _lib.UF_PORT, _lib.UF_PATH,
 
 def parse_url(url, is_connect=False):
     """Split a URL into its components.
-    
+
     This function is similar to :func:`urllib.parse.urlsplit` but it uses the
     http-parser URL splitter via CFFI.
 
@@ -198,7 +199,7 @@ def rfc1123_date(timestamp=None):
 
 def _s2b(s):
     """Convert a string *s* to bytes in the ISO-8859-1 encoding.
-    
+
     ISO-8859-1 is the default encoding used in HTTP.
     """
     if type(s) is not bytes:
@@ -243,7 +244,7 @@ def create_chunked_body_end(trailers=None):
     ending = bytearray()
     ending.extend(b'0\r\n')
     if trailers:
-        for name,value in trailers:
+        for name, value in trailers:
             ending.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
     ending.extend(b'\r\n')
     return ending
@@ -253,7 +254,7 @@ def create_request(version, method, url, headers):
     """Create a HTTP request header."""
     message = bytearray()
     message.extend(_s2b('{0} {1} HTTP/{2}\r\n'.format(method, url, version)))
-    for name,value in headers:
+    for name, value in headers:
         message.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
     message.extend(b'\r\n')
     return message
@@ -263,7 +264,7 @@ def create_response(version, status, headers):
     """Create a HTTP response header."""
     message = bytearray()
     message.extend(_s2b('HTTP/{0} {1}\r\n'.format(version, status)))
-    for name,value in headers:
+    for name, value in headers:
         message.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
     message.extend(b'\r\n')
     return message
@@ -275,7 +276,7 @@ class HttpError(Error):
 
 class HttpMessage(object):
     """A HTTP message (request or response).
-    
+
     This is an internal class used by the parser.
     """
 
@@ -306,7 +307,7 @@ class ErrorStream(object):
 
     def flush(self):
         pass
-    
+
     def write(self, data):
         self._log.error('wsgi.errors: {}', data)
 
@@ -341,16 +342,16 @@ class HttpRequest(object):
 
         This method is called by :meth:`HttpProtocol.request`. It creates a new
         HTTP request header and sends it to the transport.
-        
+
         The *body* parameter is a hint that specifies the body that will be
         sent in the future, but it will not actually send it. This method tries
         to deduce the Content-Length of the body that follows from it.
         """
         headers = headers[:] if headers is not None else []
-        agent = host = clen = ctype = charset = None
+        agent = host = clen = ctype = None
         # Ensure that the user doesn't provide any hop-by-hop headers. Only
         # HTTP applications are allowed to set these.
-        for name,value in headers:
+        for name, value in headers:
             name = name.lower()
             if name in hop_by_hop:
                 raise ValueError('header {0} is hop-by-hop'.format(name))
@@ -367,7 +368,7 @@ class HttpRequest(object):
         if not isinstance(body, (six.binary_type, six.text_type)) \
                     and not hasattr(body, 'read') \
                     and not hasattr(body, '__iter__') \
-                    and not body is None:
+                    and body is not None:
             raise TypeError('body: expecting a bytes or str instance, '
                             'a file-like object or an iterable')
         version = self._protocol._version
@@ -572,7 +573,7 @@ class WsgiHandler(object):
                 exc_info = None
         elif self._status is not None:
             raise RuntimeError('response already started')
-        for name,value in headers:
+        for name, value in headers:
             if name.lower() in hop_by_hop:
                 raise ValueError('header {0} is hop-by-hop'.format(name))
         self._status = status
@@ -656,7 +657,7 @@ class WsgiHandler(object):
         env['REQUEST_METHOD'] = m.method
         env['PATH_INFO'] = m.parsed_url[3]
         env['QUERY_STRING'] = m.parsed_url[4]
-        for field,value in m.headers:
+        for field, value in m.headers:
             if field.title() == 'Content-Length':
                 env['CONTENT_LENGTH'] = value
             elif field.title() == 'Content-Type':
@@ -705,7 +706,7 @@ class HttpProtocol(MessageProtocol):
         """
         The *server_side* argument specifies whether this is a client or server
         side protocol.
-        
+
         If this is a server side protocol, then the *wsgi_application* argument
         must be provided, and it must be a WSGI application callable.
 
@@ -816,7 +817,7 @@ class HttpProtocol(MessageProtocol):
             self._field_value.extend(buf)
         elif self._field_name:
             if not self._message.body:
-                self._message.headers.append((_ba2s(self._field_name),  
+                self._message.headers.append((_ba2s(self._field_name),
                                               _ba2s(self._field_value)))
             else:
                 self._message.trailers.append((_ba2s(self._field_name),
@@ -929,7 +930,7 @@ class HttpProtocol(MessageProtocol):
 
         This method sends the request header, and if a body was specified, the
         request body as well. It then returns a :class:`HttpRequest` instance.
-        
+
         If however you passsed a *body* of ``None`` then you must use the
         :meth:`HttpRequest.write` and :meth:`HttpRequest.end_request` methods
         if the :class:`HttpRequest` instance to send the request body yourself.
@@ -937,7 +938,7 @@ class HttpProtocol(MessageProtocol):
         HTTP "chunked" encoding. Trailers are not normally used.
 
         The response to the request can be obtained by calling the
-        :meth:`get_response` method. 
+        :meth:`get_response` method.
 
         You may make multiple requests before reading a response. This is
         called pipelining, and can improve per request latency greatly. For

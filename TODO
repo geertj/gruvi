@@ -19,6 +19,8 @@ TODO:
 * Investigate low HTTP parsing speed (20MB/sec)
 * perf_fibers.py doesn't run as part of the suite (does run individually)
 * Get rid of get_log_level() and $DEBUG / $VERBOSE variables in logging.
+* Add switch_back.add_cleanup() and have getaddrinfo() use it to cancel the
+  request.
 
 Things that could be done if they are useful:
 

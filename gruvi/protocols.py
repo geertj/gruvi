@@ -112,7 +112,7 @@ class Protocol(BaseProtocol):
     @switchpoint
     def write(self, data):
         """Write *data* to the underlying transport.
-        
+
         If the write bufer is currently above the high-water mark, then this
         method wait until it drops below the low-water mark.
         """

@@ -54,11 +54,9 @@ from __future__ import absolute_import, print_function
 import json
 import six
 
-from .hub import get_hub, switchpoint, switch_back
-from .errors import *
+from .hub import switchpoint, switch_back
 from .protocols import ProtocolError, MessageProtocol
 from .endpoints import Client, Server, add_protocol_method
-from .sync import Queue
 from .jsonrpc_ffi import lib as _lib, ffi as _ffi
 
 __all__ = ['JsonRpcError', 'JsonRpcMethodCallError', 'JsonRpcProtocol',
@@ -84,7 +82,7 @@ add_error(-32700, 'PARSE_ERROR', 'Parse error')
 
 del add_error
 
-def strerror( code):
+def strerror(code):
     return _jsonrpc_errlist.get(code, 'No error description available')
 
 
@@ -110,7 +108,7 @@ _response_keys = frozenset(('jsonrpc', 'id', 'result', 'error'))
 
 def check_message(message):
     """Validate a JSON-RPC message.
-    
+
     The message must be a dictionary. Return the detected version number, or
     raise an exception on error.
     """
@@ -131,16 +129,18 @@ def check_message(message):
         # never allow keyword arguments in v1.0).
         if version == '1.0':
             if not isinstance(params, (list, tuple)) and params is not None:
-                raise ValueError('params must be list, got {0!r}'.format(type(params).__name__))
+                raise ValueError('params must be list, got {0!r}'
+                                    .format(type(params).__name__))
         elif version == '2.0':
             if not isinstance(params, (dict, list, tuple)) and params is not None:
-                raise ValueError('params must be dict/list, got {0!r}'.format(type(params).__name__))
+                raise ValueError('params must be dict/list, got {0!r}'
+                                    .format(type(params).__name__))
         allowed_keys = _request_keys
     else:
         # Success or error response
         if message.get('id') is None:
             raise ValueError('null or absent id not allowed in response')
-        # There's again annoying differences between v1.0 and v2.0. 
+        # There's again annoying differences between v1.0 and v2.0.
         # v2.0 insists on absent result/error memmbers while v1.0 wants null.
         # Be lenient again and allow both for both versions.
         if message.get('result') and message.get('error'):
@@ -186,14 +186,14 @@ def _get_request_id():
 
 def create_request(method, args=[], version='2.0'):
     """Create a JSON-RPC request."""
-    msg = { 'id': _get_request_id(), 'method': method, 'params': args }
+    msg = {'id': _get_request_id(), 'method': method, 'params': args}
     if version == '2.0':
         msg['jsonrpc'] = version
     return msg
 
 def create_response(request, result):
     """Create a JSON-RPC response message."""
-    msg = { 'id': request['id'], 'result': result }
+    msg = {'id': request['id'], 'result': result}
     version = request.get('jsonrpc', '1.0')
     if version == '1.0':
         msg['error'] = None
@@ -205,9 +205,9 @@ def create_error(request, code=None, message=None, data=None, error=None):
     """Create a JSON-RPC error response message."""
     if code is None and error is None:
         raise ValueError('either "code" or "error" must be set')
-    msg = { 'id': request['id'] }
+    msg = {'id': request['id']}
     if code:
-        error = { 'code': code }
+        error = {'code': code}
         error['message'] = message or strerror(code)
         if data:
             error['data'] = data
@@ -221,7 +221,7 @@ def create_error(request, code=None, message=None, data=None, error=None):
 
 def create_notification(method, args=[], version='2.0'):
     """Create a JSON-RPC notification message."""
-    msg = { 'method': method, 'params': args }
+    msg = {'method': method, 'params': args}
     if version == '1.0':
         msg['id'] = None
     elif version == '2.0':
@@ -306,7 +306,7 @@ class JsonRpcProtocol(MessageProtocol):
                 peername = self._transport.get_extra_info('peername', '(n/a)')
                 self._tracefile.write('\n\n/* <- {} ({}; version {})*/\n'
                                        .format(peername, mtype, version))
-                self._tracefile.write(serialized)
+                self._tracefile.write(json.dumps(message, indent=2, sort_keys=True))
                 self._tracefile.write('\n')
                 self._tracefile.flush()
             # Now route the message to its correct destination

@@ -15,7 +15,7 @@ import sys
 if sys.version_info[:2] == (2, 6):
 
     memoryview = buffer   # read-only but close enough for us
-    bytes_types = (bytes, bytearray, buffer)
+    bytes_types = (bytes, bytearray, buffer)  # flake8: noqa
 
 else:
 

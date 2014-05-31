@@ -12,6 +12,7 @@ from pyuv.error import UVError
 
 __all__ = ['Error', 'Timeout', 'Cancelled']
 
+
 Error = UVError
 
 class Timeout(Error):

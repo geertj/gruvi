@@ -16,6 +16,7 @@ import textwrap
 import inspect
 import pyuv
 import six
+import errno
 
 from . import logging
 from .hub import get_hub, switchpoint, switch_back
@@ -62,7 +63,7 @@ def paddr(address):
 def getaddrinfo(host, port=0, family=0, socktype=0, protocol=0, flags=0, timeout=30):
     """A cooperative version of :py:func:`socket.getaddrinfo`.
 
-    The address resolution is performed in the libuv thread pool. 
+    The address resolution is performed in the libuv thread pool.
     """
     hub = get_hub()
     with switch_back(timeout) as switcher:
@@ -125,8 +126,8 @@ def _af_unix_helper(handle, address, op):
         assert e.errno != errno.EAGAIN
         # Convert from Unix errno -> libuv errno via the symbolic error name
         errname = 'UV_{0}'.format(errno.errocode.get(e.errno, 'UNKNOWN'))
-        errno = getattr(pyuv.errno, errname, UV_UNKNOWN)
-        raise pyuv.error.PipeError(errno, os.strerror(e.errno))
+        errnum = getattr(pyuv.errno, errname, pyuv.errno.UV_UNKNOWN)
+        raise pyuv.error.PipeError(errnum, os.strerror(e.errno))
     finally:
         sock.close()
     handle.open(fd)
@@ -148,7 +149,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
     The address may be either be a string, a (host, port) tuple, or an already
     connected :class:`pyuv.Stream` handle. If the address is a string, this
     method connects to a named pipe using a :class:`pyuv.Pipe` handle.
-    
+
     If the address is a tuple, this method connects to a TCP/IP service using a
     :class:`pyuv.TCP` handle. The host and port elements of the tuple are the
     DNS and service names respectively, and will be resolved using
@@ -252,7 +253,7 @@ class Client(Endpoint):
     @switchpoint
     def connect(self, address, **kwargs):
         """Connect to *address* and wait for the connection to be established.
-        
+
         See :func:`create_connection` for a description of *address* and the
         supported keyword arguments.
         """
@@ -356,7 +357,7 @@ class Server(Endpoint):
         resolved resolved using :func:`getaddrinfo()`. The *family* and *flags*
         parameters are also passed to :func:`getaddrinfo` and can be used to
         modify the address resolution. The server will listen on all addresses
-        that are resolved. 
+        that are resolved.
 
         The address may also a :class:`pyuv.Stream` handle. In this case it
         must already be bound to an address.
@@ -412,7 +413,7 @@ class Server(Endpoint):
         for handle in self._handles:
             handle.close()
         del self._handles[:]
-        for transport,_ in self.connections:
+        for transport, _ in self.connections:
             transport.close()
         self._all_closed.wait()
 

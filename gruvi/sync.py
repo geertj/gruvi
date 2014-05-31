@@ -13,7 +13,7 @@ import threading
 import heapq
 
 from .hub import switchpoint, get_hub, switch_back
-from .errors import Timeout, Cancelled
+from .errors import Timeout
 
 __all__ = ['Lock', 'RLock', 'Event', 'Condition', 'QueueEmpty', 'QueueFull',
            'Queue', 'LifoQueue', 'PriorityQueue']
@@ -109,7 +109,7 @@ class _Lock(object):
                 switcher()
 
     __enter__ = acquire
-    __exit__ = lambda self,*exc_info: self.release()
+    __exit__ = lambda self, *exc_info: self.release()
 
     # Internal API used by Condition instances.
 
@@ -246,7 +246,7 @@ class Event(object):
                     hub.switch()
                 finally:
                     self._lock.acquire()
-        except Exception as e:
+        except Exception:
             for i in reversed(range(len(self._waiters))):
                 if self._waiters[i] is switcher:
                     del self._waiters[i]
@@ -324,10 +324,10 @@ class Condition(object):
         self._lock = lock or RLock()
         self._waiters = []
 
-    acquire = lambda self,*args: self._lock.acquire(*args)
+    acquire = lambda self, *args: self._lock.acquire(*args)
     release = lambda self: self._lock.release()
     __enter__ = lambda self: self._lock.acquire()
-    __exit__ = lambda self,*exc_info: self.release()
+    __exit__ = lambda self, *exc_info: self.release()
 
     def notify(self, n=1):
         """Raise the condition and wake up fibers waiting on it.
@@ -361,7 +361,7 @@ class Condition(object):
 
         The lock must be held before calling this method. This method will
         release the lock just before blocking itself, and it will re-acquire it
-        before returning. 
+        before returning.
         """
         return self.wait_for(None, timeout)
 

@@ -51,7 +51,7 @@ def switchpoint(func):
         def myfunc():
             # May call Hub.switch() here
             pass
-    
+
     You only need to mark methods and functions that invoke :meth:`Hub.switch`
     directly, not via intermediate callables.
     """
@@ -89,7 +89,7 @@ class assert_no_switchpoints(object):
         with assert_no_switchpoints():
             do_something()
             do_something_else()
-    
+
     If a switchpoint is called while the block is active, a ``AssertionError``
     is raised (even if the switchpoint did not switch).
 
@@ -189,7 +189,7 @@ _local = threading.local()
 
 def get_hub():
     """Return the singleton instance of the hub.
-    
+
     By default there is one Hub per thread.
     """
     try:
