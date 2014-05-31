@@ -61,11 +61,11 @@ class SslSocketInfo(object):
 
     def get_channel_binding(self, cb_type='tls-unique'):
         """Channel bindings."""
-        if cb_type != 'tls_unique':
+        if cb_type != 'tls-unique':
             raise ValueError('unknown channel binding: {0}'.format(cb_type))
         if hasattr(self._sslobj, 'tls_unique_cb'):
             return self._sslobj.tls_unique_cb()
-        return sslcompat.tls_unique_sb(self._sslobj)
+        return sslcompat.tls_unique_cb(self._sslobj)
 
 
 def write_to_socket(sock, data):
