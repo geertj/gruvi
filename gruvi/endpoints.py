@@ -192,7 +192,9 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
         transport = SslTransport(handle, context, False, **ssl_args)
     else:
         transport = Transport(handle)
-    transport.start(protocol)
+    event = transport.start(protocol)
+    if event is not None:
+        event.wait()
     return (transport, protocol)
 
 

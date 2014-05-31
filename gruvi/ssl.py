@@ -17,6 +17,7 @@ import six
 
 from .compat import memoryview
 from .transports import Transport, TransportError
+from .sync import Event
 
 if hasattr(socket, 'socketpair'):
     socketpair = socket.socketpair
@@ -184,8 +185,13 @@ class SslPipe(object):
         that is currently in progress."""
         return self._need_ssldata
 
-    def do_handshake(self):
-        """Start the SSL handshake. Return a list of ssldata."""
+    def do_handshake(self, callback=None):
+        """Start the SSL handshake. Return a list of ssldata.
+
+        The optional *callback* argument can be used to install a callback that
+        will be called when the handshake is complete. The callback will be
+        called without arguments.
+        """
         if self._sockets is None:
             raise RuntimeError('pipe was closed')
         if self._sslobj:
@@ -193,17 +199,24 @@ class SslPipe(object):
         self._sslobj = self._context._wrap_socket(self._sockets[1], self._server_side,
                                                   self._server_hostname)
         self._state = self.S_DO_HANDSHAKE
+        self._on_handshake_complete = callback
         ssldata, appdata = self.feed_ssldata(b'')
         assert len(appdata) == 0
         return ssldata
 
-    def shutdown(self):
-        """Start the SSL shutdown sequence. Return a list of ssldata."""
+    def shutdown(self, callback=None):
+        """Start the SSL shutdown sequence. Return a list of ssldata.
+
+        The optional *callback* argument can be used to install a callback that
+        will be called when the shutdown is complete. The callback will be
+        called without arguments.
+        """
         if self._sockets is None:
             raise RuntimeError('pipe was closed')
         if self._sslobj is None:
             raise RuntimeError('no security layer present')
         self._state = self.S_SHUTDOWN
+        self._on_handshake_complete = callback
         ssldata, appdata = self.feed_ssldata(b'')
         assert len(appdata) == 0
         return ssldata
@@ -265,6 +278,8 @@ class SslPipe(object):
                     # Call do_handshake() until it doesn't raise anymore.
                     self._sslobj.do_handshake()
                     self._state = self.S_WRAPPED
+                    if self._on_handshake_complete:
+                        self._on_handshake_complete()
                 if self._state == self.S_WRAPPED:
                     # Main state: read data from SSL until close_notify
                     while True:
@@ -277,6 +292,8 @@ class SslPipe(object):
                     self._sslobj.shutdown()
                     self._sslobj = None
                     self._state = self.S_UNWRAPPED
+                    if self._on_handshake_complete:
+                        self._on_handshake_complete()
                 if self._state == self.S_UNWRAPPED:
                     # Drain possible plaintext data after close_notify.
                     chunks = read_from_socket(self._sockets[1], self.bufsize)
@@ -367,12 +384,15 @@ class SslTransport(Transport):
         self._do_handshake_on_connect = do_handshake_on_connect
         self._close_on_unwrap = close_on_unwrap
         self._write_backlog = []
+        self._ssl_active = Event()
 
     def start(self, protocol):
         """Bind to *protocol* and start calling callbacks on it."""
         super(SslTransport, self).start(protocol)
-        if self._do_handshake_on_connect:
-            self.do_handshake()
+        if not self._do_handshake_on_connect:
+            return
+        self.do_handshake()
+        return self._ssl_active
 
     def get_extra_info(self, name, default=None):
         """Return transport specific data.
@@ -420,9 +440,9 @@ class SslTransport(Transport):
                 if data:
                     ssldata, offset = self._sslpipe.feed_appdata(data, offset)
                 elif offset:
-                    ssldata, offset = self._sslpipe.do_handshake(), 1
+                    ssldata, offset = self._sslpipe.do_handshake(self._ssl_active.set), 1
                 else:
-                    ssldata, offset = self._sslpipe.shutdown(), 1
+                    ssldata, offset = self._sslpipe.shutdown(self._ssl_active.clear), 1
                 # Temporarily set _closing to False to prevent
                 # Transport.write() from raising an error.
                 saved, self._closing = self._closing, False
