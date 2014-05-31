@@ -208,7 +208,7 @@ def create_error(request, code=None, message=None, data=None, error=None):
     """Create a JSON-RPC error response message."""
     if code is None and error is None:
         raise ValueError('either "code" or "error" must be set')
-    msg = {'id': request['id']}
+    msg = {'id': request and request.get('id')}
     if code:
         error = {'code': code}
         error['message'] = message or strerror(code)
