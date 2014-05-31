@@ -16,7 +16,6 @@ import tempfile
 import logging
 import subprocess
 import functools
-import errno
 import ssl
 import six
 
@@ -27,13 +26,23 @@ else:
 
 SkipTest = unittest.SkipTest
 
-from gruvi.logging import get_log_level
 from gruvi.util import split_cap_words
 from gruvi.endpoints import create_ssl_context
 
-
 __all__ = ['TestCase', 'UnitTest', 'PerformanceTest', 'MemoryTest', 'SkipTest',
            'unittest', 'sizeof', 'MockTransport']
+
+
+def get_log_level():
+    """Return the log level to be used when running tests.
+
+    The log level is determined by $DEBUG and $VERBOSE.
+    """
+    debug = int(os.environ.get('DEBUG', '0'))
+    verbose = int(os.environ.get('VERBOSE', '1'))
+    if debug:
+        return logging.DEBUG
+    return 10 * max(0, 5 - verbose)
 
 
 def setup_logging():

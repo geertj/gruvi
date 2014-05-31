@@ -23,7 +23,6 @@ __all__ = ['get_logger']
 _logger_name = 'gruvi'
 _logger_dict = {}
 
-
 def get_logger(context='', name=None):
     """Return a logger for *context*.
 
@@ -41,8 +40,7 @@ def get_logger(context='', name=None):
         context = util.objref(context)
     logger = logging.getLogger(name)
     patch_logger(logger)
-    show_stack = os.environ.get('DEBUG', '0') != '0'
-    logger = ContextLogger(logger, context, show_stack)
+    logger = ContextLogger(logger, context)
     if not context:
         _logger_dict[name] = logger
     return logger
@@ -63,29 +61,6 @@ def patch_logger(logger):
     logger.findCaller = findCaller
 
 
-def get_log_level():
-    """Return the logging level based on $DEBUG and $VERBOSE."""
-    try:
-        verbose = int(os.environ['VERBOSE'])
-    except (KeyError, ValueError):
-        verbose = 3
-    try:
-        debug = int(os.environ['DEBUG'])
-    except (KeyError, ValueError):
-        debug = 0
-    if verbose >= 4 or debug:
-        level = logging.DEBUG
-    elif verbose == 3:
-        level = logging.INFO
-    elif verbose == 2:
-        level = logging.WARNING
-    elif verbose == 1:
-        level = logging.ERROR
-    elif verbose <= 0:
-        level = logging.CRITICAL
-    return level
-
-
 class ContextLogger(object):
     """A logger adapter that prepends a context string to log messages.
 
@@ -98,10 +73,10 @@ class ContextLogger(object):
     # implementations differ quite a bit, which means we would need to
     # reimplement almost the entire thing anyway.
 
-    def __init__(self, logger, context='', show_stack=False):
+    def __init__(self, logger, context=''):
         self.logger = logger
         self.context = context
-        self.show_stack = show_stack
+        self.show_stack = logger.isEnabledFor(logging.DEBUG)
 
     def thread_info(self):
         tid = threading.current_thread().name
@@ -110,7 +85,7 @@ class ContextLogger(object):
         current = fibers.current()
         fid = getattr(current, 'name', util.objref(current)) if current.parent else 'Root'
         if tid == 'Main' and fid == 'Root':
-            return '@'
+            return ':'
         return '{0}:{1}'.format(tid, fid)
 
     def context_info(self):
