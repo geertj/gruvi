@@ -372,9 +372,6 @@ class Server(Endpoint):
             callback = functools.partial(self._on_new_connection, ssl, ssl_args)
             handle.listen(callback, backlog)
             addr = handle.getsockname()
-            # pyuv issue #152
-            if isinstance(addr, bytes) and six.PY3:
-                addr = addr.decode(sys.getfilesystemencoding())
             self._log.debug('listen on {}', saddr(addr))
             addresses.append(addr)
         self._handles += handles
