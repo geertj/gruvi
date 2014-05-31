@@ -73,25 +73,18 @@ class BaseTransport(object):
         if name == 'handle':
             return self._handle
         elif name == 'sockname':
-            if not hasattr(self._handle, 'getsockname'):
-                return
             return self._handle.getsockname()
         elif name == 'peername':
             if not hasattr(self._handle, 'getpeername'):
-                return
+                return default
             return self._handle.getpeername()
         elif name == 'fd':
-            if not hasattr(self._handle, '_fileno'):
-                return
-            fd = self._handle.f_ileno()
+            fd = self._handle._fileno()
             return fd if fd >= 0 else None
         elif name == 'unix_creds':
-            if not hasattr(self._handle, '_fileno'):
-                return
+            if not isinstance(self._handle, pyuv.Pipe) or not hasattr(socket, 'SO_PEERCRED'):
+                return default
             fd = self._handle._fileno()
-            if fd < 0 or not isinstance(self._handle, pyuv.Pipe) \
-                        or not hasattr(socket, 'AF_UNIX') or not hasattr(socket, 'SO_PEERCRED'):
-                return
             sock = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_DGRAM)  # will dup()
             creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i'))
             sock.close()
