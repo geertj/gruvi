@@ -114,7 +114,7 @@ class StreamReader(object):
                 break
         if len(chunks) == 1:
             return chunks[0]
-        elif self._error and not chunks:
+        elif self._error and not self._eof and not chunks:
             raise self._error
         return b''.join(chunks)
 
@@ -194,6 +194,7 @@ class StreamProtocol(Protocol):
 
     def connection_lost(self, exc):
         # Protocol callback
+        self._reader.feed_eof()
         super(StreamProtocol, self).connection_lost(exc)
         if self._error:
             self._reader.feed_error(self._error)

@@ -247,7 +247,7 @@ class TestStreamProtocol(UnitTest):
         protocol.connection_lost(RuntimeError)
         self.assertEqual(protocol.read(3), b'foo')
         self.assertEqual(protocol.read(3), b'bar')
-        self.assertRaises(RuntimeError, protocol.read)
+        self.assertEqual(protocol.read(), b'')
 
     def test_readline(self):
         # Test that readline() works.
