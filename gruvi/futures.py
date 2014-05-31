@@ -10,7 +10,7 @@ from __future__ import absolute_import, print_function
 import pyuv
 import threading
 
-from . import fibers
+from . import fibers, compat
 from .hub import switchpoint
 from .sync import Event, Queue
 
@@ -40,7 +40,7 @@ class Future(object):
         """The result of the async function, if available."""
         self._done.wait()
         if self._exception:
-            raise self._exception
+            raise compat.saved_exc(self._exception)
         return self._result
 
     def exception(self):

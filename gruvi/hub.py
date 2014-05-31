@@ -305,7 +305,7 @@ class Hub(fibers.Fiber):
         self._term_loop = None
         self._log.debug('hub fiber terminated')
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
 
     def switch(self):
         """Switch to the hub.

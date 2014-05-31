@@ -54,7 +54,7 @@ import re
 import time
 import six
 
-from . import logging
+from . import logging, compat
 from .hub import switchpoint
 from .util import docfrom
 from .errors import Error
@@ -944,7 +944,7 @@ class HttpProtocol(MessageProtocol):
         same order as the requests.
         """
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._closed:
             raise HttpError('protocol is closing/closed')
         self._requests.append(method)
@@ -979,7 +979,7 @@ class HttpProtocol(MessageProtocol):
         previous invocation has not yet been fully read.
         """
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closed:
             raise HttpError('protocol is closed')
         if not self._requests and not self._queue.qsize():

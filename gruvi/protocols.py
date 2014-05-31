@@ -8,11 +8,11 @@
 
 from __future__ import absolute_import, print_function
 
+from . import logging, util, compat
 from .sync import Event, Queue
 from .errors import Error, Cancelled
 from .hub import get_hub, switchpoint
 from .fibers import Fiber
-from . import logging, util
 
 __all__ = ['ProtocolError', 'BaseProtocol', 'Protocol', 'DatagramProtocol']
 
@@ -120,7 +120,7 @@ class Protocol(BaseProtocol):
         """
         self._may_write.wait()
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._closed:
             raise ProtocolError('protocol is closing/closed')
         self._transport.write(data)
@@ -130,7 +130,7 @@ class Protocol(BaseProtocol):
         """Write all lines in *seq* to the underlying transport."""
         self._may_write.wait()
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._closed:
             raise ProtocolError('protocol is closing/closed')
         self._transport.writelines(seq)
@@ -140,7 +140,7 @@ class Protocol(BaseProtocol):
         """Shut down the write direction."""
         self._may_write.wait()
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._closed:
             raise ProtocolError('protocol is closing/closed')
         self._transport.write_eof()

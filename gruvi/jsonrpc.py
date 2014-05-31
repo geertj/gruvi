@@ -54,6 +54,7 @@ from __future__ import absolute_import, print_function
 import json
 import six
 
+from . import compat
 from .hub import switchpoint, switch_back
 from .protocols import ProtocolError, MessageProtocol
 from .endpoints import Client, Server, add_protocol_method, saddr
@@ -342,7 +343,7 @@ class JsonRpcProtocol(MessageProtocol):
         JSON-RPC message.
         """
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         version = check_message(message)
         serialized = json.dumps(message, indent=2)
         if self._tracefile:
@@ -363,7 +364,7 @@ class JsonRpcProtocol(MessageProtocol):
         The notification *method* is sent with positional arguments *args*.
         """
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         message = create_notification(method, args, version=self._version)
         self.send_message(message)
 
@@ -379,7 +380,7 @@ class JsonRpcProtocol(MessageProtocol):
         overrides the default :attr:`timeout`.
         """
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         timeout = kwargs.get('timeout', self._timeout)
         message = create_request(method, args, version=self._version)
         msgid = message['id']

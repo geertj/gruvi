@@ -48,13 +48,12 @@ import binascii
 import codecs
 import six
 
-from . import txdbus
+from . import txdbus, compat
 from .hub import switchpoint, switch_back
 from .sync import Event
 from .transports import UvError
 from .protocols import ProtocolError, MessageProtocol
 from .endpoints import Client, Server, add_protocol_method, saddr
-from .compat import memoryview
 
 __all__ = ['DbusError', 'DbusMethodCallError', 'DbusProtocol', 'DbusClient', 'DbusServer']
 
@@ -351,10 +350,10 @@ class DbusProtocol(MessageProtocol):
             self._buffer.extend(buf)
             buf = self._buffer
             self._buffer = bytearray()
-        return memoryview(buf)
+        return compat.memoryview(buf)
 
     def data_received(self, data):
-        view = memoryview(data)
+        view = compat.memoryview(data)
         offset = 0
         while offset != len(data):
             if self._state == self.S_CREDS_BYTE:
@@ -401,7 +400,7 @@ class DbusProtocol(MessageProtocol):
         """Return the unique name of the D-BUS connection."""
         self._name_acquired.wait()
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._closed:
             raise RuntimeError('protocol is closing/closed')
         return self._unique_name
@@ -419,7 +418,7 @@ class DbusProtocol(MessageProtocol):
         self._name_acquired.wait()
         self._may_write.wait()
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._closed:
             raise RuntimeError('protocol is closing/closed')
         self._transport.write(message.rawMessage)

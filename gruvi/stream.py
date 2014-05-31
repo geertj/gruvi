@@ -11,9 +11,10 @@ from __future__ import absolute_import, print_function
 import sys
 import six
 
-import gruvi
+from . import compat
 from .sync import Event
 from .errors import Cancelled
+from .fibers import spawn
 from .protocols import Protocol
 from .endpoints import Client, Server, add_protocol_method
 from .hub import switchpoint
@@ -115,7 +116,7 @@ class StreamReader(object):
         if len(chunks) == 1:
             return chunks[0]
         elif self._error and not self._eof and not chunks:
-            raise self._error
+            raise compat.saved_exc(self._error)
         return b''.join(chunks)
 
     @switchpoint
@@ -161,7 +162,7 @@ class StreamReader(object):
             if hint >= 0 and bytes_read > hint:
                 break
         if not lines and self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         return lines
 
     @switchpoint
@@ -250,7 +251,7 @@ class StreamServer(Server):
         self._dispatchers = {}
 
     def connection_made(self, transport, protocol):
-        self._dispatchers[protocol] = gruvi.spawn(self._dispatch_stream, transport, protocol)
+        self._dispatchers[protocol] = spawn(self._dispatch_stream, transport, protocol)
 
     def _dispatch_stream(self, transport, protocol):
         self._log.debug('stream handler started')

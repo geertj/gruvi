@@ -15,7 +15,7 @@ import pyuv
 import ssl
 import six
 
-from .compat import memoryview
+from . import compat
 from .transports import Transport, TransportError
 from .sync import Event
 
@@ -267,7 +267,7 @@ class SslPipe(object):
         if self._state == self.S_UNWRAPPED:
             # If unwrapped, pass plaintext data straight through.
             return ([], [data] if data else [])
-        view = memoryview(data)
+        view = compat.memoryview(data)
         offset = 0
         ssldata = []; appdata = []
         while True:
@@ -330,7 +330,7 @@ class SslPipe(object):
             # pass through data in unwrapped mode
             return ([data[offset:]] if offset < len(data) else [], len(data))
         ssldata = []
-        view = memoryview(data)
+        view = compat.memoryview(data)
         while True:
             self._need_ssldata = False
             try:
@@ -416,11 +416,11 @@ class SslTransport(Transport):
 
     def write(self, data):
         """Write *data* to the transport."""
-        if not isinstance(data, (bytes, bytearray, memoryview)):
+        if not isinstance(data, (bytes, bytearray, compat.memoryview)):
             raise TypeError("data: expecting a bytes-like instance, got {0!r}"
                                 .format(type(data).__name__))
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._handle.closed:
             raise TransportError('transport is closing/closed')
         elif len(data) == 0:
@@ -536,7 +536,7 @@ class SslTransport(Transport):
         level protocol.
         """
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._handle.closed:
             raise TransportError('SSL transport is closing/closed')
         self._write_backlog.append([b'', True])
@@ -560,7 +560,7 @@ class SslTransport(Transport):
         communicated to the application.
         """
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._handle.closed:
             raise TransportError('SSL transport is closing/closed')
         self._close_on_unwrap = False

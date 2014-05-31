@@ -185,7 +185,7 @@ class Transport(BaseTransport):
         # is true (unlike e.g. write()). This makes it easier for our child
         # class SslTransport to enable reading when it is closing down.
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._protocol is None:
             raise RuntimeError('transport not started')
         elif not self._reading:
@@ -196,7 +196,7 @@ class Transport(BaseTransport):
     def resume_reading(self):
         """Start calling callbacks on the protocol."""
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._protocol is None:
             raise RuntimeError('transport not started')
         elif self._reading:
@@ -230,7 +230,7 @@ class Transport(BaseTransport):
             raise TypeError("data: expecting a bytes-like instance, got {0!r}"
                                 .format(type(data).__name__))
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._handle.closed:
             raise TransportError('transport is closing/closed')
         elif self._protocol is None:
@@ -252,7 +252,7 @@ class Transport(BaseTransport):
     def write_eof(self):
         """Shut down the write side of the transport."""
         if self._error:
-            raise self._error
+            raise compat.saved_exc(self._error)
         elif self._closing or self._handle.closed:
             raise TransportError('transport is closing/closed')
         elif self._protocol is None:
