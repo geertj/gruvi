@@ -39,8 +39,6 @@ def saddr(address):
         return '[{0}]:{1}'.format(address[0], address[1])
     elif isinstance(address, tuple):
         return '{0}:{1}'.format(*address)
-    elif isinstance(address, pyuv.Handle):
-        return '{0!r}'.format(address)
     else:
         raise TypeError('illegal address type: {!s}'.format(type(address)))
 
