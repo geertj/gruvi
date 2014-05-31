@@ -21,6 +21,9 @@ TODO:
 * Get rid of get_log_level() and $DEBUG / $VERBOSE variables in logging.
 * Add switch_back.add_cleanup() and have getaddrinfo() use it to cancel the
   request.
+* Rename jsonrpc_ffi to json_ffi. Make json_splitter.c move analogous to
+  http_parser.c using callbacks.
+* util.py -> utils.py
 
 Things that could be done if they are useful:
 
