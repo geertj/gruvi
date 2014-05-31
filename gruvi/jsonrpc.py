@@ -156,6 +156,9 @@ def message_type(message):
     """Return the type of *message*.
 
     The message must be valid, i.e. it should pass :func:`check_message`.
+
+    This function will return a string containing one of "methodcall",
+    "notification", "error" or "response".
     """
     version = message.get('jsonrpc', '1.0')
     # JSON-RPC version 2.0 allows (but discourages) a "null" id for request...
@@ -163,7 +166,7 @@ def message_type(message):
     # 1.0. But we support it..
     if message.get('method') and 'id' in message and \
                 (message['id'] is not None or version == '2.0'):
-        return 'request'
+        return 'methodcall'
     elif message.get('method'):
         return 'notification'
     elif message.get('error'):
