@@ -56,7 +56,7 @@ import six
 
 from .hub import switchpoint, switch_back
 from .protocols import ProtocolError, MessageProtocol
-from .endpoints import Client, Server, add_protocol_method
+from .endpoints import Client, Server, add_protocol_method, saddr
 from .jsonrpc_ffi import lib as _lib, ffi as _ffi
 
 __all__ = ['JsonRpcError', 'JsonRpcMethodCallError', 'JsonRpcProtocol',
@@ -314,20 +314,21 @@ class JsonRpcProtocol(MessageProtocol):
                 # Response to a method call issues through call_method()
                 switcher = self._method_calls.pop(message['id'])
                 switcher(message)
-            elif self._dispatcher:
+            #elif self._dispatcher:
+            else:
                 # Queue to the dispatcher
                 self._queue.put_nowait(message, size=size)
-            else:
-                self._log.warning('inbound {} but no message handler', mtype)
+            #else:
+            #    self._log.warning('inbound {} but no message handler', mtype)
             offset = self._context.offset
         if self._error:
             self._transport.close()
             return
         self.read_buffer_size_changed()
 
-    def set_trace(self, tracefile):
+    def _set_tracefile(self, tracefile):
         """Log protocol exchanges to *tracefile*."""
-        if isinstance(tracefile, six.text_types):
+        if isinstance(tracefile, six.string_types):
             tracefile = open(tracefile, 'w')
         self._tracefile = tracefile
 
@@ -341,17 +342,17 @@ class JsonRpcProtocol(MessageProtocol):
         if self._error:
             raise self._error
         version = check_message(message)
-        serialized = json.dumps(message, indent=2).encode('utf8')
+        serialized = json.dumps(message, indent=2)
         if self._tracefile:
             mtype = message_type(message)
-            peername = self._transport.get_extra_info('peername', '(n/a)')
+            peername = self._transport.get_extra_info('peername', '(peer n/a)')
             self._tracefile.write('\n\n/* -> {} ({}; version {}*/\n'
-                                    .format(peername, mtype, version))
+                                    .format(saddr(peername), mtype, version))
             self._tracefile.write(serialized)
             self._tracefile.write('\n')
             self._tracefile.flush()
         self._may_write.wait()
-        self._transport.write(serialized)
+        self._transport.write(serialized.encode('utf-8'))
 
     @switchpoint
     def send_notification(self, method, *args):
@@ -422,6 +423,7 @@ class JsonRpcClient(Client):
     add_protocol_method(JsonRpcProtocol.send_message, globals(), locals())
     add_protocol_method(JsonRpcProtocol.send_notification, globals(), locals())
     add_protocol_method(JsonRpcProtocol.call_method, globals(), locals())
+    add_protocol_method(JsonRpcProtocol._set_tracefile, globals(), locals())
 
 
 class JsonRpcServer(Server):
@@ -444,7 +446,15 @@ class JsonRpcServer(Server):
         if version not in ('1.0', '2.0'):
             raise ValueError('version: must be "1.0" or "2.0"')
         self._version = version
+        self._tracefile = None
 
     def _create_protocol(self):
         # Protocol factory
-        return JsonRpcProtocol(self._message_handler, self._version, self._timeout)
+        protocol = JsonRpcProtocol(self._message_handler, self._version, self._timeout)
+        if self._tracefile:
+            protocol._set_tracefile(self._tracefile)
+        return protocol
+
+    def _set_tracefile(self, tracefile):
+        """Set a tracefile for all new connections."""
+        self._tracefile = tracefile
