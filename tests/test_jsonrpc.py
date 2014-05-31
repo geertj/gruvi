@@ -123,7 +123,7 @@ class TestJsonRpcProtocol(UnitTest):
         self.messages = []
         self.protocols = []
 
-    def message_handler(self, transport, protocol, message):
+    def message_handler(self, message, transport, protocol):
         self.messages.append(message)
         self.protocols.append(protocol)
 
@@ -236,14 +236,14 @@ class TestJsonRpcProtocol(UnitTest):
             self.assertEqual(m, message)
 
 
-def echo_app(transport, protocol, message):
+def echo_app(message, transport, protocol):
     if message.get('method') != 'echo':
         message = jsonrpc.create_error(message, jsonrpc.METHOD_NOT_FOUND)
     else:
         message = jsonrpc.create_response(message, message['params'])
     protocol.send_message(message)
 
-def reflect_app(transport, protocol, message):
+def reflect_app(message, transport, protocol):
     if message.get('method') != 'echo':
         return
     value = protocol.call_method('echo', *message['params'])
@@ -252,7 +252,7 @@ def reflect_app(transport, protocol, message):
 
 def notification_app():
     notifications = []
-    def application(transport, protocol, message):
+    def application(message, transport, protocol):
         if message.get('id') is None:
             notifications.append((message['method'], message['params']))
         elif message['method'] == 'get_notifications':

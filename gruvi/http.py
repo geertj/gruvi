@@ -607,7 +607,7 @@ class WsgiHandler(object):
         if not self._message.should_keep_alive:
             self._transport.close()
 
-    def __call__(self, transport, protocol, message):
+    def __call__(self, message, transport, protocol):
         """Run a WSGI handler."""
         if self._transport is None:
             self._transport = transport

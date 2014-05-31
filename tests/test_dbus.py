@@ -73,11 +73,11 @@ class TestDbusProtocol(UnitTest):
         self.messages = []
         self.protocols = []
 
-    def store_messages(self, transport, protocol, message):
+    def store_messages(self, message, transport, protocol):
         self.messages.append(message)
         self.protocols.append(protocol)
 
-    def store_and_echo_messages(self, transport, protocol, message):
+    def store_and_echo_messages(self, message, transport, protocol):
         self.messages.append(message)
         self.protocols.append(protocol)
         response = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
@@ -281,7 +281,7 @@ class TestDbusProtocol(UnitTest):
         self.assertGreater(interrupted, 10)
 
 
-def echo_app(transport, protocol, message):
+def echo_app(message, transport, protocol):
     # Test application that echos D-Bus arguments
     if not isinstance(message, txdbus.MethodCallMessage):
         return

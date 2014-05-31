@@ -176,7 +176,7 @@ class MessageProtocol(Protocol):
 
     def message_received(self, message):
         # Protocol callback
-        self._message_handler(self._transport, self, message)
+        self._message_handler(message, self._transport, self)
 
     def get_message(self, block=True, timeout=None):
         """Return a message from the queue."""
