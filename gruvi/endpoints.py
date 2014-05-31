@@ -108,8 +108,7 @@ def _af_unix_helper(handle, address, op):
 
 @switchpoint
 def create_connection(protocol_factory, address, ssl=False, ssl_args={},
-                      family=0, flags=0, local_address=None,
-                      timeout=None, interrupt=False):
+                      family=0, flags=0, local_address=None, timeout=None):
     """Create a new connection.
 
     This method creates a stream transport, connects it to *address*, and then
@@ -170,7 +169,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
             if handle_type is pyuv.Pipe and _use_af_unix():
                 _af_unix_helper(handle, addr, 'connect')
             else:
-                with switch_back(timeout, interrupt) as switcher:
+                with switch_back(timeout) as switcher:
                     handle.connect(addr, switcher)
                     hub.switch()
         except pyuv.error.UVError as e:
