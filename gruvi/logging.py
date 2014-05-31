@@ -84,8 +84,6 @@ class ContextLogger(object):
             tid = 'Main'
         current = fibers.current()
         fid = getattr(current, 'name', util.objref(current)) if current.parent else 'Root'
-        if tid == 'Main' and fid == 'Root':
-            return ':'
         return '{0}:{1}'.format(tid, fid)
 
     def context_info(self):
