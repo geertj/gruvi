@@ -728,9 +728,6 @@ class HttpProtocol(MessageProtocol):
         self._requests = []
         self._header_size = 0
         self._all_body_sizes = 0
-        if server_side:
-            target = getattr(application, '__qualname__', application.__name__)
-            self._log.debug('using wsgi handler {}', target)
         self._response = None
 
     @property
