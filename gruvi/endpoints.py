@@ -23,10 +23,10 @@ from .hub import get_hub, switchpoint, switch_back
 from .sync import Event
 from .errors import Timeout
 from .transports import TransportError, Transport
-from .ssl import SslTransport
+from .ssl import SslTransport, create_ssl_context
 
-__all__ = ['saddr', 'paddr', 'getaddrinfo', 'create_ssl_context',
-           'create_connection', 'create_server', 'Server']
+__all__ = ['saddr', 'paddr', 'getaddrinfo', 'create_connection',
+           'create_server', 'Server']
 
 
 def saddr(address):
@@ -75,31 +75,6 @@ def getaddrinfo(host, port=0, family=0, socktype=0, protocol=0, flags=0, timeout
         message = pyuv.errno.strerror(error)
         raise pyuv.error.UVError(error, message)
     return result
-
-
-def create_ssl_context(**sslargs):
-    """Create a new SSL context."""
-    version = sslargs.get('ssl_version')
-    import ssl
-    if hasattr(ssl, 'create_default_context') and version is None:
-        # Python 3.4+
-        context = ssl.create_default_context()
-    elif hasattr(ssl, 'SSLContext'):
-        # Python 3.3
-        context = ssl.SSLContext(version or ssl.PROTOCOL_SSLv23)
-    else:
-        # Python 2.6/2.7
-        from . import sslcompat
-        context = sslcompat.SSLContext(version or ssl.PROTOCOL_SSLv23)
-    if sslargs.get('certfile'):
-        context.load_cert_chain(sslargs['certfile'], sslargs.get('keyfile'))
-    if sslargs.get('ca_certs'):
-        context.load_verify_locations(sslargs['ca_certs'])
-    if sslargs.get('cert_reqs'):
-        context.verify_mode = sslargs['cert_reqs']
-    if sslargs.get('ciphers'):
-        context.set_ciphers(sslargs['ciphers'])
-    return context
 
 
 def _use_af_unix():

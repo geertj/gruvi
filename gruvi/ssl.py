@@ -26,7 +26,7 @@ else:
 if six.PY2:
     from . import sslcompat
 
-__all__ = ['SslTransport']
+__all__ = ['SslTransport', 'create_ssl_context']
 
 
 class SslSocketInfo(object):
@@ -561,3 +561,26 @@ class SslTransport(Transport):
         self._write_backlog.append([b'', False])
         self._write_buffer_size += 1
         self._process_write_backlog()
+
+
+def create_ssl_context(**sslargs):
+    """Create a new SSL context."""
+    version = sslargs.get('ssl_version')
+    if hasattr(ssl, 'create_default_context') and version is None:
+        # Python 3.4+
+        context = ssl.create_default_context()
+    elif hasattr(ssl, 'SSLContext'):
+        # Python 3.3
+        context = ssl.SSLContext(version or ssl.PROTOCOL_SSLv23)
+    else:
+        # Python 2.6/2.7
+        context = sslcompat.SSLContext(version or ssl.PROTOCOL_SSLv23)
+    if sslargs.get('certfile'):
+        context.load_cert_chain(sslargs['certfile'], sslargs.get('keyfile'))
+    if sslargs.get('ca_certs'):
+        context.load_verify_locations(sslargs['ca_certs'])
+    if sslargs.get('cert_reqs'):
+        context.verify_mode = sslargs['cert_reqs']
+    if sslargs.get('ciphers'):
+        context.set_ciphers(sslargs['ciphers'])
+    return context

@@ -27,7 +27,7 @@ else:
 SkipTest = unittest.SkipTest
 
 from gruvi.util import split_cap_words
-from gruvi.endpoints import create_ssl_context
+from gruvi.ssl import create_ssl_context
 
 __all__ = ['TestCase', 'UnitTest', 'PerformanceTest', 'MemoryTest', 'SkipTest',
            'unittest', 'sizeof', 'MockTransport']
