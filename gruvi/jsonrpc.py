@@ -314,12 +314,11 @@ class JsonRpcProtocol(MessageProtocol):
                 # Response to a method call issues through call_method()
                 switcher = self._method_calls.pop(message['id'])
                 switcher(message)
-            #elif self._dispatcher:
-            else:
+            elif self._message_handler:
                 # Queue to the dispatcher
                 self._queue.put_nowait(message, size=size)
-            #else:
-            #    self._log.warning('inbound {} but no message handler', mtype)
+            else:
+                self._log.warning('inbound {} but no message handler', mtype)
             offset = self._context.offset
         if self._error:
             self._transport.close()

@@ -82,6 +82,8 @@ class BaseProtocol(object):
 
     def read_buffer_size_changed(self):
         """Notify the protocol that the buffer size has changed."""
+        if self._transport is None:
+            return
         bufsize = self.get_read_buffer_size()
         if bufsize >= self._read_buffer_high and self._reading:
             self._transport.pause_reading()
@@ -151,7 +153,7 @@ class MessageProtocol(Protocol):
         super(MessageProtocol, self).__init__()
         self._message_handler = message_handler
         self._queue = Queue()
-        if message_handler:
+        if callable(message_handler):
             name = util.split_cap_words(type(self).__name__)[0]
             key = 'next_{0}_dispatcher'.format(name.lower())
             seq = self._hub.data.setdefault(key, 1)
@@ -175,6 +177,10 @@ class MessageProtocol(Protocol):
     def message_received(self, message):
         # Protocol callback
         self._message_handler(self._transport, self, message)
+
+    def get_message(self, block=True, timeout=None):
+        """Return a message from the queue."""
+        return self._queue.get(block, timeout)
 
     def _dispatch_loop(self):
         # Dispatcher loop: runs in a separate fiber and is only started
