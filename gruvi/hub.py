@@ -19,7 +19,7 @@ import six
 import pyuv
 import fibers
 
-from . import logging, util
+from . import logging, compat
 from .errors import Timeout
 
 __all__ = ['switchpoint', 'assert_no_switchpoints', 'switch_back', 'get_hub',
@@ -230,7 +230,7 @@ class Hub(fibers.Fiber):
         # Thread IDs may be recycled when a thread exits. But as long as the
         # hub is alive, it won't be recycled so in that case we can use just
         # the ID as a check whether we are in the same thread or not.
-        self._thread = util.get_thread_ident()
+        self._thread = compat.get_thread_ident()
         self._stop_loop = pyuv.Async(self._loop, lambda h: self._loop.stop())
         self._term_loop = pyuv.Signal(self._loop)
         self._term_loop.start(self._on_sigint, signal.SIGINT)
@@ -259,7 +259,7 @@ class Hub(fibers.Fiber):
 
     def _interrupt_loop(self):
         # Interrupt the event loop
-        if util.get_thread_ident() == self._thread:
+        if compat.get_thread_ident() == self._thread:
             self._loop.stop()
         else:
             self._stop_loop.send()
@@ -327,7 +327,7 @@ class Hub(fibers.Fiber):
             raise RuntimeError('hub is closed/dead')
         elif self.current() is self:
             raise RuntimeError('cannot switch to myself')
-        elif util.get_thread_ident() != self._thread:
+        elif compat.get_thread_ident() != self._thread:
             raise RuntimeError('cannot switch from a different thread')
         value = super(Hub, self).switch()
         if isinstance(value, Exception):

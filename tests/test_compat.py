@@ -9,7 +9,7 @@
 from __future__ import absolute_import, print_function
 
 from support import *
-from gruvi.util import fixup_format_string
+from gruvi.compat import fixup_format_string
 
 
 class TestReplaceFmt(UnitTest):

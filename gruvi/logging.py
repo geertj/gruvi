@@ -15,12 +15,10 @@ import threading
 import fibers
 import six
 
-from . import util
+from . import util, compat
 
 __all__ = ['get_logger']
 
-
-PY26 = sys.version_info[:2] == (2, 6)
 
 _logger_name = 'gruvi'
 _logger_dict = {}
@@ -138,8 +136,7 @@ class ContextLogger(object):
             prefix.pop()
         prefix = '|'.join(prefix)
         if args or kwargs:
-            if PY26:
-                msg = util.fixup_format_string(msg)
+            msg = compat.fixup_format_string(msg)
             msg = msg.format(*args, **kwargs)
         msg = '[{0}] {1}'.format(prefix, msg)
         self.logger._log(level, msg, (), exc_info=exc)
