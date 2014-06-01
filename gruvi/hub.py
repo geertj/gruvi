@@ -287,8 +287,9 @@ class Hub(fibers.Fiber):
             self._run_callbacks()
             if self._closing:
                 break
+            mode = pyuv.UV_RUN_NOWAIT if len(self._callbacks) else pyuv.UV_RUN_DEFAULT
             with assert_no_switchpoints(self):
-                self._loop.run()
+                self._loop.run(mode)
         # Hub is going to exit at this point. Clean everyting up.
         for handle in self._loop.handles:
             if not handle.closed:
