@@ -308,7 +308,7 @@ class JsonRpcProtocol(MessageProtocol):
             mtype = message_type(message)
             if self._tracefile:
                 peername = self._transport.get_extra_info('peername', '(n/a)')
-                self._tracefile.write('\n\n/* <- {} ({}; version {})*/\n'
+                self._tracefile.write('\n\n/* <- {} ({}; version {}) */\n'
                                        .format(peername, mtype, version))
                 self._tracefile.write(json.dumps(message, indent=2, sort_keys=True))
                 self._tracefile.write('\n')
@@ -349,7 +349,7 @@ class JsonRpcProtocol(MessageProtocol):
         if self._tracefile:
             mtype = message_type(message)
             peername = self._transport.get_extra_info('peername', '(peer n/a)')
-            self._tracefile.write('\n\n/* -> {} ({}; version {}*/\n'
+            self._tracefile.write('\n\n/* -> {} ({}; version {}) */\n'
                                     .format(saddr(peername), mtype, version))
             self._tracefile.write(serialized)
             self._tracefile.write('\n')
