@@ -232,11 +232,11 @@ class Event(object):
     def wait(self, timeout=None):
         """If the internal flag is set, return immediately. Otherwise block
         until the flag gets set by another fiber calling :meth:`set`."""
-        if self._flag:
-            return
         hub = get_hub()
         self._lock.acquire()
         try:
+            if self._flag:
+                return
             with switch_back(timeout) as switcher:
                 if self._waiters is None:
                     self._waiters = []
