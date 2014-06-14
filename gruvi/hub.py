@@ -114,34 +114,43 @@ class assert_no_switchpoints(object):
 
 
 class switch_back(object):
-    """A switch back object.
+    """A switchback object.
 
-    A switch back object is a callable object that can be used to switch back
-    to the current fiber after the latter has switched to the hub via
-    :meth:`Hub.switch`.
+    A switchback object is a callable object that can be used as a context
+    manager to switch back to the current fiber after it has switched away to
+    the hub.
 
-    Idiomatic use of a switchback object is as follows::
+    Idiomatic use of a switchback instance is as follows::
 
       with switch_back(timeout) as switcher:
           start_async_job(job, callback=switcher)
           hub.switch()
 
     In this code fragment, ``start_async_job`` is a function that starts an
-    asynchronous job that will call the passed callback when it is done.  After
-    the job started, the fiber switches to the hub using :meth:`Hub.switch`.
-    This causes the event loop to run. Once the asynchronous job is done, the
-    switchback instance is called, which schedules a switch back, which in turn
-    makes :meth:`Hub.switch` return.
+    asynchronous job that will call a callback when it is done. The switcher
+    instance is passed as the callback. After the job has been started, the
+    fiber switches to the hub using :meth:`Hub.switch`. This causes the event
+    loop to run.
+
+    Once the asynchronous job is done, the switchback instance is called. This
+    schedules a switch to the original fiber, which in turn causes
+    :meth:`Hub.switch` to return there. The original fiber, also called the
+    origin fiber, is the fiber that was current when the switchback instance
+    was created. It is captured by the switchback constructor.
+
+    When :meth:`Hub.switch` returns in the origin fiber, the return value will
+    be an ``(args, kwargs)`` tuple containing the positional and keyword
+    arguments that were passed when the switchback was called.
     """
 
-    __slots__ = ('_timeout', '_hub', '_fiber', '_cancelled', '_timer')
+    __slots__ = ('_timeout', '_hub', '_fiber', '_timer', '_callbacks')
 
     def __init__(self, timeout=None, hub=None):
         """
-        The a *timeout* argument of can be used to force a timeout after this
-        many seconds. If a timeout happens, :meth:`Hub.switch` will raise a
-        :class:`Timeout` exception. The default is None, meaning there is no
-        timeout.
+        The *timeout* argument of can be used to force a timeout after this
+        many seconds. It can be an int or a float. If a timeout happens,
+        :meth:`Hub.switch` will raise a :class:`Timeout` exception in the
+        origin fiber. The default is None, meaning there is no timeout.
 
         The *hub* argument can be used to specfiy an alternate hub to use.
         By default, the Hub returned by :func:`get_hub` is used.
@@ -149,13 +158,27 @@ class switch_back(object):
         self._timeout = timeout
         self._hub = hub or get_hub()
         self._fiber = fibers.current()
-        self._cancelled = False
+        self._callbacks = None
 
-    fiber = property(lambda self: self._fiber)
-    timeout = property(lambda self: self._timeout)
+    @property
+    def fiber(self):
+        """The origin fiber."""
+        return self._fiber
+
+    @property
+    def timeout(self):
+        """The timeout, or None if there is no timeout."""
+        return self._timeout
 
     def __enter__(self):
         if self._timeout is not None:
+            # There are valid scenarios for a Gruvi application where the loop
+            # will not run for a long time. For example, a single fiber program
+            # that only calls out to the loop to perform a blocking action.
+            # Since a timer captures loop->time at when it is created, we need
+            # to make sure the loop's time is up to date. That's why we call
+            # update_time().
+            self._hub.loop.update_time()
             self._timer = pyuv.Timer(self._hub.loop)
             self._timer.start(self, self._timeout, 0)
         return self
@@ -165,24 +188,37 @@ class switch_back(object):
             if not self._timer.closed:
                 self._timer.close()
             self._timer = None
-        self._cancelled = True
+        if self._callbacks:
+            for callback, args in self._callbacks:
+                callback(*args)
+            self._callbacks = None
         self._hub = None
         self._fiber = None
 
+    def add_cleanup(self, callback, *args):
+        """Add a cleanup action.
+
+        The *callback* will be called with any provided positional arguments
+        when the context manager exits.
+        """
+        if self._callbacks is None:
+            self._callbacks = []
+        self._callbacks.append((callback, args))
+
     def throw(self, exc):
-        """Cause :meth:`Hub.switch` to raise an exception."""
-        if self._cancelled or not self.fiber.is_alive():
+        """Raise the exception *exc* in the origin fiber."""
+        if self._hub is None or not self._fiber.is_alive():
             return
-        self._hub.run_callback(self.fiber.switch, exc)
+        self._hub.run_callback(self._fiber.switch, exc)
 
     def __call__(self, *args, **kwargs):
-        if self._cancelled or not self.fiber.is_alive():
+        if self._hub is None or not self._fiber.is_alive():
             return
         if self._timeout is not None and args == (self._timer,):
             value = Timeout('Timeout in switch_back() block')
         else:
             value = (args, kwargs)
-        self._hub.run_callback(self.fiber.switch, value)
+        self._hub.run_callback(self._fiber.switch, value)
 
 
 _local = threading.local()
