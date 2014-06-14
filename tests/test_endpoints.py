@@ -8,10 +8,12 @@
 
 from __future__ import absolute_import, print_function
 
+import socket
+
 import gruvi
 from gruvi.transports import TransportError
 from gruvi.stream import StreamProtocol
-from gruvi.endpoints import create_server, create_connection
+from gruvi.endpoints import create_server, create_connection, getaddrinfo
 
 from support import *
 
@@ -123,6 +125,18 @@ class TestCreateConnection(UnitTest):
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
         self.assertEqual(cproto.readline(), b'')
+
+
+class TestGetAddrInfo(UnitTest):
+
+    def test_resolve(self):
+        res = getaddrinfo('localhost', family=socket.AF_INET)
+        self.assertIsInstance(res, list)
+        self.assertGreater(len(res), 0)
+        self.assertEqual(res[0].sockaddr, ('127.0.0.1', 0))
+
+    def get_resolve_timeout(self):
+        self.assertRaises(gruvi.Timeout, getaddrinfo, 'localhost', timeout=0)
 
 
 if __name__ == '__main__':
