@@ -108,6 +108,7 @@ class TestHub(UnitTest):
         t1 = threading.Thread(target=thread_sleep)
         refs.append(weakref.ref(t1))
         t1.start(); t1.join(); del t1
+        gruvi.sleep(0.1)  # Give the thread time to exit.
         gc.collect()
         self.assertIsNone(refs[0]())
         self.assertIsNone(refs[1]())
