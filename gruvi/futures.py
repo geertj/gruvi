@@ -164,9 +164,8 @@ class PoolBase(object):
             if self._closed:
                 return
             self._closed = True
-        self._queue.join()
-        for i in range(len(self._workers)):
-            self._queue.put(self._StopWorker)
+            for i in range(len(self._workers)):
+                self._queue.put(self._StopWorker)
         self._queue.join()
 
 
