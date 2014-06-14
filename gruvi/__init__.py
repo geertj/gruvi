@@ -26,5 +26,6 @@ from .futures import *
 from .transports import *
 from .protocols import *
 from .endpoints import *
+from .process import *
 
 from . import jsonrpc, dbus

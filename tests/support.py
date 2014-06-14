@@ -114,6 +114,10 @@ class TestCase(unittest.TestCase):
         if not os.access(certname, os.R_OK):
             create_ssl_certificate(certname)
         cls.certname = certname
+        bindir = os.path.join(cls.testdir, 'bin')
+        path = os.environ.get('PATH', '')
+        if not path.startswith(bindir):
+            os.environ['PATH'] = os.pathsep.join([bindir, path])
 
     def setUp(self):
         self._tmpindex = 1
