@@ -16,8 +16,6 @@ import struct
 from . import logging, compat
 from .errors import Error
 
-# Stream is not exposed by pyuv.
-Stream = pyuv.TCP.__bases__[0]
 UvError = pyuv.error.UVError
 
 __all__ = ['UvError', 'TransportError', 'BaseTransport', 'Transport', 'DatagramTransport']
@@ -154,7 +152,7 @@ class Transport(BaseTransport):
         The *handle* argument is the pyuv handle for which to create the
         transport. It must be a :class:`pyuv.Stream` instance.
         """
-        if not isinstance(handle, Stream):
+        if not isinstance(handle, pyuv.Stream):
             raise TypeError("handle: expecting a 'pyuv.Stream' instance, got {0!r}"
                                 .format(type(handle).__name__))
         super(Transport, self).__init__(handle)

@@ -19,7 +19,6 @@ import gruvi
 from gruvi import fibers, compat
 from gruvi.hub import get_hub, switchpoint
 from gruvi.sync import Event
-from gruvi.transports import Stream
 from gruvi.stream import StreamProtocol
 from gruvi.endpoints import create_connection, Endpoint
 
@@ -114,7 +113,7 @@ class Process(Endpoint):
             stdio = pyuv.StdIO(fd=handle, flags=pyuv.UV_INHERIT_FD)
         elif hasattr(handle, 'fileno'):
             stdio = pyuv.StdIO(fd=handle.fileno(), flags=pyuv.UV_INHERIT_FD)
-        elif isinstance(handle, Stream):
+        elif isinstance(handle, pyuv.Stream):
             stdio = pyuv.StdIO(stream=handle, flags=pyuv.UV_CREATE_PIPE|flags)
         else:
             raise TypeError('{0}: must be PIPE, an fd, a Stream, or a file-like object'
