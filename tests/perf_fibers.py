@@ -10,43 +10,44 @@ from __future__ import absolute_import, print_function
 
 import time
 
+import gruvi
 from gruvi.fibers import *
 from support import *
 
 
-def dummy_main():
-    pass
-
-def switch_parent(parent):
-    while True:
-        parent.switch()
-
-
 class PerfFiber(PerformanceTest):
 
-    def xperf_spawn_throughput(self):
+    def perf_spawn_throughput(self):
+        # Measure the number of fibers we can spawn per second.
         t0 = t1 = time.time()
-        fibers = []
+        count = [0]
+        def dummy_fiber():
+            count[0] += 1
         while t1 - t0 < 0.2:
-            fiber = Fiber(dummy_main)
-            fiber._hub = current_fiber()
-            fiber.switch()
-            fibers.append(fiber)
+            fiber = Fiber(dummy_fiber)
+            fiber.start()
+            gruvi.sleep(0)
             t1 = time.time()
-        speed = len(fibers) / (t1 - t0)
+        speed = count[0] / (t1 - t0)
         self.add_result(speed)
 
     def perf_switch_throughput(self):
+        # Measure the number of switches we can do per second.
         t0 = t1 = time.time()
-        count = 0
-        fiber = Fiber(switch_parent, args=(current_fiber(),))
-        fiber._hub = current_fiber()
+        count = [0]
+        def switch_parent():
+            while True:
+                gruvi.sleep(0)
+        fiber = Fiber(switch_parent)
+        fiber.start()
         while t1 - t0 < 0.2:
-            fiber.switch()
-            count += 1
+            gruvi.sleep(0)
+            count[0] += 1
             t1 = time.time()
-        speed = count / (t1 - t0)
+        speed = count[0] / (t1 - t0)
         self.add_result(speed)
+        fiber.cancel()
+        gruvi.sleep(0)
 
 
 if __name__ == '__main__':

@@ -16,7 +16,6 @@ TODO:
 * gruvi.http needs better test coverage
 * Add tests for JoinableQueue API
 * Investigate low HTTP parsing speed (20MB/sec)
-* perf_fibers.py doesn't run as part of the suite (does run individually)
 * Rename jsonrpc_ffi to json_ffi. Make json_splitter.c move analogous to
   http_parser.c using callbacks.
 * util.py -> utils.py
