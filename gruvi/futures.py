@@ -11,7 +11,7 @@ import pyuv
 import threading
 
 from . import fibers, compat
-from .hub import switchpoint
+from .hub import switchpoint, switch_back
 from .sync import Event, Queue
 
 __all__ = ['Future', 'Pool', 'FiberPool', 'ThreadPool', 'get_io_pool',
@@ -142,9 +142,11 @@ class PoolBase(object):
         if self._closed:
             raise RuntimeError('pool is closed')
         timeout = kwargs.pop('timeout', None)
-        futures = [self.submit(func, *args) for args in zip(*iterables)]
-        for future in futures:
-            yield future.result()
+        # XXX: futures should be cancelled on timeout.
+        with switch_back(timeout):
+            futures = [self.submit(func, *args) for args in zip(*iterables)]
+            for future in futures:
+                yield future.result()
 
     @switchpoint
     def join(self):

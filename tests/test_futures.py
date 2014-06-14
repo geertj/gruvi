@@ -109,6 +109,11 @@ class PoolTest(object):
         result = self.pool.map(double, range(self.count))
         self.assertEqual(list(result), list(range(0, 2*self.count, 2)))
 
+    def test_map_timeout(self):
+        # Ensure that the "timeout" argument to map() works.
+        result = self.pool.map(gruvi.sleep, (0.5,), timeout=0.1)
+        self.assertRaises(gruvi.Timeout, list, result)
+
     def test_pool_close(self):
         def func(i):
             return i
