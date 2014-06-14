@@ -267,9 +267,9 @@ class Hub(fibers.Fiber):
         # hub is alive, it won't be recycled so in that case we can use just
         # the ID as a check whether we are in the same thread or not.
         self._thread = compat.get_thread_ident()
-        self._stop_loop = pyuv.Async(self._loop, lambda h: self._loop.stop())
-        self._term_loop = pyuv.Signal(self._loop)
-        self._term_loop.start(self._on_sigint, signal.SIGINT)
+        self._async = pyuv.Async(self._loop, lambda h: self._loop.stop())
+        self._sigint = pyuv.Signal(self._loop)
+        self._sigint.start(self._on_sigint, signal.SIGINT)
         self._log = logging.get_logger()
         self._log.debug('new Hub for {.name}', threading.current_thread())
         self._closing = False
@@ -293,12 +293,12 @@ class Hub(fibers.Fiber):
         self._error = KeyboardInterrupt('CTRL-C pressed')
         self.close()
 
-    def _interrupt_loop(self):
+    def _stop_loop(self):
         # Interrupt the event loop
         if compat.get_thread_ident() == self._thread:
             self._loop.stop()
         else:
-            self._stop_loop.send()
+            self._async.send()
 
     def close(self):
         """Close the hub.
@@ -312,13 +312,14 @@ class Hub(fibers.Fiber):
         if self._loop is None:
             return
         self._closing = True
-        self._interrupt_loop()
+        self._stop_loop()
 
     def run(self):
         # Target of Hub.switch().
         if self.current() is not self:
             raise RuntimeError('run() may only be called from the Hub')
         self._log.debug('starting hub fiber')
+        # This is where the loop is running.
         while True:
             self._run_callbacks()
             if self._closing:
@@ -338,8 +339,8 @@ class Hub(fibers.Fiber):
             del _local.hub
         self._loop = None
         self._callbacks.clear()
-        self._stop_loop = None
-        self._term_loop = None
+        self._async = None
+        self._sigint = None
         self._log.debug('hub fiber terminated')
         if self._error:
             raise compat.saved_exc(self._error)
@@ -381,7 +382,7 @@ class Hub(fibers.Fiber):
                 self._log.exception('Uncaught exception in callback.')
 
     def run_callback(self, callback, *args):
-        """Queue a callback to be called when the event loop next runs.
+        """Queue a callback.
 
         The *callback* will be called with positional arguments *args* in the
         next iteration of the event loop. If you add multiple callbacks, they
@@ -396,7 +397,7 @@ class Hub(fibers.Fiber):
         elif not callable(callback):
             raise TypeError('"callback": expecting a callable')
         self._callbacks.append((callback, args))  # atomic
-        self._interrupt_loop()
+        self._stop_loop()
 
 
 @switchpoint
