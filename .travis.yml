@@ -1,10 +1,13 @@
 language: python
-python:
-  - "2.6"
-  - "2.7"
-  - "3.3"
+python: 2.7
+env:
+  - TOX_ENV=py26
+  - TOX_ENV=py27
+  - TOX_ENV=py33
+  - TOX_ENV=py34
+  - TOX_ENV=docs
+  - TOX_ENV=flake8
 install:
-  - "pip install -r dev-requirements.txt --use-mirrors"
-  - "case \"`python -V 2>&1`\" in *2.6*) pip install unittest2 --use-mirrors; esac"
-  - "python setup.py build"
-script: nosetests
+  - pip install tox
+script:
+  - tox -e $TOX_ENV
