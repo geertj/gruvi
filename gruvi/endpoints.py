@@ -76,6 +76,12 @@ def getaddrinfo(host, port=0, family=0, socktype=0, protocol=0, flags=0, timeout
     return result
 
 
+def create_handle(cls, *args):
+    """Create a pyuv handle, connecting it to the default loop."""
+    hub = get_hub()
+    return cls(hub.loop, *args)
+
+
 def _use_af_unix():
     """Return whether to open a :class:`pyuv.Pipe` via an AF_UNIX socket."""
     # Only use on platforms that don't return EAGAIN for AF_UNIX sockets
