@@ -14,6 +14,7 @@ import threading
 import inspect
 import textwrap
 import itertools
+import traceback
 import six
 
 import pyuv
@@ -260,6 +261,7 @@ class Hub(fibers.Fiber):
         self.name = 'Hub'
         self.context = ''
         self._loop = pyuv.Loop()
+        self._loop.excepthook = self._uncaught_exception
         self._data = {}
         self._noswitch_depth = 0
         self._callbacks = collections.deque()
@@ -299,6 +301,14 @@ class Hub(fibers.Fiber):
             self._loop.stop()
         else:
             self._async.send()
+
+    def _uncaught_exception(self, *exc_info):
+        # Installed as the handler for uncaught exceptions in pyuv callbacks.
+        # The exception is cleared by pyuv when this method is called. So we
+        # have to format *exc_info ourselves, we cannot use _log.exception().
+        self._log.error('uncaught exception in pyuv callback')
+        trace = '\n'.join(traceback.format_tb(exc_info[2]))
+        self._log.error('Traceback (most recent call last):\n{}', trace)
 
     def close(self):
         """Close the hub.
