@@ -444,6 +444,8 @@ class TestHttp(UnitTest):
         ctype = response.get_header('Content-Type')
         self.assertEqual(ctype, 'text/plain')
         self.assertEqual(response.read(), b'Hello!')
+        server.close()
+        client.close()
 
     def test_simple_pipe(self):
         server = HttpServer(hello_app)
@@ -454,6 +456,8 @@ class TestHttp(UnitTest):
         client.request('GET', '/')
         response = client.get_response()
         self.assertEqual(response.read(), b'Hello!')
+        server.close()
+        client.close()
 
     def test_simple_ssl(self):
         server = HttpServer(hello_app)
@@ -465,6 +469,8 @@ class TestHttp(UnitTest):
         client.request('GET', '/')
         response = client.get_response()
         self.assertEqual(response.read(), b'Hello!')
+        server.close()
+        client.close()
 
     def test_request_body_bytes(self):
         server = HttpServer(echo_app)
@@ -476,6 +482,8 @@ class TestHttp(UnitTest):
         response = client.get_response()
         body = response.read()
         self.assertEqual(body, b'foo')
+        server.close()
+        client.close()
 
     def test_request_body_string(self):
         # When making a request with a string body, it should be encoded as
@@ -489,6 +497,8 @@ class TestHttp(UnitTest):
         response = client.get_response()
         body = response.read()
         self.assertEqual(body, b'foo')
+        server.close()
+        client.close()
 
     def test_request_body_sequence(self):
         server = HttpServer(echo_app)
@@ -500,6 +510,8 @@ class TestHttp(UnitTest):
         response = client.get_response()
         body = response.read()
         self.assertEqual(body, b'foobar')
+        server.close()
+        client.close()
 
 
 if __name__ == '__main__':

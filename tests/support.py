@@ -26,6 +26,7 @@ else:
 
 SkipTest = unittest.SkipTest
 
+import gruvi
 from gruvi.util import split_cap_words
 from gruvi.ssl import create_ssl_context
 
@@ -137,6 +138,17 @@ class TestCase(unittest.TestCase):
             pass
         self.__tmpdir = None
         self.__tmpinode = None
+        # Check that no active handles remain. This would mess with other tests.
+        hub = gruvi.get_hub()
+        active = []
+        for handle in hub.loop.handles:
+            if not handle.closed and not getattr(handle, '_system_handle', False):
+                active.append(handle)
+        for handle in active:
+            print('closing active handle {0!r}'.format(handle))
+            handle.close()
+        if active:
+            raise RuntimeError('test leaked {0} active handles'.format(len(active)))
 
     @property
     def tempdir(self):

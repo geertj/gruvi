@@ -272,6 +272,10 @@ class Hub(fibers.Fiber):
         self._async = pyuv.Async(self._loop, lambda h: self._loop.stop())
         self._sigint = pyuv.Signal(self._loop)
         self._sigint.start(self._on_sigint, signal.SIGINT)
+        # Mark our own handles as "system handles". This allows the test suite
+        # to check that no active handles except these escape from tests.
+        self._async._system_handle = True
+        self._sigint._system_handle = True
         self._log = logging.get_logger()
         self._log.debug('new Hub for {.name}', threading.current_thread())
         self._closing = False

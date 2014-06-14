@@ -280,6 +280,8 @@ class TestJsonRpc(UnitTest):
         client.connect(addr)
         result = client.call_method('echo', 'foo')
         self.assertEqual(result, ['foo'])
+        server.close()
+        client.close()
 
     def test_call_method_pipe(self):
         server = JsonRpcServer(echo_app)
@@ -289,6 +291,8 @@ class TestJsonRpc(UnitTest):
         client.connect(addr)
         result = client.call_method('echo', 'foo')
         self.assertEqual(result, ['foo'])
+        server.close()
+        client.close()
 
     def test_call_method_ssl(self):
         server = JsonRpcServer(echo_app)
@@ -299,6 +303,8 @@ class TestJsonRpc(UnitTest):
         client.connect(addr, ssl=context)
         result = client.call_method('echo', 'foo')
         self.assertEqual(result, ['foo'])
+        server.close()
+        client.close()
 
     def test_call_method_no_args(self):
         server = JsonRpcServer(echo_app)
@@ -308,6 +314,8 @@ class TestJsonRpc(UnitTest):
         client.connect(addr)
         result = client.call_method('echo')
         self.assertEqual(result, [])
+        server.close()
+        client.close()
 
     def test_call_method_multiple_args(self):
         server = JsonRpcServer(echo_app)
@@ -317,6 +325,8 @@ class TestJsonRpc(UnitTest):
         client.connect(addr)
         result = client.call_method('echo', 'foo', 'bar')
         self.assertEqual(result, ['foo', 'bar'])
+        server.close()
+        client.close()
     
     def test_call_method_error(self):
         server = JsonRpcServer(echo_app)
@@ -328,6 +338,8 @@ class TestJsonRpc(UnitTest):
         self.assertIsInstance(exc, JsonRpcMethodCallError)
         self.assertIsInstance(exc.error, dict)
         self.assertEqual(exc.error['code'], jsonrpc.METHOD_NOT_FOUND)
+        server.close()
+        client.close()
  
     def test_send_notification(self):
         server = JsonRpcServer(notification_app())
@@ -338,6 +350,8 @@ class TestJsonRpc(UnitTest):
         client.send_notification('notify_foo', 'foo')
         notifications = client.call_method('get_notifications')
         self.assertEqual(notifications, [['notify_foo', ['foo']]])
+        server.close()
+        client.close()
  
     def test_call_method_ping_pong(self):
         server = JsonRpcServer(reflect_app)
@@ -347,6 +361,8 @@ class TestJsonRpc(UnitTest):
         client.connect(addr)
         result = client.call_method('echo', 'foo')
         self.assertEqual(result, ['foo'])
+        server.close()
+        client.close()
 
     def test_send_evil(self):
         server = JsonRpcServer(echo_app)
@@ -364,6 +380,8 @@ class TestJsonRpc(UnitTest):
         except Exception as e:
             exc = e
         self.assertIsInstance(exc, TransportError)
+        server.close()
+        client.close()
 
     def test_send_whitespace(self):
         server = JsonRpcServer(echo_app)
@@ -381,6 +399,8 @@ class TestJsonRpc(UnitTest):
         except Exception as e:
             exc = e
         self.assertIsInstance(exc, TransportError)
+        server.close()
+        client.close()
 
     def test_send_random(self):
         server = JsonRpcServer(echo_app)
@@ -398,6 +418,8 @@ class TestJsonRpc(UnitTest):
         except Exception as e:
             exc = e
         self.assertIsInstance(exc, TransportError)
+        server.close()
+        client.close()
 
     def test_connection_limit(self):
         server = JsonRpcServer(echo_app)

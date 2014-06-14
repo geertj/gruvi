@@ -32,6 +32,8 @@ class PerfDBus(PerformanceTest):
             nmessages += 1
         throughput = nmessages / (t1 - t0)
         self.add_result(throughput)
+        server.close()
+        client.close()
 
     def perf_message_throughput_tcp(self):
         # Test roundtrips of a simple method call over TCP.
@@ -48,6 +50,8 @@ class PerfDBus(PerformanceTest):
             nmessages += 1
         throughput = nmessages / (t1 - t0)
         self.add_result(throughput)
+        server.close()
+        client.close()
 
 
 if __name__ == '__main__':

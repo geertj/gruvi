@@ -33,6 +33,7 @@ class TestCreateConnection(UnitTest):
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
         self.assertEqual(cproto.readline(), b'')
+        ctrans.close()
 
     def test_pipe(self):
         # Ensure that create_connection() and create_server() can be used to
@@ -47,6 +48,7 @@ class TestCreateConnection(UnitTest):
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
         self.assertEqual(cproto.readline(), b'')
+        ctrans.close()
 
     def test_tcp_ssl(self):
         # Ensure that create_connection() and create_server() can be used to
@@ -64,6 +66,7 @@ class TestCreateConnection(UnitTest):
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
         self.assertEqual(cproto.readline(), b'')
+        ctrans.close()
 
     def test_pipe_ssl(self):
         # Ensure that create_connection() and create_server() can be used to
@@ -81,6 +84,7 @@ class TestCreateConnection(UnitTest):
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
         self.assertEqual(cproto.readline(), b'')
+        ctrans.close()
 
     def test_ssl_handshake_on_connect(self):
         # Ensure that when create_connection(ssl=True) returns, that the SSL
@@ -100,6 +104,7 @@ class TestCreateConnection(UnitTest):
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
         self.assertEqual(cproto.readline(), b'')
+        ctrans.close()
 
     def test_ssl_no_handshake_on_connect(self):
         # Ensure that when create_connection(ssl=True) returns, that the SSL
@@ -125,6 +130,7 @@ class TestCreateConnection(UnitTest):
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
         self.assertEqual(cproto.readline(), b'')
+        ctrans.close()
 
 
 class TestGetAddrInfo(UnitTest):

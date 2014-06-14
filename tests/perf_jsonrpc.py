@@ -50,6 +50,8 @@ class PerfJsonRpc(PerformanceTest):
             t1 = time.time()
         throughput = nrequests / (t1 - t0)
         self.add_result(throughput)
+        server.close()
+        client.close()
 
 
 if __name__ == '__main__':
