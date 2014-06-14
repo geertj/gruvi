@@ -67,6 +67,7 @@ def getaddrinfo(host, port=0, family=0, socktype=0, protocol=0, flags=0, timeout
     with switch_back(timeout) as switcher:
         request = pyuv.util.getaddrinfo(hub.loop, switcher, host, port, family,
                                         socktype, protocol, flags)
+        switcher.add_cleanup(request.cancel)
         result = hub.switch()
     result, error = result[0]
     if error:
