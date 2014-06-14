@@ -3,7 +3,6 @@ TODO:
 * Increase test coverage.
 * Should we expose a Protocol.transport? If so the message handler signature
   can be simplied to handler(protocol, message) or handler(message, protocol)
-* Implement sub-processes. Probably just implement the asyncio API.
 * Fibers in the Fiber pool should be single shot.
 * Futures should have a .cancel() method.
 * Threads that exit without calling Hub.close() are not garbage collected. Not
@@ -18,9 +17,6 @@ TODO:
 * Add tests for JoinableQueue API
 * Investigate low HTTP parsing speed (20MB/sec)
 * perf_fibers.py doesn't run as part of the suite (does run individually)
-* Get rid of get_log_level() and $DEBUG / $VERBOSE variables in logging.
-* Add switch_back.add_cleanup() and have getaddrinfo() use it to cancel the
-  request.
 * Rename jsonrpc_ffi to json_ffi. Make json_splitter.c move analogous to
   http_parser.c using callbacks.
 * util.py -> utils.py
