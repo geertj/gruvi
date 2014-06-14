@@ -507,9 +507,9 @@ class DbusClient(Client):
     def _create_protocol(self):
         return DbusProtocol(False, self._message_handler, self._timeout)
 
-    add_protocol_method(DbusProtocol.get_unique_name, globals(), locals())
-    add_protocol_method(DbusProtocol.send_message, globals(), locals())
-    add_protocol_method(DbusProtocol.call_method, globals(), locals())
+    add_protocol_method(DbusProtocol.get_unique_name)
+    add_protocol_method(DbusProtocol.send_message)
+    add_protocol_method(DbusProtocol.call_method)
 
 
 class DbusServer(Server):

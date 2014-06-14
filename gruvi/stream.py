@@ -232,14 +232,14 @@ class StreamClient(Client):
     def __init__(self, timeout=None):
         super(StreamClient, self).__init__(StreamProtocol)
 
-    add_protocol_method(StreamProtocol.read, globals(), locals())
-    add_protocol_method(StreamProtocol.readline, globals(), locals())
-    add_protocol_method(StreamProtocol.readlines, globals(), locals())
-    add_protocol_method(StreamProtocol.__iter__, globals(), locals())
+    add_protocol_method(StreamProtocol.read)
+    add_protocol_method(StreamProtocol.readline)
+    add_protocol_method(StreamProtocol.readlines)
+    add_protocol_method(StreamProtocol.__iter__)
 
-    add_protocol_method(StreamProtocol.write, globals(), locals())
-    add_protocol_method(StreamProtocol.writelines, globals(), locals())
-    add_protocol_method(StreamProtocol.write_eof, globals(), locals())
+    add_protocol_method(StreamProtocol.write)
+    add_protocol_method(StreamProtocol.writelines)
+    add_protocol_method(StreamProtocol.write_eof)
 
 
 class StreamServer(Server):

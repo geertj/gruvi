@@ -414,6 +414,37 @@ def create_server(protocol_factory, address=None, ssl=False, ssl_args={},
     return server
 
 
+def add_method(template, method, name=None, moddict=None, classdict=None):
+    """Add a method to the class that's being defined in the enclosing scope.
+
+    The *template* argument is a string containing the method template. The
+    *method* argument is the method itself.
+    """
+    if moddict is None or classdict is None:
+        frame = sys._getframe(1)
+        moddict = frame.f_globals if moddict is None else moddict
+        classdict = frame.f_locals if classdict is None else classdict
+    name = name or method.__name__
+    doc = method.__doc__ or ''
+    if isinstance(method, property):
+        signature = '(self)'
+        arglist = ''
+    else:
+        argspec = inspect.getargspec(method)
+        signature = inspect.formatargspec(*argspec)
+        arglist = inspect.formatargspec(argspec[0][1:], *argspec[1:], formatvalue=lambda x: '')
+    methoddef = template.format(name=name, signature=signature, docstring=doc, arglist=arglist)
+    code = compile(methoddef, moddict['__file__'], 'exec')
+    globs = {}
+    six.exec_(code, globs)
+    wrapped = globs[name]
+    if getattr(method, 'switchpoint', False):
+        wrapped = switchpoint(wrapped)
+    if isinstance(method, property):
+        wrapped = property(wrapped)
+    classdict[name] = wrapped
+
+
 _protocol_method_template = textwrap.dedent("""\
     def {name}{signature}:
         '''{docstring}'''
@@ -422,19 +453,11 @@ _protocol_method_template = textwrap.dedent("""\
         return self.connection[1].{name}{arglist}
     """)
 
-def add_protocol_method(method, moddict, classdict):
-    """Import a method from a :class:`Protocol` into a :class:`Client`."""
-    name = method.__name__
-    doc = method.__doc__ or ''
-    argspec = inspect.getargspec(method)
-    signature = inspect.formatargspec(*argspec)
-    arglist = inspect.formatargspec(argspec[0][1:], *argspec[1:], formatvalue=lambda x: '')
-    methoddef = _protocol_method_template.format(name=name, signature=signature,
-                                                 docstring=doc, arglist=arglist)
-    code = compile(methoddef, moddict['__file__'], 'exec')
-    globs = {}
-    six.exec_(code, globs)
-    wrapped = globs[name]
-    if getattr(method, 'switchpoint', False):
-        wrapped = switchpoint(wrapped)
-    classdict[name] = wrapped
+def add_protocol_method(method, name=None, moddict=None, classdict=None):
+    """Import a method from a :class:`Protocol` the class that's being defined
+    in the enclosing scope."""
+    if moddict is None or classdict is None:
+        frame = sys._getframe(1)
+        moddict = frame.f_globals if moddict is None else moddict
+        classdict = frame.f_locals if classdict is None else classdict
+    return add_method(_protocol_method_template, method, name, moddict, classdict)

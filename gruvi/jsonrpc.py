@@ -423,10 +423,10 @@ class JsonRpcClient(Client):
         # Protocol factory
         return JsonRpcProtocol(self._message_handler, self._version, self._timeout)
 
-    add_protocol_method(JsonRpcProtocol.send_message, globals(), locals())
-    add_protocol_method(JsonRpcProtocol.send_notification, globals(), locals())
-    add_protocol_method(JsonRpcProtocol.call_method, globals(), locals())
-    add_protocol_method(JsonRpcProtocol._set_tracefile, globals(), locals())
+    add_protocol_method(JsonRpcProtocol.send_message)
+    add_protocol_method(JsonRpcProtocol.send_notification)
+    add_protocol_method(JsonRpcProtocol.call_method)
+    add_protocol_method(JsonRpcProtocol._set_tracefile)
 
 
 class JsonRpcServer(Server):

@@ -1015,8 +1015,8 @@ class HttpClient(Client):
             self._server_name = host
         return super(HttpClient, self).connect(address, **kwargs)
 
-    add_protocol_method(HttpProtocol.request, globals(), locals())
-    add_protocol_method(HttpProtocol.get_response, globals(), locals())
+    add_protocol_method(HttpProtocol.request)
+    add_protocol_method(HttpProtocol.get_response)
 
     def _create_protocol(self):
         return HttpProtocol(False, server_name=self._server_name, timeout=self._timeout)
