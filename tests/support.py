@@ -291,6 +291,8 @@ class MockTransport(object):
 
     def close(self):
         self.closed = True
+        self.protocol.connection_lost(None)
 
     def abort(self):
         self.closed = True
+        self.protocol.connection_lost(None)

@@ -397,7 +397,7 @@ class TestHttpProtocol(UnitTest):
         ro = self.get_response()
         self.assertEqual(ro.version, '1.1')
         self.assertEqual(ro.headers, [('Cookie', 'foo0')])
-        self.assertEqual(ro.read(100), b'foo')
+        self.assertEqual(ro.read(3), b'foo')
         self.assertFalse(ro._message.body.eof)
         self.protocol.connection_lost(None)
         self.assertTrue(ro._message.body.eof)

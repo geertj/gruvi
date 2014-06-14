@@ -11,9 +11,11 @@ from __future__ import absolute_import, print_function
 import os
 import six
 import hashlib
+from io import TextIOWrapper
 
 import gruvi
 from gruvi.stream import *
+from gruvi.errors import *
 from gruvi.transports import TransportError
 from support import *
 
@@ -23,10 +25,10 @@ class TestStreamReader(UnitTest):
     def test_read(self):
         reader = StreamReader()
         reader.feed(b'foo')
-        self.assertEqual(reader.read(100), b'foo')
+        self.assertEqual(reader.read(3), b'foo')
         reader.feed(b'foo bar')
         self.assertEqual(reader.read(3), b'foo')
-        self.assertEqual(reader.read(10), b' bar')
+        self.assertEqual(reader.read(4), b' bar')
 
     def test_read_incr(self):
         reader = StreamReader()
@@ -44,7 +46,7 @@ class TestStreamReader(UnitTest):
         self.assertEqual(reader.read(), b'')
         reader.feed_error(RuntimeError)
 
-    def test_read_wait_eof(self):
+    def test_read_wait(self):
         reader = StreamReader()
         reader.feed(b'foo')
         def write_more():
@@ -74,6 +76,25 @@ class TestStreamReader(UnitTest):
         gruvi.spawn(write_more)
         self.assertEqual(reader.read(), b'foobar')
         self.assertRaises(RuntimeError, reader.read)
+
+    def test_read1(self):
+        reader = StreamReader()
+        reader.feed(b'foobar')
+        self.assertEqual(reader.read1(3), b'foo')
+        self.assertEqual(reader.read1(100), b'bar')
+
+    def test_read1_wait(self):
+        reader = StreamReader()
+        reader.feed(b'foo')
+        def write_more():
+            gruvi.sleep(0.01)
+            reader.feed(b'bar')
+            gruvi.sleep(0.01)
+            reader.feed_eof()
+        gruvi.spawn(write_more)
+        self.assertEqual(reader.read1(100), b'foo')
+        self.assertEqual(reader.read1(100), b'bar')
+        self.assertEqual(reader.read1(100), b'')
 
     def test_readline(self):
         reader = StreamReader()
@@ -195,7 +216,7 @@ class TestStreamReader(UnitTest):
             reader.feed(b'bar\n')
             gruvi.sleep(0.01)
             reader.feed_eof()
-        gruvi.spawn(write_more)
+        fib = gruvi.spawn(write_more)
         it = iter(reader)
         self.assertEqual(six.next(it), b'foo\n')
         self.assertEqual(six.next(it), b'bar\n')
@@ -225,6 +246,42 @@ class TestStreamReader(UnitTest):
         self.assertRaises(RuntimeError, six.next, it)
 
 
+class TestWrappedStreamReader(UnitTest):
+
+    def test_simple(self):
+        reader = StreamReader()
+        wrapped = TextIOWrapper(reader, 'utf-8')
+        reader.feed(b'foo')
+        self.assertEqual(wrapped.read(3), 'foo')
+
+    def test_read_eof(self):
+        reader = StreamReader()
+        wrapped = TextIOWrapper(reader, 'utf-8')
+        reader.feed(b'foo')
+        reader.feed_eof()
+        self.assertEqual(wrapped.read(), 'foo')
+
+    def test_partial_decode_at_eof(self):
+        reader = StreamReader()
+        wrapped = TextIOWrapper(reader, 'utf-8')
+        # \u20ac is the euro sign in case you wondered..
+        buf = u'20 \u20ac'.encode('utf-8')
+        reader.feed(buf[:-1])
+        reader.feed_eof()
+        self.assertRaises(UnicodeDecodeError, wrapped.read, 4)
+
+    def test_partial_decode_wait(self):
+        reader = StreamReader()
+        wrapped = TextIOWrapper(reader, 'utf-8')
+        buf = u'20 \u20ac'.encode('utf-8')
+        reader.feed(buf[:-1])
+        def write_last():
+            gruvi.sleep(0.01)
+            reader.feed(buf[-1:])
+        gruvi.spawn(write_last)
+        self.assertEqual(wrapped.read(4), u'20 \u20ac')
+
+
 class TestStreamProtocol(UnitTest):
 
     def test_read(self):
@@ -233,7 +290,7 @@ class TestStreamProtocol(UnitTest):
         protocol = StreamProtocol()
         transport.start(protocol)
         protocol.data_received(b'foo')
-        self.assertEqual(protocol.read(100), b'foo')
+        self.assertEqual(protocol.read(3), b'foo')
         protocol.data_received(b'bar')
         protocol.eof_received()
         self.assertEqual(protocol.read(), b'bar')
@@ -313,8 +370,10 @@ class TestStreamProtocol(UnitTest):
         def reader():
             while True:
                 buf = protocol.read(20)
+                if not buf:
+                    break
                 protocol.write(buf)
-        gruvi.spawn(reader)
+        fib = gruvi.spawn(reader)
         buf = b'x' * 20
         interrupted = 0
         for i in range(100):
@@ -336,11 +395,13 @@ class TestStreamProtocol(UnitTest):
             transport.buffer.truncate()
             protocol.resume_writing()
         self.assertGreater(interrupted, 30)
+        fib.cancel()
+        gruvi.sleep(0)
 
 
 def echo_handler(protocol):
     while True:
-        buf = protocol.read(100)
+        buf = protocol.readline()
         if not buf:
             break
         protocol.write(buf)
@@ -393,6 +454,15 @@ class TestStream(UnitTest):
         server.close()
         client.close()
 
+    def test_read_timeout(self):
+        server = StreamServer(echo_handler)
+        server.listen(self.pipename())
+        client = StreamClient(timeout=0.01)
+        client.connect(server.addresses[0])
+        self.assertRaises(Timeout, client.readline)
+        server.close()
+        client.close()
+
     def test_echo_data(self):
         # Echo a bunch of data and ensure it is echoed identically
         server = StreamServer(echo_handler)
@@ -409,7 +479,7 @@ class TestStream(UnitTest):
             client.write_eof()
         def consume():
             while True:
-                buf = client.read(1024)
+                buf = client.read1(1024)
                 if not buf:
                     break
                 md2.update(buf)
@@ -444,5 +514,4 @@ class TestStream(UnitTest):
 
 
 if __name__ == '__main__':
-    os.environ.setdefault('VERBOSE', '1')
     unittest.main()

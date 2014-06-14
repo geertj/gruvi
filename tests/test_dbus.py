@@ -139,9 +139,9 @@ class TestDbusProtocol(UnitTest):
         transport.start(protocol)
         protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
         message = txdbus.MethodCallMessage('/my/path', 'Method')
-        protocol.data_received(message.rawMessage)
         auth = protocol._authenticator
         self.assertTrue(auth.authenticationSucceeded())
+        protocol.data_received(message.rawMessage)
         self.assertIsInstance(protocol._error, DbusError)
         self.assertTrue(transport.closed)
 

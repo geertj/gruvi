@@ -113,6 +113,11 @@ class BaseTransport(object):
         self._protocol.connection_lost(self._error)
         self._protocol = None  # remove cycle to help garbage collection
 
+    @property
+    def closed(self):
+        """Whether the transport has been closed."""
+        return self._closing or self._handle.closed
+
     def close(self):
         """Close the transport after all oustanding data has been written."""
         if self._closing or self._handle.closed:

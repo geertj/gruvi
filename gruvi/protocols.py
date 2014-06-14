@@ -26,7 +26,8 @@ class BaseProtocol(object):
 
     read_buffer_size = 65536
 
-    def __init__(self):
+    def __init__(self, timeout=None):
+        self._timeout = timeout
         self._transport = None
         self._log = logging.get_logger()
         self._hub = get_hub()
@@ -149,8 +150,8 @@ class Protocol(BaseProtocol):
 class MessageProtocol(Protocol):
     """Base class for message oriented protocols."""
 
-    def __init__(self, message_handler=None):
-        super(MessageProtocol, self).__init__()
+    def __init__(self, message_handler=None, timeout=None):
+        super(MessageProtocol, self).__init__(timeout=timeout)
         self._message_handler = message_handler
         self._queue = Queue()
         if callable(message_handler):
