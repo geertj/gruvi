@@ -1,0 +1,10 @@
+include setup.py release.py runtests.py
+include setup.cfg tox.ini
+include AUTHORS LICENSE README.rst MANIFEST.in TODO
+include requirements.txt dev-requirements.txt
+include gruvi/*.py gruvi/txdbus/*.py
+include tests/*.py
+include changelog.txt
+include docs/Makefile docs/conf.py docs/*.rst
+include src/*.[ch]
+exclude gruvi/__pycache__/*.c *.so

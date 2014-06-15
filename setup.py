@@ -11,7 +11,6 @@ from __future__ import absolute_import, print_function
 import os
 import sys
 import textwrap
-import subprocess
 import json
 import re
 
@@ -86,49 +85,9 @@ def update_version():
     print('Updated _version.py')
 
 
-def update_manifest():
-    """Update the MANIFEST.in file from git, if necessary."""
-    # It would be more efficient to create MANIFEST directly, rather
-    # than creating a MANIFEST.in where every line just includes one file.
-    # Unfortunately, setuptools/distribute do not support this (distutils
-    # does).
-    gitdir = os.path.join('.', '.git')
-    try:
-        st = os.stat(gitdir)
-    except OSError:
-        return
-    cmd = subprocess.Popen(['git', 'ls-tree', '-r', 'master', '--name-only'],
-                           stdout=subprocess.PIPE)
-    stdout, _ = cmd.communicate()
-    files = stdout.decode('ascii').splitlines()
-    files.append('gruvi/_version.py')
-    lines = ['include {0}\n'.format(fname) for fname in files]
-    new = ''.join(sorted(lines))
-    try:
-        with open('MANIFEST.in', 'r') as fin:
-            current = fin.read()
-    except IOError:
-        current = None
-    if new == current:
-        return
-    tmpname = 'MANIFEST.in.{0}-tmp'.format(os.getpid())
-    with open(tmpname, 'w') as fout:
-        fout.write(new)
-    os.rename(tmpname, 'MANIFEST.in')
-    print('Updated MANIFEST.in')
-    # Remove the SOURCES.txt that setuptools maintains. It appears not to
-    # accurately regenerate it when MANIFEST.in changes.
-    sourcestxt = os.path.join('lib', 'gruvi.egg-info', 'SOURCES.txt')
-    if not os.access(sourcestxt, os.R_OK):
-        return
-    os.unlink(sourcestxt)
-    print('Removed {0}'.format(sourcestxt))
-
-
 def main():
     os.chdir(topdir)
     update_version()
-    update_manifest()
     sys.path.append('gruvi')
     import http_ffi, jsonrpc_ffi
     ext_modules = [http_ffi.ffi.verifier.get_extension(),
@@ -140,7 +99,6 @@ def main():
     setup(
         packages = ['gruvi', 'gruvi.txdbus'],
         install_requires = ['cffi', 'fibers', 'pyuv', 'six'],
-        zip_safe = False,
         ext_package = 'gruvi',
         ext_modules = ext_modules,
         **version_info

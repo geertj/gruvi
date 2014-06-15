@@ -13,7 +13,6 @@ __pycache__
 docs/_build
 _version.py
 .tox
-MANIFEST.in
 tests/memory.txt
 tests/performance.txt
 header
