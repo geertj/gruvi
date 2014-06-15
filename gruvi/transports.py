@@ -235,12 +235,17 @@ class Transport(BaseTransport):
             raise RuntimeError('transport not started')
         elif len(data) == 0:
             return
-        self._write_buffer_size += len(data)
         if self._write_buffer_size > self._write_buffer_high:
             self._protocol.pause_writing()
             self._writing = False
         callback = functools.partial(self._on_write_complete, len(data))
-        self._handle.write(data, callback)
+        try:
+            self._handle.write(data, callback)
+        except pyuv.error.UVError as e:
+            self._error = TransportError.from_errno(e.args[0])
+            self.abort()
+            raise compat.saved_exc(self._error)
+        self._write_buffer_size += len(data)
 
     def writelines(self, seq):
         """Write all elements from *seq* to the transport."""
@@ -255,9 +260,14 @@ class Transport(BaseTransport):
             raise TransportError('transport is closing/closed')
         elif self._protocol is None:
             raise RuntimeError('transport not started')
-        self._write_buffer_size += 1
         callback = functools.partial(self._on_write_complete, 1)
-        self._handle.shutdown(callback)
+        try:
+            self._handle.shutdown(callback)
+        except pyuv.error.UVError as e:
+            self._error = TransportError.from_errno(e.args[0])
+            self.abort()
+            raise compat.saved_exc(self._error)
+        self._write_buffer_size += 1
 
     def can_write_eof(self):
         """Wether this transport can close the write direction."""
