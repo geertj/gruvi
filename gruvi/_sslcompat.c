@@ -232,12 +232,16 @@ sslcompat_tls_unique_cb(PyObject *self, PyObject *args)
     if (sslob->ssl->s3 == NULL)
         RETURN_ERROR("cannot get channel binding for SSLv2");
 
-#if defined(__APPLE__) && defined(__LP64__)
+#if defined(__APPLE__) && __APPLE_CC__ < 6000 && defined(__LP64__)
     /* FUDGE... On Mac OSX, when compiling against the OpenSSL headers provided
      * in /usr/include/openssl, the compiler believes that the s3->tmp struct
      * is 8 bytes earlier than it really is.  No idea where this comes from....
-     * */
-    /* Might also be needed on 32-bit or PPC - NOT tested. */
+     *
+     * Might also be needed on 32-bit or PPC - NOT tested. 
+     *
+     * Update for OSX Mavericks: In Mavericks, gcc isn't gcc anymore but a
+     * symlink to clang. Clang appears to compile things correctly.
+     */
     s3 = (SSL3_STATE *) ((char *) sslob->ssl->s3 + 8);
 #else
     s3 = sslob->ssl->s3;
