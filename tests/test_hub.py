@@ -9,6 +9,7 @@
 from __future__ import absolute_import, print_function
 
 import os
+import sys
 import gc
 import time
 import signal
@@ -44,6 +45,10 @@ class TestHub(UnitTest):
 
     def test_sigint(self):
         # The Hub should exit on CTRL-C (SIGINT).
+        # On windows, sending SIGINT kills all processes attached to a console,
+        # including the test driver.
+        if sys.platform.startswith('win'):
+            raise SkipTest('test skipped on Windows')
         def send_sigint():
             time.sleep(0.01)
             os.kill(os.getpid(), signal.SIGINT)
