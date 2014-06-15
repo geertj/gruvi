@@ -22,15 +22,12 @@ from gruvi.sync import Event
 from gruvi.stream import StreamProtocol
 from gruvi.endpoints import create_connection, Endpoint
 
-__all__ = ['Process', 'PIPE', 'STDOUT', 'DEVNULL']
+__all__ = ['Process', 'PIPE', 'DEVNULL']
 
 PIPE = -1
-STDOUT = -2
 DEVNULL = -3
 
-READABLE_PIPE = pyuv.UV_READABLE_PIPE
-WRITABLE_PIPE = pyuv.UV_WRITABLE_PIPE
-READWRITE_PIPE = READABLE_PIPE | WRITABLE_PIPE
+CREATE_PIPE = pyuv.UV_CREATE_PIPE | pyuv.UV_READABLE_PIPE | pyuv.UV_WRITABLE_PIPE
 
 
 class Process(Endpoint):
@@ -113,20 +110,20 @@ class Process(Endpoint):
             return
         return self._process.pid
 
-    def _create_stdio(self, name, loop, handle, fd, flags):
+    def _create_stdio(self, name, loop, handle, fd):
         # Create a pyuv.StdIO container
         if handle is None:
             stdio = pyuv.StdIO(fd=fd, flags=pyuv.UV_INHERIT_FD)
         elif handle == PIPE:
-            stdio = pyuv.StdIO(stream=pyuv.Pipe(loop), flags=pyuv.UV_CREATE_PIPE|flags)
+            stdio = pyuv.StdIO(stream=pyuv.Pipe(loop), flags=CREATE_PIPE)
         elif handle == DEVNULL:
             stdio = pyuv.StdIO(flags=pyuv.UV_IGNORE)
         elif isinstance(handle, int) and handle >= 0:
             stdio = pyuv.StdIO(fd=handle, flags=pyuv.UV_INHERIT_FD)
         elif hasattr(handle, 'fileno'):
-            stdio = pyuv.StdIO(fd=handle.fileno(), flags=pyuv.UV_INHERIT_FD)
+            stdio = pyuv.StdIO(fd=handle.fileno(), flags=CREATE_PIPE)
         elif isinstance(handle, pyuv.Stream):
-            stdio = pyuv.StdIO(stream=handle, flags=pyuv.UV_CREATE_PIPE|flags)
+            stdio = pyuv.StdIO(stream=handle, flags=CREATE_PIPE)
         else:
             raise TypeError('{0}: must be PIPE, an fd, a Stream, or a file-like object'
                             ' (got {1!r})'.format(name, type(handle).__name__))
@@ -135,15 +132,15 @@ class Process(Endpoint):
     def _get_stdio_handles(self, loop, stdin, stdout, stderr, extra_handles):
         # Return a list of StdIO containers that are passed to our child
         handles = []
-        handles.append(self._create_stdio('stdin', loop, stdin, 0, READABLE_PIPE))
-        handles.append(self._create_stdio('stdout', loop, stdout, 1, WRITABLE_PIPE))
-        handles.append(self._create_stdio('stderr', loop, stderr, 2, WRITABLE_PIPE))
+        handles.append(self._create_stdio('stdin', loop, stdin, 0))
+        handles.append(self._create_stdio('stdout', loop, stdout, 1))
+        handles.append(self._create_stdio('stderr', loop, stderr, 2))
         if extra_handles:
             for ix, handle in enumerate(extra_handles):
                 name = 'handles[{0}]'.format(ix)
                 if handle is None or handle == PIPE:
                     raise TypeError('{0}: cannot be None or PIPE'.format(name))
-                handles.append(self._create_stdio(name, loop, handle, None, READWRITE_PIPE))
+                handles.append(self._create_stdio(name, loop, handle, None))
         return handles
 
     def _connect_stdio(self, stdio):

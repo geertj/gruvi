@@ -14,6 +14,7 @@ import time
 import signal
 import locale
 import pyuv
+import pkg_resources
 
 import gruvi
 from gruvi.hub import get_hub
@@ -25,7 +26,60 @@ from gruvi.stream import StreamClient
 from support import *
 
 
+def create_cmd_wrappers(bindir):
+    """On Windows, Create executable file wrappers for our utilities in tests/bin."""
+    # This is relevant on Windows only. On Unix our utilities can be executed
+    # by uv_spawn() directly.
+    #
+    # On Windows, a simple solution could be to create .bat file wrappers.
+    # However that doesn't work because uv_spawn() uses CreateProcess() which
+    # only supports .exe and .com files.
+    #
+    # The solution is to create little .exe wrapper for each program.
+    # Fortunately this is easy. Setuptools contains such a wrapper as a package
+    # resource. We need to copy it, and create a basename-script.py wrapper.
+    if not sys.platform.startswith('win'):
+        return
+    shebang = '#!{0}\r\n'.format(sys.executable)
+    wrapper = pkg_resources.resource_string('setuptools', 'cli.exe')
+    for fname in os.listdir(bindir):
+        if '.' in fname:
+            continue
+        absname = os.path.join(bindir, fname)
+        scriptname = absname + '-script.py'
+        exename = absname + '.exe'
+        if os.access(scriptname, os.R_OK) and os.access(exename, os.X_OK):
+            continue
+        with open(absname) as fin:
+            lines = [line.rstrip() + '\r\n' for line in fin.readlines()]
+            lines[0] = shebang
+        with open(scriptname, 'w') as fout:
+            fout.writelines(lines)
+        with open(exename, 'wb') as fout:
+            fout.write(wrapper)
+
+
+def python_script(args):
+    """On Windows, modify *args* so that a script in test/bin is executed
+    directly via Python rather than via the .exe wrapper."""
+    # This is needed to make inheriting of handles other than stdio work. My
+    # assumption is that the .exe wrapper is not passing on these handles (or
+    # that they are somehow not inheritable).
+    if not sys.platform.startswith('win'):
+        return args
+    if isinstance(args, str):
+        args = [args]
+    args[0] = 'bin\\{0}'.format(args[0])
+    return [sys.executable] + args
+
+
 class TestProcess(UnitTest):
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestProcess, cls).setUpClass()
+        bindir = os.path.join(cls.testdir, 'bin')
+        create_cmd_wrappers(bindir)
 
     def test_spawn(self):
         # Ensure that spawning a child works.
@@ -206,7 +260,7 @@ class TestProcess(UnitTest):
         # Note: The "ipc" flag doubles as a read/write flag.
         handle = create_handle(pyuv.Pipe, True)
         proc = Process()
-        proc.spawn(['catn', '3'], extra_handles=[handle])
+        proc.spawn(python_script(['catn', '3']), extra_handles=[handle])
         stream = StreamClient()
         stream.connect(handle)
         stream.write(b'Foo\n')
