@@ -8,6 +8,6 @@ env:
   - TOX_ENV=docs
   - TOX_ENV=flake8
 install:
-  - pip install tox
+  - pip install cffi tox
 script:
   - tox -e $TOX_ENV
