@@ -171,18 +171,6 @@ class TestProcess(UnitTest):
         proc.wait()
         self.assertEqual(proc.returncode, 0)
 
-    def test_clone_stdout(self):
-        # Ensure that using stderr=STDOUT will redirect all output to stderr to stdout.
-        proc = Process()
-        proc.spawn(['catn', '0', '2'], stdin=PIPE, stdout=PIPE, stderr=STDOUT)
-        proc.stdin.write(b'Foo\n')
-        proc.stdin.close()
-        self.assertEqual(proc.stdout.readline(), b'Foo\n')
-        self.assertEqual(proc.stdout.readline(), b'')
-        self.assertIsNone(proc.stderr)
-        proc.wait()
-        self.assertEqual(proc.returncode, 0)
-
     def test_devnull(self):
         # Ensure that using stdout=DEVNULL doesn't produce any output.
         proc = Process()

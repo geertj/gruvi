@@ -121,8 +121,6 @@ class Process(Endpoint):
             stdio = pyuv.StdIO(stream=pyuv.Pipe(loop), flags=pyuv.UV_CREATE_PIPE|flags)
         elif handle == DEVNULL:
             stdio = pyuv.StdIO(flags=pyuv.UV_IGNORE)
-        elif handle == STDOUT:
-            stdio = pyuv.StdIO(fd=1, flags=pyuv.UV_INHERIT_FD)
         elif isinstance(handle, int) and handle >= 0:
             stdio = pyuv.StdIO(fd=handle, flags=pyuv.UV_INHERIT_FD)
         elif hasattr(handle, 'fileno'):
