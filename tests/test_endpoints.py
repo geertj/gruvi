@@ -28,11 +28,11 @@ class TestCreateConnection(UnitTest):
         ctrans, cproto = create_connection(StreamProtocol, addr)
         gruvi.sleep(0.1)  # allow Server to accept()
         strans, sproto = list(server.connections)[0]
-        cproto.write(b'foo\n')
-        self.assertEqual(sproto.readline(), b'foo\n')
+        cproto.stream.write(b'foo\n')
+        self.assertEqual(sproto.stream.readline(), b'foo\n')
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
-        self.assertEqual(cproto.readline(), b'')
+        self.assertEqual(cproto.stream.readline(), b'')
         ctrans.close()
 
     def test_pipe(self):
@@ -43,11 +43,11 @@ class TestCreateConnection(UnitTest):
         ctrans, cproto = create_connection(StreamProtocol, addr)
         gruvi.sleep(0.1)  # allow Server to accept()
         strans, sproto = list(server.connections)[0]
-        cproto.write(b'foo\n')
-        self.assertEqual(sproto.readline(), b'foo\n')
+        cproto.stream.write(b'foo\n')
+        self.assertEqual(sproto.stream.readline(), b'foo\n')
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
-        self.assertEqual(cproto.readline(), b'')
+        self.assertEqual(cproto.stream.readline(), b'')
         ctrans.close()
 
     def test_tcp_ssl(self):
@@ -61,11 +61,11 @@ class TestCreateConnection(UnitTest):
         # handshake to complete
         #gruvi.sleep(0.1)  # allow Server to accept()
         strans, sproto = list(server.connections)[0]
-        cproto.write(b'foo\n')
-        self.assertEqual(sproto.readline(), b'foo\n')
+        cproto.stream.write(b'foo\n')
+        self.assertEqual(sproto.stream.readline(), b'foo\n')
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
-        self.assertEqual(cproto.readline(), b'')
+        self.assertEqual(cproto.stream.readline(), b'')
         ctrans.close()
 
     def test_pipe_ssl(self):
@@ -79,11 +79,11 @@ class TestCreateConnection(UnitTest):
         # handshake to complete
         #gruvi.sleep(0.1)  # allow Server to accept()
         strans, sproto = list(server.connections)[0]
-        cproto.write(b'foo\n')
-        self.assertEqual(sproto.readline(), b'foo\n')
+        cproto.stream.write(b'foo\n')
+        self.assertEqual(sproto.stream.readline(), b'foo\n')
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
-        self.assertEqual(cproto.readline(), b'')
+        self.assertEqual(cproto.stream.readline(), b'')
         ctrans.close()
 
     def test_ssl_handshake_on_connect(self):
@@ -99,11 +99,11 @@ class TestCreateConnection(UnitTest):
         self.assertIsNotNone(sslinfo)
         self.assertGreater(len(sslinfo.get_channel_binding()), 0)
         strans, sproto = list(server.connections)[0]
-        cproto.write(b'foo\n')
-        self.assertEqual(sproto.readline(), b'foo\n')
+        cproto.stream.write(b'foo\n')
+        self.assertEqual(sproto.stream.readline(), b'foo\n')
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
-        self.assertEqual(cproto.readline(), b'')
+        self.assertEqual(cproto.stream.readline(), b'')
         ctrans.close()
 
     def test_ssl_no_handshake_on_connect(self):
@@ -125,11 +125,11 @@ class TestCreateConnection(UnitTest):
         self.assertIsNotNone(sslinfo)
         self.assertGreater(len(sslinfo.get_channel_binding()), 0)
         strans, sproto = list(server.connections)[0]
-        cproto.write(b'foo\n')
-        self.assertEqual(sproto.readline(), b'foo\n')
+        cproto.stream.write(b'foo\n')
+        self.assertEqual(sproto.stream.readline(), b'foo\n')
         server.close()
         self.assertEqual(len(list(server.connections)), 0)
-        self.assertEqual(cproto.readline(), b'')
+        self.assertEqual(cproto.stream.readline(), b'')
         ctrans.close()
 
 

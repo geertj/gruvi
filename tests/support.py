@@ -248,6 +248,7 @@ class MockTransport(object):
         self.set_write_buffer_limits()
         self.closed = False
         self.eof = False
+        self._error = None
 
     def start(self, protocol):
         self.protocol = protocol

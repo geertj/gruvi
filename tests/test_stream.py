@@ -290,10 +290,11 @@ class TestStreamProtocol(UnitTest):
         protocol = StreamProtocol()
         transport.start(protocol)
         protocol.data_received(b'foo')
-        self.assertEqual(protocol.read(3), b'foo')
+        stream = protocol.stream
+        self.assertEqual(stream.read(3), b'foo')
         protocol.data_received(b'bar')
         protocol.eof_received()
-        self.assertEqual(protocol.read(), b'bar')
+        self.assertEqual(stream.read(), b'bar')
 
     def test_read_after_error(self):
         # Test that the buffer can be emptied after an error occurs.
@@ -302,9 +303,10 @@ class TestStreamProtocol(UnitTest):
         transport.start(protocol)
         protocol.data_received(b'foobar')
         protocol.connection_lost(RuntimeError)
-        self.assertEqual(protocol.read(3), b'foo')
-        self.assertEqual(protocol.read(3), b'bar')
-        self.assertEqual(protocol.read(), b'')
+        stream = protocol.stream
+        self.assertEqual(stream.read(3), b'foo')
+        self.assertEqual(stream.read(3), b'bar')
+        self.assertEqual(stream.read(), b'')
 
     def test_readline(self):
         # Test that readline() works.
@@ -312,7 +314,8 @@ class TestStreamProtocol(UnitTest):
         protocol = StreamProtocol()
         transport.start(protocol)
         protocol.data_received(b'foo\n')
-        self.assertEqual(protocol.readline(), b'foo\n')
+        stream = protocol.stream
+        self.assertEqual(stream.readline(), b'foo\n')
  
     def test_readlines(self):
         # Test that readlines() works.
@@ -321,7 +324,8 @@ class TestStreamProtocol(UnitTest):
         transport.start(protocol)
         protocol.data_received(b'foo\nbar\n')
         protocol.eof_received()
-        self.assertEqual(protocol.readlines(), [b'foo\n', b'bar\n'])
+        stream = protocol.stream
+        self.assertEqual(stream.readlines(), [b'foo\n', b'bar\n'])
  
     def test_iter(self):
         # Ensure that iterating over a stream protocol produces lines.
@@ -330,7 +334,7 @@ class TestStreamProtocol(UnitTest):
         transport.start(protocol)
         protocol.data_received(b'foo\nbar\n')
         protocol.eof_received()
-        it = iter(protocol)
+        it = iter(protocol.stream)
         self.assertEqual(six.next(it), b'foo\n')
         self.assertEqual(six.next(it), b'bar\n')
         self.assertRaises(StopIteration, six.next, it)
@@ -340,7 +344,7 @@ class TestStreamProtocol(UnitTest):
         transport = MockTransport()
         protocol = StreamProtocol()
         transport.start(protocol)
-        protocol.write(b'foo')
+        protocol.stream.write(b'foo')
         self.assertEqual(transport.buffer.getvalue(), b'foo')
 
     def test_writelines(self):
@@ -348,7 +352,7 @@ class TestStreamProtocol(UnitTest):
         transport = MockTransport()
         protocol = StreamProtocol()
         transport.start(protocol)
-        protocol.writelines([b'foo', b'bar'])
+        protocol.stream.writelines([b'foo', b'bar'])
         self.assertEqual(transport.buffer.getvalue(), b'foobar')
 
     def test_write_eof(self):
@@ -357,7 +361,7 @@ class TestStreamProtocol(UnitTest):
         protocol = StreamProtocol()
         transport.start(protocol)
         self.assertFalse(transport.eof)
-        protocol.write_eof()
+        protocol.stream.write_eof()
         self.assertTrue(transport.eof)
 
     def test_read_write_flow_control(self):
@@ -367,12 +371,13 @@ class TestStreamProtocol(UnitTest):
         transport.start(protocol)
         protocol.set_read_buffer_limits(100)
         transport.set_write_buffer_limits(50)
+        stream = protocol.stream
         def reader():
             while True:
-                buf = protocol.read(20)
+                buf = stream.read(20)
                 if not buf:
                     break
-                protocol.write(buf)
+                stream.write(buf)
         fib = gruvi.spawn(reader)
         buf = b'x' * 20
         interrupted = 0
@@ -400,11 +405,12 @@ class TestStreamProtocol(UnitTest):
 
 
 def echo_handler(protocol):
+    stream = protocol.stream
     while True:
-        buf = protocol.readline()
+        buf = stream.readline()
         if not buf:
             break
-        protocol.write(buf)
+        stream.write(buf)
 
 
 class TestStream(UnitTest):

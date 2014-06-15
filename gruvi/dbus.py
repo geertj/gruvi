@@ -53,6 +53,7 @@ from .hub import switchpoint, switch_back
 from .sync import Event
 from .transports import UvError
 from .protocols import ProtocolError, MessageProtocol
+from .stream import StreamWriter
 from .endpoints import Client, Server, add_protocol_method, saddr
 
 __all__ = ['DbusError', 'DbusMethodCallError', 'DbusProtocol', 'DbusClient', 'DbusServer']
@@ -122,9 +123,8 @@ class TxdbusAuthenticator(object):
     # uses ~/.dbus-keyrings as specified in the spec.
     cookie_dir = None
 
-    def __init__(self, transport, protocol, server_side, server_guid=None):
+    def __init__(self, transport, server_side, server_guid=None):
         self._transport = transport
-        self._protocol = protocol
         self._server_side = server_side
         if self._server_side:
             self._authenticator = txdbus.BusAuthenticator(server_guid)
@@ -137,7 +137,7 @@ class TxdbusAuthenticator(object):
     def sendAuthMessage(self, message):
         # Called by the txdbus authenticators
         message = message.encode('ascii') + b'\r\n'
-        self._protocol._transport.write(message)
+        self._transport.write(message)
 
     @property
     def _unix_creds(self):
@@ -239,8 +239,8 @@ class DbusProtocol(MessageProtocol):
         else:
             self._state = self.S_AUTHENTICATE
             self._transport.write(b'\0')
-        self._authenticator = TxdbusAuthenticator(transport, self, self._server_side,
-                                                  self._server_guid)
+        self._writer = StreamWriter(transport, self)
+        self._authenticator = TxdbusAuthenticator(transport, self._server_side, self._server_guid)
         self._message_size = 0
 
     def connection_lost(self, exc):
@@ -401,8 +401,8 @@ class DbusProtocol(MessageProtocol):
         self._name_acquired.wait()
         if self._error:
             raise compat.saved_exc(self._error)
-        elif self._closing or self._closed:
-            raise RuntimeError('protocol is closing/closed')
+        elif self._transport is None:
+            raise RuntimeError('not connected')
         return self._unique_name
 
     @switchpoint
@@ -419,9 +419,9 @@ class DbusProtocol(MessageProtocol):
         self._may_write.wait()
         if self._error:
             raise compat.saved_exc(self._error)
-        elif self._closing or self._closed:
-            raise RuntimeError('protocol is closing/closed')
-        self._transport.write(message.rawMessage)
+        elif self._transport is None:
+            raise RuntimeError('not connected')
+        self._writer.write(message.rawMessage)
 
     @switchpoint
     def call_method(self, service, path, interface, method, signature=None,

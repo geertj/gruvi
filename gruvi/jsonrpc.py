@@ -57,6 +57,7 @@ import six
 from . import compat
 from .hub import switchpoint, switch_back
 from .protocols import ProtocolError, MessageProtocol
+from .stream import StreamWriter
 from .endpoints import Client, Server, add_protocol_method, saddr
 from .jsonrpc_ffi import lib as _lib, ffi as _ffi
 
@@ -250,6 +251,11 @@ class JsonRpcProtocol(MessageProtocol):
         self._method_calls = {}
         self._tracefile = None
 
+    def connection_made(self, transport):
+        # Protocol callback
+        super(JsonRpcProtocol, self).connection_made(transport)
+        self._writer = StreamWriter(transport, self)
+
     def connection_lost(self, exc):
         # Protocol callback
         super(JsonRpcProtocol, self).connection_lost(exc)
@@ -355,7 +361,7 @@ class JsonRpcProtocol(MessageProtocol):
             self._tracefile.write('\n')
             self._tracefile.flush()
         self._may_write.wait()
-        self._transport.write(serialized.encode('utf-8'))
+        self._writer.write(serialized.encode('utf-8'))
 
     @switchpoint
     def send_notification(self, method, *args):

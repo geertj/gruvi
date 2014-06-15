@@ -250,8 +250,8 @@ class Client(Endpoint):
         """Close the connection."""
         if not self._connection:
             return
-        protocol = self._connection[1]
-        protocol.close()
+        self._connection[0].close()
+        self._connection[1]._closed.wait()
         self._connection = None
 
 

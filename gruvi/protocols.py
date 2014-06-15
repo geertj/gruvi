@@ -8,10 +8,10 @@
 
 from __future__ import absolute_import, print_function
 
-from . import logging, util, compat
+from . import logging, util
 from .sync import Event, Queue
 from .errors import Error, Cancelled
-from .hub import get_hub, switchpoint
+from .hub import get_hub
 from .fibers import Fiber
 
 __all__ = ['ProtocolError', 'BaseProtocol', 'Protocol', 'DatagramProtocol']
@@ -37,7 +37,6 @@ class BaseProtocol(object):
         self._error = None
         self._may_write = Event()
         self._may_write.set()
-        self._closing = False
         self._closed = Event()
         self._reading = False
 
@@ -52,7 +51,6 @@ class BaseProtocol(object):
         if self._error is None:
             self._error = exc
         self._closed.set()
-        self._closing = False
         self._may_write.set()
         self._transport = None
 
@@ -93,15 +91,6 @@ class BaseProtocol(object):
             self._transport.resume_reading()
             self._reading = True
 
-    @switchpoint
-    def close(self):
-        """Close the protocol."""
-        if self._closing or self._closed:
-            return
-        self._closing = True
-        self._transport.close()
-        self._closed.wait()
-
 
 class Protocol(BaseProtocol):
     """Base class for stream oriented protocols."""
@@ -111,40 +100,6 @@ class Protocol(BaseProtocol):
 
     def eof_received(self):
         """An EOF was received."""
-
-    @switchpoint
-    def write(self, data):
-        """Write *data* to the underlying transport.
-
-        If the write bufer is currently above the high-water mark, then this
-        method wait until it drops below the low-water mark.
-        """
-        self._may_write.wait()
-        if self._error:
-            raise compat.saved_exc(self._error)
-        elif self._closing or self._closed:
-            raise ProtocolError('protocol is closing/closed')
-        self._transport.write(data)
-
-    @switchpoint
-    def writelines(self, seq):
-        """Write all lines in *seq* to the underlying transport."""
-        self._may_write.wait()
-        if self._error:
-            raise compat.saved_exc(self._error)
-        elif self._closing or self._closed:
-            raise ProtocolError('protocol is closing/closed')
-        self._transport.writelines(seq)
-
-    @switchpoint
-    def write_eof(self):
-        """Shut down the write direction."""
-        self._may_write.wait()
-        if self._error:
-            raise compat.saved_exc(self._error)
-        elif self._closing or self._closed:
-            raise ProtocolError('protocol is closing/closed')
-        self._transport.write_eof()
 
 
 class MessageProtocol(Protocol):

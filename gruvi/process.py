@@ -78,9 +78,23 @@ class Process(Endpoint):
         self._term_signal = None
         self._child_exited.clear()
 
-    stdin = property(lambda self: self._stdin, doc="The child's standard input, or None.")
-    stdout = property(lambda self: self._stdout, doc="The child's standard output, or None.")
-    stderr = property(lambda self: self._stderr, doc="The child's standard error, or None.")
+    @property
+    def stdin(self):
+        """The child's standard input, or None."""
+        if self._stdin:
+            return self._stdin[0]
+
+    @property
+    def stdout(self):
+        """The child's standard output, or None."""
+        if self._stdout:
+            return self._stdout[0]
+
+    @property
+    def stderr(self):
+        """The child's standard error, or None."""
+        if self._stderr:
+            return self._stderr[0]
 
     @property
     def returncode(self):
@@ -137,14 +151,14 @@ class Process(Endpoint):
     def _connect_stdio(self, stdio):
         # Connect a StdIO container to a StreamProtocol. Return the (possibly
         # wrapped) Stream
-        _, protocol = create_connection(self._protocol_factory, stdio.stream)
+        transport, protocol = create_connection(self._protocol_factory, stdio.stream)
         if self._encoding:
             stream = TextIOWrapper(protocol.stream, self._encoding, **self._textio_args)
             if self._emulate_write_through:
                 compat.make_textiowrapper_writethrough(stream)
         else:
             stream = protocol.stream
-        return stream
+        return stream, transport, protocol
 
     def spawn(self, args, executable=None, stdin=None, stdout=None, stderr=None,
               shell=False, cwd=None, env=None, flags=0, extra_handles=None):
@@ -243,11 +257,11 @@ class Process(Endpoint):
         self._process.close()
         self._process = None
         if self._stdin:
-            self._stdin.close()
+            self._stdin[1].close()
         if self._stdout:
-            self._stdout.close()
+            self._stdout[1].close()
         if self._stderr:
-            self._stderr.close()
+            self._stderr[1].close()
         self._child_exited.set()
         self.child_exited(exit_status, term_signal)
 

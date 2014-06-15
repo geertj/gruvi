@@ -15,11 +15,11 @@ from . import compat
 from .sync import Event
 from .errors import Cancelled
 from .fibers import spawn
-from .protocols import Protocol
-from .endpoints import Client, Server, add_method, add_protocol_method
+from .protocols import Protocol, ProtocolError
+from .endpoints import Client, Server, add_method
 from .hub import switchpoint
 
-__all__ = ['StreamReader', 'StreamProtocol', 'StreamClient', 'StreamServer']
+__all__ = ['StreamReader', 'StreamWriter', 'StreamProtocol', 'StreamClient', 'StreamServer']
 
 
 class StreamReader(BufferedIOBase):
@@ -217,13 +217,88 @@ class StreamReader(BufferedIOBase):
             yield line
 
 
+class StreamWriter(BufferedIOBase):
+    """A stream writer.
+
+    This class implements flow control in the write direction for a
+    transport/protocol pair.
+    """
+
+    def __init__(self, transport, protocol):
+        self._transport = transport
+        self._protocol = protocol
+
+    writable = lambda self: True
+    closed = property(lambda self: self._transport is None)
+
+    @switchpoint
+    def write(self, data):
+        """Write *data* to the transport.
+
+        This method just submits the write to the transport. The transport
+        itself will issue the write at a later time. If there's an error once
+        the write is issued, it an exception will be set on the transport, that
+        will be re-raised by future :meth:`write` and other method.
+
+        This method may block if the protocol is currently blocked, i.e. if the
+        protocol's :meth:`Protocol.pause_writing` method was called by the
+        transport.  In this case, the write block until the protocol's
+        :meth:`Protocol.resume_writing` method is called.
+        """
+        self._protocol._may_write.wait()
+        if self._transport._error:
+            raise compat.saved_exc(self._transport._error)
+        elif self._transport is None:
+            raise ProtocolError('not connected')
+        self._transport.write(data)
+
+    @switchpoint
+    def writelines(self, seq):
+        """Write the elements of the sequence *seq* to the transport.
+
+        This method implements flow control as described in :meth:`write`.
+        """
+        for line in seq:
+            self._protocol._may_write.wait()
+            if self._protocol._error:
+                raise compat.saved_exc(self._transport._error)
+            elif self._transport is None:
+                raise ProtocolError('not connected')
+            self._transport.write(line)
+
+    @switchpoint
+    def write_eof(self):
+        """Close the write direction on the transport.
+
+        This method implements flow control as described in :meth:`write`. The
+        EOF will only be written when the protocol is not paused.
+        """
+        self._protocol._may_write.wait()
+        if self._transport._error:
+            raise compat.saved_exc(self._transport._error)
+        elif self._transport is None:
+            raise ProtocolError('not connected')
+        self._transport.write_eof()
+
+    @switchpoint
+    def close(self):
+        """Close the transport.
+
+        This method will wait until all outstanding data in the transport is
+        flushed, and the transport is closed by the event loop.
+        """
+        if self._transport is None:
+            return
+        self._transport.close()
+        self._protocol._closed.wait()
+
+
 class ReadWriteStream(BufferedIOBase):
     """Adapter that adapts a StreamProtocol to a BufferedIOBase."""
 
-    def __init__(self, reader, writer, transport):
+    def __init__(self, reader, writer):
         self._reader = reader
         self._writer = writer
-        self._transport = transport
         self.read = reader.read
         self.read1 = reader.read1
         self.readline = reader.readline
@@ -231,12 +306,12 @@ class ReadWriteStream(BufferedIOBase):
         self.__iter__ = reader.__iter__
         self.write = writer.write
         self.writelines = writer.writelines
-        self.write_eof = transport.write_eof
-        self.close = transport.close
+        self.write_eof = writer.write_eof
+        self.close = writer.close
 
     readable = lambda self: True
     writable = lambda self: True
-    closed = property(lambda self: bool(self._transport.closed))
+    closed = property(lambda self: self._writer.closed)
 
 
 class StreamProtocol(Protocol):
@@ -258,8 +333,8 @@ class StreamProtocol(Protocol):
     def connection_made(self, transport):
         super(StreamProtocol, self).connection_made(transport)
         self._reader = StreamReader(self._update_read_buffer, timeout=self._timeout)
-        self._writer = super(StreamProtocol, self)
-        self._stream = ReadWriteStream(self._reader, self._writer, self._transport)
+        self._writer = StreamWriter(transport, self)
+        self._stream = ReadWriteStream(self._reader, self._writer)
 
     def data_received(self, data):
         # Protocol callback
@@ -279,20 +354,6 @@ class StreamProtocol(Protocol):
         # if self._error:
         #     self._reader.feed_error(self._error)
 
-    _stream_method = textwrap.dedent("""\
-        def {name}{signature}:
-            '''{docstring}'''
-            if not self._stream:
-                raise RuntimeError('not connected')
-            return self._stream.{name}{arglist}
-            """)
-
-    add_method(_stream_method, StreamReader.read)
-    add_method(_stream_method, StreamReader.read1)
-    add_method(_stream_method, StreamReader.readline)
-    add_method(_stream_method, StreamReader.readlines)
-    add_method(_stream_method, StreamReader.__iter__)
-
 
 class StreamClient(Client):
     """A stream client."""
@@ -303,17 +364,25 @@ class StreamClient(Client):
     def _create_protocol(self):
         return StreamProtocol(timeout=self._timeout)
 
-    add_protocol_method(StreamProtocol.stream, name='stream')
+    _stream_method = textwrap.dedent("""\
+        def {name}{signature}:
+            '''{docstring}'''
+            if not self._connection:
+                raise RuntimeError('not connected')
+            return self._connection[1].stream.{name}{arglist}
+            """)
 
-    add_protocol_method(StreamProtocol.read)
-    add_protocol_method(StreamProtocol.read1)
-    add_protocol_method(StreamProtocol.readline)
-    add_protocol_method(StreamProtocol.readlines)
-    add_protocol_method(StreamProtocol.__iter__)
+    add_method(_stream_method, StreamReader.read)
+    add_method(_stream_method, StreamReader.read1)
+    add_method(_stream_method, StreamReader.readline)
+    add_method(_stream_method, StreamReader.readlines)
+    add_method(_stream_method, StreamReader.__iter__)
 
-    add_protocol_method(StreamProtocol.write)
-    add_protocol_method(StreamProtocol.writelines)
-    add_protocol_method(StreamProtocol.write_eof)
+    add_method(_stream_method, StreamWriter.write)
+    add_method(_stream_method, StreamWriter.writelines)
+    add_method(_stream_method, StreamWriter.write_eof)
+
+    add_method(_stream_method, StreamProtocol.stream, name='stream')
 
 
 class StreamServer(Server):

@@ -59,6 +59,7 @@ from .hub import switchpoint
 from .util import docfrom
 from .errors import Error
 from .protocols import MessageProtocol
+from .stream import StreamWriter
 from .endpoints import Client, Server, add_protocol_method
 from .stream import StreamReader
 from .http_ffi import lib as _lib, ffi as _ffi
@@ -403,7 +404,7 @@ class HttpRequest(object):
             headers.append(('TE', 'trailers'))
         # Start the request
         header = create_request(version, method, url, headers)
-        self._protocol.write(header)
+        self._protocol._writer.write(header)
 
     def write(self, buf):
         """Write *buf* to the request body."""
@@ -417,7 +418,7 @@ class HttpRequest(object):
                                     .format(self._bytes_written, self._content_length))
         if self._chunked:
             buf = create_chunk(buf)
-        self._protocol.write(buf)
+        self._protocol._writer.write(buf)
 
     def end_request(self, trailers=None):
         """End the request body.
@@ -429,7 +430,7 @@ class HttpRequest(object):
             raise RuntimeError('trailers require "chunked" encoding')
         if self._chunked:
             ending = create_chunked_body_end(trailers)
-            self._protocol.write(ending)
+            self._protocol._writer.write(ending)
 
 
 class HttpResponse(object):
@@ -561,7 +562,7 @@ class WsgiHandler(object):
         if date is None:
             self._headers.append(('Date', rfc1123_date()))
         header = create_response(version, self._status, self._headers)
-        self._protocol.write(header)
+        self._protocol._writer.write(header)
 
     def start_response(self, status, headers, exc_info=None):
         """Callable to be passed to the WSGI application."""
@@ -593,7 +594,7 @@ class WsgiHandler(object):
             self._headers_sent = True
         if self._chunked:
             data = create_chunk(data)
-        self._protocol.write(data)
+        self._protocol._writer.write(data)
 
     def end_response(self):
         """End a response."""
@@ -603,9 +604,9 @@ class WsgiHandler(object):
         if self._chunked:
             trailers = self._environ.get('gruvi.trailers')
             ending = create_chunked_body_end(trailers)
-            self._protocol.write(ending)
+            self._protocol._writer.write(ending)
         if not self._message.should_keep_alive:
-            self._transport.close()
+            self._protocol._writer.close()
 
     def __call__(self, message, transport, protocol):
         """Run a WSGI handler."""
@@ -729,6 +730,7 @@ class HttpProtocol(MessageProtocol):
         self._header_size = 0
         self._all_body_sizes = 0
         self._response = None
+        self._writer = None
 
     @property
     def server_side(self):
@@ -881,6 +883,11 @@ class HttpProtocol(MessageProtocol):
         self._message.body.feed_eof()
         return 0
 
+    def connection_made(self, transport):
+        # Protocol callback
+        super(HttpProtocol, self).connection_made(transport)
+        self._writer = StreamWriter(transport, self)
+
     def data_received(self, data):
         # Protocol callback
         nbytes = _lib.http_parser_execute(self._parser, self._settings, data, len(data))
@@ -945,8 +952,8 @@ class HttpProtocol(MessageProtocol):
         """
         if self._error:
             raise compat.saved_exc(self._error)
-        elif self._closing or self._closed:
-            raise HttpError('protocol is closing/closed')
+        elif self._transport is None:
+            raise HttpError('not connected')
         self._requests.append(method)
         request = HttpRequest(self._transport, self)
         request.start_request(method, url, headers, body)
