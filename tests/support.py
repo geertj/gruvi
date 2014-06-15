@@ -108,7 +108,7 @@ class TestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         setup_logging()
-        cls.testdir = os.path.realpath(os.path.split(__file__)[0])
+        cls.testdir = os.path.abspath(os.path.split(__file__)[0])
         cls.topdir = os.path.split(cls.testdir)[0]
         os.chdir(cls.testdir)
         certname = 'testcert.pem'
@@ -122,7 +122,7 @@ class TestCase(unittest.TestCase):
 
     def setUp(self):
         self._tmpindex = 1
-        self.__tmpdir = os.path.realpath(tempfile.mkdtemp('gruvi-test'))
+        self.__tmpdir = tempfile.mkdtemp('gruvi-test')
         self.__tmpinode = os.stat(self.__tmpdir).st_ino
 
     def tearDown(self):

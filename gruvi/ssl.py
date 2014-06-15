@@ -69,9 +69,10 @@ class SslSocketInfo(object):
         return sslcompat.tls_unique_cb(self._sslobj)
 
 
-def write_to_socket(sock, data, offset):
+def write_to_socket(sock, data):
     """Write as much of *data* to the socket as possible, retrying short writes
     due to EINTR only."""
+    offset = 0
     while offset != len(data):
         try:
             nbytes = sock.send(data[offset:])
@@ -271,7 +272,7 @@ class SslPipe(object):
         ssldata = []; appdata = []
         while True:
             self._need_ssldata = False
-            offset = write_to_socket(self._sockets[0], view, offset)
+            offset += write_to_socket(self._sockets[0], view[offset:])
             try:
                 if self._state == self.S_DO_HANDSHAKE:
                     # Call do_handshake() until it doesn't raise anymore.
@@ -329,25 +330,12 @@ class SslPipe(object):
             # pass through data in unwrapped mode
             return ([data[offset:]] if offset < len(data) else [], len(data))
         ssldata = []
-        # OpenSSL requires that a retried write is passed exactly the same
-        # memory location. On Python 2.7+ this is guaranteed because we use a
-        # real memoryview, but on 2.6 it isn't because compat.memoryview is a
-        # buffer there which copies data when sliced. However, because SSL
-        # partial writes are disabled on all current Python versions, we
-        # actually don't need a slice.
-        # The end result is that the code below works on all versions with a
-        # real memoryview even if partial write should become enabled, and on
-        # 2.6 as long as partial writes continue to be disabled there (since
-        # 2.6 is in deep freeze, a fair assumption).
         view = compat.memoryview(data)
         while True:
             self._need_ssldata = False
             try:
                 if offset < len(view):
-                    buf = view if compat.PY26 else view[offset:]
-                    offset += self._sslobj.write(buf)
-                if compat.PY26 and offset != len(view):
-                    raise AssertionError('SSL_MODE_ENABLE_PARTIAL_WRITE enabled on Python 2.6?')
+                    offset += self._sslobj.write(view[offset:])
             except ssl.SSLError as e:
                 # It is not allowed to call write() after unwrap() until the
                 # close_notify is acknowledged. We return the condition to the

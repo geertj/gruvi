@@ -22,7 +22,7 @@ PY3 = sys.version_info[0] == 3
 if PY26:
 
     memoryview = buffer   # read-only but close enough for us
-    bytes_types = (bytes, bytearray, buffer)  # noqa
+    bytes_types = (bytes, bytearray, buffer)  # flake8: noqa
 
 else:
 

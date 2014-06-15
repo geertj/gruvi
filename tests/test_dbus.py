@@ -323,8 +323,10 @@ class TestGruviDbus(UnitTest):
         self.assertEqual(cauth.getMechanismName(), sauth.getMechanismName())
         if hasattr(socket, 'SO_PEERCRED'):
             self.assertEqual(cauth.getMechanismName(), 'EXTERNAL')
-        else:
+        elif hasattr(os, 'fork'):
             self.assertEqual(cauth.getMechanismName(), 'DBUS_COOKIE_SHA1')
+        else:
+            self.assertEqual(cauth.getMechanismName(), 'ANONYMOUS')
         client.close()
         server.close()
 
@@ -347,7 +349,10 @@ class TestGruviDbus(UnitTest):
         self.assertEqual(cproto.server_guid, sproto.server_guid)
         self.assertEqual(sproto.server_guid, sauth.getGUID())
         self.assertEqual(cauth.getMechanismName(), sauth.getMechanismName())
-        self.assertEqual(sauth.getMechanismName(), 'DBUS_COOKIE_SHA1')
+        if hasattr(os, 'fork'):
+            self.assertEqual(cauth.getMechanismName(), 'DBUS_COOKIE_SHA1')
+        else:
+            self.assertEqual(cauth.getMechanismName(), 'ANONYMOUS')
         client.close()
         server.close()
 
