@@ -234,8 +234,7 @@ class Process(Endpoint):
         stdio = self._get_stdio_handles(hub.loop, stdin, stdout, stderr, extra_handles)
         kwargs['stdio'] = stdio
         process = pyuv.Process(hub.loop)
-        # See pyuv ticket #160 regarding args[1:]
-        process.spawn(executable, self._on_child_exit, args[1:], **kwargs)
+        process.spawn(args, executable, exit_callback=self._on_child_exit, **kwargs)
         # Create stdin/stdout/stderr transports/protocols.
         if stdio[0].stream:
             self._stdin = self._connect_stdio(stdio[0])

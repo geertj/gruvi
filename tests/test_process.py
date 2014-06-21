@@ -235,7 +235,7 @@ class TestProcess(UnitTest):
         proc.wait()
         self.assertEqual(proc.returncode, 0)
 
-    def test_encoding(self):
+    def test_stdio_encoding(self):
         # Ensure that passing encoding=xxx to the constructor works.
         encoding = locale.getpreferredencoding()
         proc = Process(encoding=encoding)
@@ -244,6 +244,29 @@ class TestProcess(UnitTest):
         proc.stdin.close()
         self.assertEqual(proc.stdout.readline(), u'20 \u20ac\n')
         self.assertEqual(proc.wait(), 0)
+
+    def test_spawn_unicode_args(self):
+        # Ensure that it's possible to spawn a child with unicode arguments.
+        proc = Process()
+        env = os.environ.copy()
+        # Ensure to have a capable sys.stdout encoding.
+        env['PYTHONIOENCODING'] = 'utf-8'
+        proc.spawn(['echo', 'foo', u'\u20ac'], stdout=PIPE, env=env)
+        # Unsure why a \x00 is present at the end
+        line = proc.stdout.readline().rstrip()
+        self.assertEqual(line, u'foo \u20ac'.encode('utf-8'))
+        proc.wait()
+
+    def test_spawn_unicode_env(self):
+        # Ensure that it's possible to spawn a child with a unicode environment.
+        proc = Process()
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        env['FOO'] = u'foo \u20ac'
+        proc.spawn(['echo', '$FOO'], stdout=PIPE, env=env)
+        line = proc.stdout.readline().rstrip()
+        self.assertEqual(line, u'foo \u20ac'.encode('utf-8'))
+        proc.wait()
 
     def test_timeout(self):
         # Ensure that the timeout=xxx constructor argument works.
