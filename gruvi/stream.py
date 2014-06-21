@@ -144,7 +144,7 @@ class StreamReader(BufferedIOBase):
             raise compat.saved_exc(self._error)
         return b''.join(chunks)
 
-    def read1(self, size):
+    def read1(self, size=-1):
         """Read up to *size* bytes.
 
         This function reads from the buffer only once. It is useful in case you
