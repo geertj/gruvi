@@ -477,6 +477,11 @@ class HttpResponse(object):
         """
         return get_field(self._message.trailers, name, default)
 
+    @property
+    def body(self):
+        """A :class:`StreamReader` instance for reading the response body."""
+        return self._message.body
+
     @switchpoint
     def read(self, size=-1):
         """Read up to *size* bytes from the response body.
@@ -731,6 +736,7 @@ class HttpProtocol(MessageProtocol):
         self._all_body_sizes = 0
         self._response = None
         self._writer = None
+        self._message = None
 
     @property
     def server_side(self):
@@ -895,6 +901,9 @@ class HttpProtocol(MessageProtocol):
             msg = _cd2s(_lib.http_errno_name(_lib.http_errno(self._parser)))
             self._log.debug('http_parser_execute(): {0}'.format(msg))
             self._error = HttpError('parse error: {0}'.format(msg))
+            if self._message:
+                self._message.body.feed_error(self._error)
+            self._queue.put_nowait(self._error)
             self._transport.close()
 
     def connection_lost(self, exc):
@@ -906,6 +915,9 @@ class HttpProtocol(MessageProtocol):
             self._log.debug('http_parser_execute(): {0}'.format(msg))
             if exc is None:
                 exc = HttpError('parse error: {0}'.format(msg))
+            if self._message:
+                self._message.body.feed_error(self._error)
+            self._queue.put_nowait(self._error)
         super(HttpProtocol, self).connection_lost(exc)
 
     @switchpoint
@@ -996,6 +1008,8 @@ class HttpProtocol(MessageProtocol):
         if self._response and not self._response.body.eof:
             raise RuntimeError('body of previous response not completely read')
         message = self._queue.get(timeout=timeout)
+        if isinstance(message, Exception):
+            raise compat.saved_exc(message)
         self._response = message
         return HttpResponse(message)
 
