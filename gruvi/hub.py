@@ -206,12 +206,6 @@ class switch_back(object):
             self._callbacks = []
         self._callbacks.append((callback, args))
 
-    def throw(self, exc):
-        """Raise the exception *exc* in the origin fiber."""
-        if self._hub is None or not self._fiber.is_alive():
-            return
-        self._hub.run_callback(self._fiber.switch, exc)
-
     def __call__(self, *args, **kwargs):
         if self._hub is None or not self._fiber.is_alive():
             return

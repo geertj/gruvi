@@ -247,8 +247,8 @@ class DbusProtocol(MessageProtocol):
         # Protocol callback
         super(DbusProtocol, self).connection_lost(exc)
         for notify in self._method_calls.values():
-            if hasattr(notify, 'throw'):
-                notify.throw(self._error)
+            if isinstance(notify, switch_back) and notify.fiber:
+                notify.fiber.throw(self._error)
         self._method_calls.clear()
         self._name_acquired.set()
         self._authenticator = None  # break cycle

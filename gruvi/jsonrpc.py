@@ -260,7 +260,8 @@ class JsonRpcProtocol(MessageProtocol):
         # Protocol callback
         super(JsonRpcProtocol, self).connection_lost(exc)
         for switcher in self._method_calls.values():
-            switcher.throw(self._error)
+            if switcher.fiber:
+                switcher.fiber.throw(self._error)
         self._method_calls.clear()
         if self._tracefile:
             self._tracefile.close()

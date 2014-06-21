@@ -70,15 +70,11 @@ class Fiber(fibers.Fiber):
             return
         return super(Fiber, self).switch(value)
 
-    def cancel(self):
-        """Cancel this fiber.
-
-        The fiber is cancelled by throwing a :class:`Cancelled` exception
-        inside it.
-        """
+    def throw(self, exc):
+        """Throw *exc* in the fiber in the next iteration of the event loop."""
         if not self.is_alive():
             return
-        self._hub.run_callback(self.throw, Cancelled('cancelled by Fiber.cancel()'))
+        self._hub.run_callback(super(Fiber, self).throw, exc)
 
     def join(self, timeout=None):
         """Wait until the fiber completes."""
