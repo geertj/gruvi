@@ -263,10 +263,10 @@ class TestHttpProtocol(UnitTest):
         self.transport = transport
         self.protocol = protocol
 
-    def get_response(self):
+    def getresponse(self):
         # Get a parsed resposne.
         # The sleep here will run the dispatcher.
-        response = self.protocol.get_response()
+        response = self.protocol.getresponse()
         self.assertIsInstance(response, HttpResponse)
         message = response._message
         self.assertIsInstance(message, HttpMessage)
@@ -276,7 +276,7 @@ class TestHttpProtocol(UnitTest):
     def test_simple_response(self):
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n'
         self.parse_response(r)
-        ro = self.get_response()
+        ro = self.getresponse()
         self.assertEqual(ro.version, '1.1')
         self.assertEqual(ro.status, 200)
         self.assertEqual(ro.headers, [('Content-Length', '0')])
@@ -287,7 +287,7 @@ class TestHttpProtocol(UnitTest):
     def test_response_with_body(self):
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nFoo'
         self.parse_response(r)
-        ro = self.get_response()
+        ro = self.getresponse()
         self.assertEqual(ro.version, '1.1')
         self.assertEqual(ro.status, 200)
         self.assertEqual(ro.headers, [('Content-Length', '3')])
@@ -299,7 +299,7 @@ class TestHttpProtocol(UnitTest):
     def test_response_with_body_incremental(self):
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nFoo'
         self.parse_response([r[i:i+1] for i in range(len(r))])
-        ro = self.get_response()
+        ro = self.getresponse()
         self.assertEqual(ro.version, '1.1')
         self.assertEqual(ro.status, 200)
         self.assertEqual(ro.headers, [('Content-Length', '3')])
@@ -310,7 +310,7 @@ class TestHttpProtocol(UnitTest):
         r = b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n' \
             b'3\r\nFoo\r\n0\r\n\r\n'
         self.parse_response(r)
-        ro = self.get_response()
+        ro = self.getresponse()
         self.assertEqual(ro.version, '1.1')
         self.assertEqual(ro.status, 200)
         self.assertEqual(ro.headers, [('Transfer-Encoding', 'chunked')])
@@ -321,7 +321,7 @@ class TestHttpProtocol(UnitTest):
         r = b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n' \
             b'3\r\nFoo\r\n0\r\n\r\n'
         self.parse_response([r[i:i+1] for i in range(len(r))])
-        ro = self.get_response()
+        ro = self.getresponse()
         self.assertEqual(ro.version, '1.1')
         self.assertEqual(ro.status, 200)
         self.assertEqual(ro.headers, [('Transfer-Encoding', 'chunked')])
@@ -332,7 +332,7 @@ class TestHttpProtocol(UnitTest):
         r = b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n' \
             b'3\r\nFoo\r\n0\r\nETag: foo\r\n\r\n'
         self.parse_response(r)
-        ro = self.get_response()
+        ro = self.getresponse()
         self.assertEqual(ro.version, '1.1')
         self.assertEqual(ro.status, 200)
         self.assertEqual(ro.headers, [('Transfer-Encoding', 'chunked')])
@@ -347,7 +347,7 @@ class TestHttpProtocol(UnitTest):
             b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\nSet-Cookie: foo=1\r\n\r\n'
         self.parse_response(r)
         for i in range(2):
-            ro = self.get_response()
+            ro = self.getresponse()
             self.assertEqual(ro.version, '1.1')
             self.assertEqual(ro.status, 200)
             cookie = 'foo={0}'.format(i)
@@ -359,7 +359,7 @@ class TestHttpProtocol(UnitTest):
             b'HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nFoo1'
         self.parse_response(r)
         for i in range(2):
-            ro = self.get_response()
+            ro = self.getresponse()
             self.assertEqual(ro.version, '1.1')
             self.assertEqual(ro.status, 200)
             self.assertEqual(ro.headers, [('Content-Length', '4')])
@@ -371,7 +371,7 @@ class TestHttpProtocol(UnitTest):
             b'HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n'
         self.parse_response(r, methods=['HEAD', 'HEAD'])
         for i in range(2):
-            ro = self.get_response()
+            ro = self.getresponse()
             self.assertEqual(ro.version, '1.1')
             self.assertEqual(ro.status, 200)
             self.assertEqual(ro.headers, [('Content-Length', '3')])
@@ -383,7 +383,7 @@ class TestHttpProtocol(UnitTest):
             b'HTTP/1.1 304 OK\r\nCookie: foo2\r\n\r\n'
         self.parse_response(r)
         for i in range(3):
-            ro = self.get_response()
+            ro = self.getresponse()
             self.assertEqual(ro.version, '1.1')
             self.assertEqual(ro.headers, [('Cookie', 'foo{0}'.format(i))])
             self.assertEqual(ro.read(), b'')
@@ -394,7 +394,7 @@ class TestHttpProtocol(UnitTest):
         # the first.
         r = b'HTTP/1.1 200 OK\r\nCookie: foo0\r\n\r\nfoo'
         self.parse_response(r)
-        ro = self.get_response()
+        ro = self.getresponse()
         self.assertEqual(ro.version, '1.1')
         self.assertEqual(ro.headers, [('Cookie', 'foo0')])
         self.assertEqual(ro.read(3), b'foo')
@@ -408,7 +408,7 @@ class TestHttpProtocol(UnitTest):
         # still does not require it to see an EOF.
         r = b'HTTP/1.1 204 OK\r\nCookie: foo0\r\n\r\n'
         self.parse_response(r)
-        ro = self.get_response()
+        ro = self.getresponse()
         self.assertEqual(ro.version, '1.1')
         self.assertEqual(ro.headers, [('Cookie', 'foo0')])
         self.assertEqual(ro.read(), b'')
@@ -436,7 +436,7 @@ class TestHttp(UnitTest):
         client = HttpClient()
         client.connect(addr)
         client.request('GET', '/')
-        response = client.get_response()
+        response = client.getresponse()
         self.assertEqual(response.version, '1.1')
         self.assertEqual(response.status, 200)
         ident = response.get_header('Server')
@@ -454,7 +454,7 @@ class TestHttp(UnitTest):
         client = HttpClient()
         client.connect(addr)
         client.request('GET', '/')
-        response = client.get_response()
+        response = client.getresponse()
         self.assertEqual(response.read(), b'Hello!')
         server.close()
         client.close()
@@ -467,7 +467,7 @@ class TestHttp(UnitTest):
         client = HttpClient()
         client.connect(addr, ssl=context)
         client.request('GET', '/')
-        response = client.get_response()
+        response = client.getresponse()
         self.assertEqual(response.read(), b'Hello!')
         server.close()
         client.close()
@@ -479,7 +479,7 @@ class TestHttp(UnitTest):
         client = HttpClient()
         client.connect(addr)
         client.request('POST', '/', body=b'foo')
-        response = client.get_response()
+        response = client.getresponse()
         body = response.read()
         self.assertEqual(body, b'foo')
         server.close()
@@ -494,7 +494,7 @@ class TestHttp(UnitTest):
         client = HttpClient()
         client.connect(addr)
         client.request('POST', '/', body='foo')
-        response = client.get_response()
+        response = client.getresponse()
         body = response.read()
         self.assertEqual(body, b'foo')
         server.close()
@@ -507,7 +507,7 @@ class TestHttp(UnitTest):
         client = HttpClient()
         client.connect(addr)
         client.request('POST', '/', body=[b'foo', 'bar'])
-        response = client.get_response()
+        response = client.getresponse()
         body = response.read()
         self.assertEqual(body, b'foobar')
         server.close()

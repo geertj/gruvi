@@ -434,7 +434,7 @@ class HttpRequest(object):
 
 
 class HttpResponse(object):
-    """An HTTP response as returned by :meth:`HttpClient.get_response`."""
+    """An HTTP response as returned by :meth:`HttpClient.getresponse`."""
 
     def __init__(self, message):
         self._message = message
@@ -954,7 +954,7 @@ class HttpProtocol(MessageProtocol):
         HTTP "chunked" encoding. Trailers are not normally used.
 
         The response to the request can be obtained by calling the
-        :meth:`get_response` method.
+        :meth:`getresponse` method.
 
         You may make multiple requests before reading a response. This is
         called pipelining, and can improve per request latency greatly. For
@@ -985,7 +985,7 @@ class HttpProtocol(MessageProtocol):
         request.end_request()
 
     @switchpoint
-    def get_response(self, timeout=-1):
+    def getresponse(self, timeout=-1):
         """Wait for and return a HTTP response.
 
         The return value is a :class:`HttpResponse` instance. When this method
@@ -994,7 +994,7 @@ class HttpProtocol(MessageProtocol):
 
         Note that it is requires  that you read the entire body of each
         response if you use HTTP pipelining. Specifically, it is an error to
-        call :meth:`get_response` when the body of the response returned by a
+        call :meth:`getresponse` when the body of the response returned by a
         previous invocation has not yet been fully read.
         """
         if self._error:
@@ -1037,7 +1037,7 @@ class HttpClient(Client):
         return super(HttpClient, self).connect(address, **kwargs)
 
     add_protocol_method(HttpProtocol.request)
-    add_protocol_method(HttpProtocol.get_response)
+    add_protocol_method(HttpProtocol.getresponse)
 
     def _create_protocol(self):
         return HttpProtocol(False, server_name=self._server_name, timeout=self._timeout)
