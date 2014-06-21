@@ -404,7 +404,7 @@ class TestStreamProtocol(UnitTest):
         gruvi.sleep(0)
 
 
-def echo_handler(protocol):
+def echo_handler(stream, transport, protocol):
     stream = protocol.stream
     while True:
         buf = stream.readline()

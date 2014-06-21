@@ -382,7 +382,9 @@ class StreamClient(Client):
     add_method(_stream_method, StreamWriter.writelines)
     add_method(_stream_method, StreamWriter.write_eof)
 
-    add_method(_stream_method, StreamProtocol.stream, name='stream')
+    @property
+    def stream(self):
+        return self.connection[1].stream
 
 
 class StreamServer(Server):
@@ -402,7 +404,7 @@ class StreamServer(Server):
     def _dispatch_stream(self, transport, protocol):
         self._log.debug('stream handler started')
         try:
-            self._stream_handler(protocol)
+            self._stream_handler(protocol.stream, transport, protocol)
         except Cancelled:
             self._log.debug('stream handler cancelled')
         except Exception:
