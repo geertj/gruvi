@@ -164,11 +164,20 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
         result = getaddrinfo(address[0], address[1], family, socket.SOCK_STREAM,
                              socket.IPPROTO_TCP, flags)
         addresses = [res[4] for res in result]
+    elif isinstance(address, int):
+        if os.isatty(address):
+            if mode not in ('r', 'w'):
+                raise ValueError("mode: must be either 'r' or 'w' for tty")
+            handle = pyuv.TTY(hub.loop, address, mode == 'r')
+        else:
+            handle = pyuv.Pipe(hub.loop, True)
+            handle.open(address)
+        addresses = []; error = None
     elif isinstance(address, pyuv.Stream):
         handle = address
         addresses = []; error = None
     else:
-        raise TypeError('expecting a string, tuple, or pyuv.Stream')
+        raise TypeError('expecting a string, tuple, fd, or pyuv.Stream')
     for addr in addresses:
         log.debug('trying address {}', saddr(addr))
         handle = handle_type(hub.loop)
