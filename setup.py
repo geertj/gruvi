@@ -92,7 +92,14 @@ def main():
     import http_ffi, jsonrpc_ffi
     ext_modules = [http_ffi.ffi.verifier.get_extension(),
                    jsonrpc_ffi.ffi.verifier.get_extension()]
-    if PY2:
+    # On Windows, don't compile _sslcompat by default. Windows doesn't have a
+    # system provided OpenSSL, and the official Python builds for Windows use a
+    # static version of OpenSSL that is built duing the Python build process.
+    # No shared library or headers are provided for it, so it's alsmost
+    # impossible to match it. If you really want _sslcompat on Python 2.x on
+    # Windows, your best bet is to compile Python from source, keep the OpenSSL
+    # temporary build, and link against that.
+    if PY2 and not sys.platform.startswith('win'):
         ext_modules.append(Extension('_sslcompat', ['gruvi/_sslcompat.c'],
                                      libraries=['ssl', 'crypto']))
     sys.path.pop()

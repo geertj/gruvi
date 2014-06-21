@@ -24,10 +24,12 @@ if hasattr(socket, 'socketpair'):
 else:
     from .socketpair import socketpair
 
+__all__ = ['SslTransport', 'create_ssl_context']
+
 if six.PY2:
     from . import sslcompat
-
-__all__ = ['SslTransport', 'create_ssl_context']
+    HAVE_SSL_BACKPORTS = sslcompat._sslcompat is not None
+    __all__.append('HAVE_SSL_BACKPORTS')
 
 
 class SslSocketInfo(object):

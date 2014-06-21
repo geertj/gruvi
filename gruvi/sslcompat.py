@@ -15,17 +15,33 @@ if sys.version_info[0] == 3:
 
 import _ssl
 import ssl
-from . import _sslcompat
+try:
+    from . import _sslcompat
+except ImportError:
+    # Only allow _sslcompat=None on Windows
+    if not sys.platform.startswith('win'):
+        raise
+    _sslcompat = None
+
 
 __all__ = []
 
-# Export constants from _sslcompat
-for key in dir(_sslcompat):
-    if key[:4].isupper():  # also export FOO_BARv1
-        value = getattr(_sslcompat, key)
-        globals()[key] = value
+if _sslcompat:
+    # Export constants from _sslcompat
+    for key in dir(_sslcompat):
+        if key[:4].isupper():  # also export FOO_BARv1
+            value = getattr(_sslcompat, key)
+            globals()[key] = value
 
-errorcode = _sslcompat.errorcode
+    errorcode = _sslcompat.errorcode
+
+else:
+    # These should not change, but hope for the best anyway.
+    # Only errorcode is really used.
+    OP_ALL = 0x800003f7
+    OP_NO_SSLv2 = 0x1000000
+    errorcode =  {207: 'PROTOCOL_IS_SHUTDOWN'}
+
 
 if hasattr(ssl, '_DEFAULT_CIPHERS'):
     DEFAULT_CIPHERS = ssl._DEFAULT_CIPHERS
@@ -53,7 +69,7 @@ class SSLContext(object):
         self._ssl_args = [False, None, None, ssl.CERT_NONE, protocol, None]
         # Implement the same defaults as the Python ssl module
         self._ciphers = DEFAULT_CIPHERS
-        self._options = _sslcompat.OP_ALL & _sslcompat.OP_NO_SSLv2
+        self._options = OP_ALL & OP_NO_SSLv2
         self._dh_params = None
 
     def _wrap_socket(self, sock, server_side=False, server_hostname=None):
@@ -62,6 +78,11 @@ class SSLContext(object):
         # _ssl.sslwrap raises an exception if these are absent for server side
         # sockets. So the workaround is to create the socket as a client-side
         # socket and then flip it afterwards if needed.
+        # Of course this only works if we have the _sslcompat module.
+        if not _sslcompat:
+            if server_hostname:
+                raise RuntimeError('server_hostname: _sslcompat not available')
+            return _ssl.sslwrap(sock, server_side, *self._ssl_args[1:])
         sslobj = _ssl.sslwrap(sock, *self._ssl_args)
         if self._dh_params:
             _sslcompat.load_dh_params(sslobj, self._dh_params)
@@ -92,6 +113,8 @@ class SSLContext(object):
 
     @options.setter
     def options(self, options):
+        if _sslcompat is None:
+            raise RuntimeError('_sslcompat not available')
         self._options = options
 
     def load_verify_locations(self, ca_certs):
@@ -102,9 +125,13 @@ class SSLContext(object):
         self._ssl_args[2] = keyfile
 
     def set_ciphers(self, ciphers):
+        if _sslcompat is None:
+            raise RuntimeError('_sslcompat not availble')
         self._ciphers = ciphers
 
     def load_dh_params(self, dh_params):
+        if _sslcompat is None:
+            raise RuntimeError('_sslcompat not availble')
         self._dh_params = dh_params
 
 
@@ -112,11 +139,13 @@ def compression(sslobj):
     """Return the current compression method for *sslobj*."""
     if hasattr(sslobj, '_sslobj'):
         sslobj = sslobj._sslobj
-    return _sslcompat.compression(sslobj)
+    if _sslcompat is not None:
+        return _sslcompat.compression(sslobj)
 
 
 def tls_unique_cb(sslobj):
     """Get the "tls-unique" channel bindings for *sslobj."""
     if hasattr(sslobj, '_sslobj'):
         sslobj = sslobj._sslobj
-    return _sslcompat.tls_unique_cb(sslobj)
+    if _sslcompat is not None:
+        return _sslcompat.tls_unique_cb(sslobj)

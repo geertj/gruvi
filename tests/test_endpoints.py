@@ -9,6 +9,7 @@
 from __future__ import absolute_import, print_function
 
 import socket
+import six
 
 import gruvi
 from gruvi.transports import TransportError
@@ -97,7 +98,8 @@ class TestCreateConnection(UnitTest):
         # there should be a channel binding.
         sslinfo = ctrans.get_extra_info('sslinfo')
         self.assertIsNotNone(sslinfo)
-        self.assertGreater(len(sslinfo.get_channel_binding()), 0)
+        if six.PY3 or gruvi.HAVE_SSL_BACKPORTS:
+            self.assertGreater(len(sslinfo.get_channel_binding()), 0)
         strans, sproto = list(server.connections)[0]
         cproto.stream.write(b'foo\n')
         self.assertEqual(sproto.stream.readline(), b'foo\n')
@@ -123,7 +125,8 @@ class TestCreateConnection(UnitTest):
         # There should be a channel binding now.
         sslinfo = ctrans.get_extra_info('sslinfo')
         self.assertIsNotNone(sslinfo)
-        self.assertGreater(len(sslinfo.get_channel_binding()), 0)
+        if six.PY3 or gruvi.HAVE_SSL_BACKPORTS:
+            self.assertGreater(len(sslinfo.get_channel_binding()), 0)
         strans, sproto = list(server.connections)[0]
         cproto.stream.write(b'foo\n')
         self.assertEqual(sproto.stream.readline(), b'foo\n')
