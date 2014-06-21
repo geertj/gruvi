@@ -398,7 +398,8 @@ class Server(Endpoint):
     def close(self):
         """Close the listening sockets and all accepted connections."""
         for handle in self._handles:
-            handle.close()
+            if not handle.closed:
+                handle.close()
         del self._handles[:]
         for transport, _ in self.connections:
             transport.close()
