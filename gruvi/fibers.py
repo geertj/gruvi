@@ -36,7 +36,7 @@ class Fiber(fibers.Fiber):
     package are the root fiber and the :class:`Hub`.
     """
 
-    __slots__ = ('name', 'context', '_target', '_log', '_thread', '_done')
+    __slots__ = ('_name', 'context', '_target', '_log', '_thread', '_done')
 
     def __init__(self, target, args=(), kwargs={}, name=None, hub=None):
         self._hub = hub or get_hub()
@@ -45,12 +45,17 @@ class Fiber(fibers.Fiber):
             fid = self._hub.data.setdefault('gruvi:next_fiber', 1)
             name = 'Fiber-{0}'.format(fid)
             self._hub.data['gruvi:next_fiber'] += 1
-        self.name = name
-        self.context = ''
+        self._name = name
+        self.context = ''  # for logging
         self._target = target
         self._log = logging.get_logger()
         self._thread = threading.current_thread()
         self._done = Event()
+
+    @property
+    def name(self):
+        """The fiber's name."""
+        return self._name
 
     def start(self):
         """Schedule the fiber to be started in the next iteration of the
