@@ -27,5 +27,9 @@ from .transports import *
 from .protocols import *
 from .endpoints import *
 from .process import *
+from .stream import *
+from .http import *
+from .jsonrpc import *
+from .dbus import *
 
-from . import jsonrpc, dbus
+from ._version import version_info
