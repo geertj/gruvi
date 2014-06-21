@@ -400,7 +400,7 @@ class TestStreamProtocol(UnitTest):
             transport.buffer.truncate()
             protocol.resume_writing()
         self.assertGreater(interrupted, 30)
-        fib.cancel()
+        fib.throw(Cancelled)
         gruvi.sleep(0)
 
 

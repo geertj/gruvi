@@ -11,6 +11,7 @@ from __future__ import absolute_import, print_function
 import time
 
 import gruvi
+from gruvi.errors import *
 from gruvi.fibers import *
 from support import *
 
@@ -46,7 +47,7 @@ class PerfFiber(PerformanceTest):
             t1 = time.time()
         speed = count[0] / (t1 - t0)
         self.add_result(speed)
-        fiber.cancel()
+        fiber.throw(Cancelled)
         gruvi.sleep(0)
 
 
