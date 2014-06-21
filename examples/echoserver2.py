@@ -1,47 +1,25 @@
-#!/usr/bin/env python
-#
-# Example: echo server, using a new protocol
+# Gruvi example program: an echo server, using a Protocol
 
-from __future__ import print_function
+import gruvi
 
-import logging
-import argparse
+class EchoProtocol(gruvi.Protocol):
 
-import pyuv
-from gruvi import switchpoint, get_hub, util
-from gruvi.protocols import Protocol
+    def connection_made(self, transport):
+        super(EchoProtocol, self).connection_made(transport)
+        peer = transport.get_extra_info('peername')
+        print('New connection from {0}'.format(gruvi.saddr(peer)))
 
-logging.basicConfig()
+    def data_received(self, data):
+        self._transport.write(data)
 
+    def eof_received(self):
+        print('Connection lost')
 
-class EchoServer(Protocol):
-    """Echo protocol server."""
+server = gruvi.create_server(EchoProtocol, ('localhost', 7777))
+for addr in server.addresses:
+    print('Listen on {}'.format(gruvi.saddr(addr)))
 
-    def _on_transport_readable(self, transport, data, error):
-        if error == pyuv.errno.UV_EOF:
-            self._logger.debug('got EOF from client')
-            self._close_transport(transport)
-        elif error:
-            self._logger.error('got error {0} from client', error)
-            self._close_transport(transport)
-        else:
-            transport.write(data)
-
-    @switchpoint
-    def listen(self, address, ssl=False, **transport_args):
-        super(EchoServer, self)._listen(address, ssl, **transport_args)
-
-
-parser = argparse.ArgumentParser()
-parser.add_argument('hostname');
-parser.add_argument('port', type=int)
-args = parser.parse_args()
-
-server = EchoServer()
-server.listen((args.hostname, args.port))
-addr = server.transport.getsockname()
-print('Listening on {0}'.format(util.saddr(addr)))
-
-hub = get_hub()
-print('Press CTRL-C to quit')
-hub.switch(interrupt=True)
+try:
+    gruvi.get_hub().switch()
+except KeyboardInterrupt:
+    print('Exiting on CTRL-C')

@@ -1,0 +1,23 @@
+# Gruvi example program: a "fortune" web service
+
+import locale
+import gruvi
+
+def fortune_app(environ, start_response):
+    print('New connection from {}'.format(environ['REMOTE_ADDR']))
+    proc = gruvi.Process(encoding=locale.getpreferredencoding())
+    proc.spawn('fortune', stdout=gruvi.PIPE)
+    fortune = proc.stdout.read()
+    proc.wait()
+    start_response('200 OK', [('Content-Type', 'text/plain; charset=utf-8')])
+    return [fortune.encode('utf-8')]
+
+server = gruvi.HttpServer(fortune_app)
+server.listen(('localhost', 8000))
+for addr in server.addresses:
+    print('Listen on {}'.format(gruvi.saddr(addr)))
+
+try:
+    gruvi.get_hub().switch()
+except KeyboardInterrupt:
+    print('Exiting on CTRL-C')

@@ -1,29 +1,24 @@
-# Example: echo server, using StreamServer
+# Gruvi example program: echo server, using StreamServer
 
 import logging
-import argparse
+import gruvi
 
-from gruvi import get_hub, util
-from gruvi.stream import StreamServer
-
-logging.basicConfig()
-
-parser = argparse.ArgumentParser()
-parser.add_argument('port', type=int)
-args = parser.parse_args()
-
-def echo_handler(stream, protocol, client):
-    peer = client.getpeername()
-    print('Connection from {0}'.format(util.saddr(peer)))
+def echo_handler(stream, transport, protocol):
+    peer = transport.get_extra_info('peername')
+    print('New connection from {}'.format(gruvi.saddr(peer)))
     while True:
-        buf = stream.read(4096)
+        buf = stream.read1()
         if not buf:
             break
         stream.write(buf)
-    print('Connection closed')
+    print('Connection lost')
 
-server = StreamServer(echo_handler)
-server.listen(('0.0.0.0', args.port))
+server = gruvi.StreamServer(echo_handler)
+server.listen(('localhost', 7777))
+for addr in server.addresses:
+    print('Listen on {}'.format(gruvi.saddr(addr)))
 
-hub = get_hub()
-hub.switch(interrupt=True)
+try:
+    gruvi.get_hub().switch()
+except KeyboardInterrupt:
+    print('Exiting on CTRL-C')

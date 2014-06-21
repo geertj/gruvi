@@ -1,29 +1,31 @@
-# Example: cURL like URL downloader
+# Gruvi example program: a cURL like URL downloader
 
 import sys
 import argparse
-from gruvi import http
+from urllib.parse import urlsplit
+import gruvi
 
 parser = argparse.ArgumentParser()
-parser.add_argument('url');
+parser.add_argument('url')
 args = parser.parse_args()
 
-url = http.urlsplit2(args.url)
-client = http.HttpClient()
-client.connect((url.hostname, url.port), ssl=url.scheme == 'https')
+url = urlsplit(args.url)
+if not url.scheme:
+    url = urlsplit('http://{}'.format(args.url))
+is_ssl = url.scheme == 'https'
+port = url.port if url.port else 443 if is_ssl else 80
 
-client.request('GET', url.path)
+client = gruvi.HttpClient()
+client.connect((url.hostname, port), ssl=is_ssl)
+client.request('GET', url.path or '/')
+
 response = client.getresponse()
-
-ctype = response.get_header('Content-Type', 'text/plain')
-ctype, options = http.split_header_options(ctype)
-if not ctype.startswith('text/'):
-    print('Refusing to write {} to stdout'.format(ctype))
-    sys.exit(0)
-charset = options.get('charset', 'iso-8859-1')
+if not 200 <= response.status <= 299:
+    sys.stderr.write('Error: got status {}\n'.format(response.status))
+    sys.exit(1)
 
 while True:
-    buf = response.read(4096)
+    buf = response.body.read(4096)
     if not buf:
         break
-    sys.stdout.write(buf.decode(charset))
+    sys.stdout.buffer.write(buf)
