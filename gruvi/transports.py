@@ -46,8 +46,10 @@ class BaseTransport(object):
 
     write_buffer_size = 65536
 
-    def __init__(self, handle):
+    def __init__(self, handle, mode):
         self._handle = handle
+        self._readable = 'r' in mode
+        self._writable = 'w' in mode
         self._protocol = None
         self._log = logging.get_logger()
         self._write_buffer_size = 0
@@ -142,7 +144,7 @@ class Transport(BaseTransport):
     stream transport as specified in PEP 3156.
     """
 
-    def __init__(self, handle):
+    def __init__(self, handle, mode='rw'):
         """
         The *handle* argument is the pyuv handle for which to create the
         transport. It must be a :class:`pyuv.Stream` instance.
@@ -150,13 +152,14 @@ class Transport(BaseTransport):
         if not isinstance(handle, pyuv.Stream):
             raise TypeError("handle: expecting a 'pyuv.Stream' instance, got {0!r}"
                                 .format(type(handle).__name__))
-        super(Transport, self).__init__(handle)
+        super(Transport, self).__init__(handle, mode)
 
-    def start(self, protocol):
+    def start(self, protocol, mode='rw'):
         """Bind to *protocol* and start calling callbacks on it."""
         super(Transport, self).start(protocol)
-        self._handle.start_read(self._read_callback)
-        self._reading = True
+        if self._readable:
+            self._handle.start_read(self._read_callback)
+            self._reading = True
 
     def _read_callback(self, handle, data, error):
         # Callback used with handle.start_read().
@@ -174,7 +177,7 @@ class Transport(BaseTransport):
             self._log.warning('pyuv error {} in read callback', error)
             self._error = TransportError.from_errno(error)
             self.abort()
-        elif not self._closing:
+        elif not self._closing and data:
             self._protocol.data_received(data)
 
     def pause_reading(self):
@@ -182,23 +185,27 @@ class Transport(BaseTransport):
         # Note: pause_reading() and resume_reading() are allowed when _closing
         # is true (unlike e.g. write()). This makes it easier for our child
         # class SslTransport to enable reading when it is closing down.
-        if self._error:
+        if not self._readable:
+            raise TransportError('transport is not readable')
+        elif self._error:
             raise compat.saved_exc(self._error)
         elif self._protocol is None:
-            raise RuntimeError('transport not started')
+            raise TransportError('transport not started')
         elif not self._reading:
-            raise RuntimeError('not currently reading')
+            raise TransportError('not currently reading')
         self._handle.stop_read()
         self._reading = False
 
     def resume_reading(self):
         """Start calling callbacks on the protocol."""
-        if self._error:
+        if not self._readable:
+            raise TransportError('transport is not readable')
+        elif self._error:
             raise compat.saved_exc(self._error)
         elif self._protocol is None:
-            raise RuntimeError('transport not started')
+            raise TransportError('transport not started')
         elif self._reading:
-            raise RuntimeError('already reading')
+            raise TransportError('already reading')
         self._handle.start_read(self._read_callback)
         self._reading = True
 
@@ -227,12 +234,14 @@ class Transport(BaseTransport):
         if not isinstance(data, compat.bytes_types):
             raise TypeError("data: expecting a bytes-like instance, got {0!r}"
                                 .format(type(data).__name__))
-        if self._error:
+        if not self._writable:
+            raise TransportError('transport is not writable')
+        elif self._error:
             raise compat.saved_exc(self._error)
         elif self._closing or self._handle.closed:
             raise TransportError('transport is closing/closed')
         elif self._protocol is None:
-            raise RuntimeError('transport not started')
+            raise TransportError('transport not started')
         elif len(data) == 0:
             return
         if self._write_buffer_size > self._write_buffer_high:
@@ -254,7 +263,9 @@ class Transport(BaseTransport):
 
     def write_eof(self):
         """Shut down the write side of the transport."""
-        if self._error:
+        if not self._writable:
+            raise TransportError('transport is not writable')
+        elif self._error:
             raise compat.saved_exc(self._error)
         elif self._closing or self._handle.closed:
             raise TransportError('transport is closing/closed')
@@ -270,7 +281,7 @@ class Transport(BaseTransport):
         self._write_buffer_size += 1
 
     def can_write_eof(self):
-        """Wether this transport can close the write direction."""
+        """Whether this transport can close the write direction."""
         return True
 
 
@@ -281,7 +292,7 @@ class DatagramTransport(BaseTransport):
     datagram transport as specified in PEP 3156.
     """
 
-    def __init__(self, handle):
+    def __init__(self, handle, mode='rw'):
         """
         The *handle* argument is the pyuv handle for which to create the
         transport. It must be a :class:`pyuv.UDP` instance.
@@ -289,12 +300,13 @@ class DatagramTransport(BaseTransport):
         if not isinstance(handle, pyuv.UDP):
             raise TypeError("handle: expecting a 'pyuv.UDP' instance, got {0!r}"
                                 .format(type(handle).__name__))
-        super(DatagramTransport, self).__init__(handle)
+        super(DatagramTransport, self).__init__(handle, mode)
 
     def start(self, protocol):
         """Bind to *protocol* and start calling callbacks on it."""
         super(DatagramTransport, self).start(protocol)
-        self._handle.start_recv(self._recv_callback)
+        if self._readable:
+            self._handle.start_recv(self._recv_callback)
 
     def _recv_callback(self, handle, addr, flags, data, error):
         """Callback used with handle.start_recv()."""
@@ -334,7 +346,9 @@ class DatagramTransport(BaseTransport):
         if not isinstance(data, bytes):
             raise TypeError("data: expecting a 'bytes' instance, got {0!r}"
                                 .format(type(data).__name__))
-        if self._closing or self._handle.closed:
+        if not self._writable:
+            raise TransportError('transport is not writable')
+        elif self._closing or self._handle.closed:
             raise TransportError('transport is closing/closed')
         elif len(data) == 0:
             return

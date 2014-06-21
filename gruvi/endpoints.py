@@ -115,7 +115,7 @@ def _af_unix_helper(handle, address, op):
 
 @switchpoint
 def create_connection(protocol_factory, address, ssl=False, ssl_args={},
-                      family=0, flags=0, local_address=None, timeout=None):
+                      family=0, flags=0, local_address=None, timeout=None, mode='rw'):
     """Create a new connection.
 
     This method creates a stream transport, connects it to *address*, and then
@@ -198,7 +198,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
         context = ssl if hasattr(ssl, '_wrap_socket') else create_ssl_context()
         transport = SslTransport(handle, context, False, **ssl_args)
     else:
-        transport = Transport(handle)
+        transport = Transport(handle, mode)
     event = transport.start(protocol)
     if event is not None:
         event.wait()
