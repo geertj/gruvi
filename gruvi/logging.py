@@ -67,7 +67,7 @@ class ContextLogger(object):
     It also supports passing arguments via '{}' format operations.
     """
 
-    __slots__ = ('logger', 'context', 'show_stack')
+    __slots__ = ('logger', 'context')
 
     # This is not based on logging.LoggingAdapter because the 2.x and 3.x
     # implementations differ quite a bit, which means we would need to
@@ -76,7 +76,6 @@ class ContextLogger(object):
     def __init__(self, logger, context=''):
         self.logger = logger
         self.context = context
-        self.show_stack = logger.isEnabledFor(logging.DEBUG)
 
     def thread_info(self):
         tid = threading.current_thread().name
@@ -94,7 +93,7 @@ class ContextLogger(object):
         return '{0}:{1}'.format(log_context, fiber_context)
 
     def stack_info(self):
-        if not self.show_stack:
+        if not self.logger.isEnabledFor(logging.DEBUG):
             return ''
         f = sys._getframe(3)
         fname = os.path.split(f.f_code.co_filename)[1]

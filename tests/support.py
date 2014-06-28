@@ -43,6 +43,7 @@ def get_log_level():
     verbose = int(os.environ.get('VERBOSE', '1'))
     if debug:
         return logging.DEBUG
+    # 0 -> CRITICAL, 5 -> DEBUG
     return 10 * max(0, 5 - verbose)
 
 
