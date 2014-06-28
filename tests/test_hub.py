@@ -187,7 +187,7 @@ class TestSwitchBack(UnitTest):
         # should cause hub.switch to raise that exception.
         hub = gruvi.get_hub()
         with gruvi.switch_back() as switcher:
-            hub.run_callback(lambda: switcher.fiber.throw(ValueError('foo')))
+            hub.run_callback(lambda: switcher.throw(ValueError('foo')))
             exc = self.assertRaises(ValueError, hub.switch)
             self.assertEqual(exc.args[0], 'foo')
 

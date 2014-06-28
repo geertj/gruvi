@@ -75,10 +75,17 @@ class Fiber(fibers.Fiber):
             return
         return super(Fiber, self).switch(value)
 
-    def throw(self, exc):
-        """Throw *exc* in the fiber in the next iteration of the event loop."""
+    def cancel(self, exc=None):
+        """Schedule the fiber to be cancelled in the next iteration of the
+        event loop.
+
+        The exception *exc* will be thrown in the fiber. If *exc* is not
+        specified, a :exception:`Cancelled` exception is used.
+        """
         if not self.is_alive():
             return
+        if exc is None:
+            exc = Cancelled('cancelled by Fiber.cancel()')
         self._hub.run_callback(super(Fiber, self).throw, exc)
 
     def join(self, timeout=None):

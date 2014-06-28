@@ -421,7 +421,7 @@ class TestJsonRpc(UnitTest):
         server.close()
         client.close()
 
-    def xx_test_connection_limit(self):
+    def test_connection_limit(self):
         server = JsonRpcServer(echo_app)
         server.listen(('127.0.0.1', 0))
         addr = server.addresses[0]

@@ -127,7 +127,7 @@ class MessageProtocol(Protocol):
         # peer. Therefore we just to discard everything here.
         super(MessageProtocol, self).connection_lost(exc)
         if self._dispatcher:
-            self._dispatcher.throw(Cancelled('connection lost'))
+            self._dispatcher.cancel()
             self._dispatcher = None
 
     def message_received(self, message):

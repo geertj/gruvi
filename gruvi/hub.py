@@ -171,6 +171,16 @@ class switch_back(object):
         """The timeout, or None if there is no timeout."""
         return self._timeout
 
+    def throw(self, exc):
+        """Throw an exception into the origin fiber. The exception is thrown
+        the next time the event loop runs."""
+        # The might seem redundant with self._fiber.cancel(exc), but it isn't
+        # as self._fiber might be a "raw" fibers.Fiber() that doesn't have a
+        # cancel() method.
+        if self._hub is None or not self._fiber.is_alive():
+            return
+        self._hub.run_callback(self._fiber.throw, exc)
+
     def __enter__(self):
         if self._timeout is not None:
             # There are valid scenarios for a Gruvi application where the loop

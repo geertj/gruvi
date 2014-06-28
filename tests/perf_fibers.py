@@ -47,7 +47,7 @@ class PerfFiber(PerformanceTest):
             t1 = time.time()
         speed = count[0] / (t1 - t0)
         self.add_result(speed)
-        fiber.throw(Cancelled)
+        fiber.cancel()
         gruvi.sleep(0)
 
 

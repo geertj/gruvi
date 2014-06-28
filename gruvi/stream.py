@@ -414,4 +414,4 @@ class StreamServer(Server):
 
     def connection_lost(self, transport, protocol, exc=None):
         dispatcher = self._dispatchers.pop(protocol)
-        dispatcher.throw(Cancelled('connection lost'))
+        dispatcher.cancel()
