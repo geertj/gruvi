@@ -40,7 +40,7 @@ else:
     # Only errorcode is really used.
     OP_ALL = 0x800003f7
     OP_NO_SSLv2 = 0x1000000
-    errorcode =  {207: 'PROTOCOL_IS_SHUTDOWN'}
+    errorcode = {207: 'PROTOCOL_IS_SHUTDOWN'}
 
 
 if hasattr(ssl, '_DEFAULT_CIPHERS'):
