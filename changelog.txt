@@ -1,4 +1,4 @@
-Changes in version 0.9.3:
+Changes in version 0.10.0:
 
 * PEP-3156 style transports and protocols.
 * Incorporate SSL backports from Bluepass.
