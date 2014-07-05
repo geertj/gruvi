@@ -1,0 +1,4 @@
+cffi >= 0.8
+fibers >= 0.4
+pyuv
+six
