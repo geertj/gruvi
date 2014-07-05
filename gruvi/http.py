@@ -538,9 +538,9 @@ class WsgiHandler(object):
         # The client may also ask to close the connection (Connection: close)
         self._keepalive = self._message.should_keep_alive and (self._chunked or clen)
         # The default on HTTP/1.1 is keepalive, on HTTP/1.0 it is to close.
-        if version == 'HTTP/1.1' and not self._keepalive:
+        if version == '1.1' and not self._keepalive:
             self._headers.append(('Connection', 'close'))
-        elif version == 'HTTP/1.0' and self._keepalive:
+        elif version == '1.0' and self._keepalive:
             self._headers.append(('Connection', 'keep-alive'))
         server = get_field(self._headers, 'Server')
         if server is None:
