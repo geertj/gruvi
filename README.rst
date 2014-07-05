@@ -16,19 +16,19 @@ Features
 
 Gruvi has the following features:
 
- * Excellent platform support (mostly thanks to libuv). Linux, Mac OSX and
-   Windows are all first-class citizens. On Windows IOCP is used meaning that
-   you don't run into the scalability limitations of ``select()`` there.
- * Small core and focus on low memory usage and fast performance. This makes
-   Gruvi very suitable for mobile applications and embedded web servers.
- * Great support for SSL, also on Windows. Includes an SSL backports module
-   that makes certain 3.x features available on Python 2.x.
- * Built-in client/server support for HTTP, JSON-RPC and D-BUS.
- * PEP-3156 compatible transport/protocol interface.
- * Transparent concurrency support. Thanks to fibers, calling into a blocking
-   function is just like calling into a regular function.
- * Thread synchronization primitives including locks, conditions and queues.
- * Thread and fiber pools with a ``concurrent.futures`` interface.
+* Excellent platform support (mostly thanks to libuv). Linux, Mac OSX and
+  Windows are all first-class citizens. On Windows IOCP is used meaning that
+  you don't run into the scalability limitations of ``select()`` there.
+* Small core and focus on low memory usage and fast performance. This makes
+  Gruvi very suitable for mobile applications and embedded web servers.
+* Great support for SSL, also on Windows. Includes an SSL backports module
+  that makes certain 3.x features available on Python 2.x.
+* Built-in client/server support for HTTP, JSON-RPC and D-BUS.
+* PEP-3156 compatible transport/protocol interface.
+* Transparent concurrency support. Thanks to fibers, calling into a blocking
+  function is just like calling into a regular function.
+* Thread synchronization primitives including locks, conditions and queues.
+* Thread and fiber pools with a ``concurrent.futures`` interface.
 
 CI Status
 ---------
@@ -62,9 +62,9 @@ You need Python 2.6, 2.7 or 3.3+.
 
 The following operating systems are currently tested:
 
- * Posix (Only Linux is currently tested)
- * Mac OSX
- * Windows
+* Posix (Only Linux is currently tested)
+* Mac OSX
+* Windows
 
 Installation
 ------------
