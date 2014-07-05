@@ -62,7 +62,7 @@ from .protocols import MessageProtocol
 from .stream import StreamWriter
 from .endpoints import Client, Server, add_method, add_protocol_method
 from .stream import StreamReader
-from .http_ffi import lib as _lib, ffi as _ffi
+from .http_ffi import lib, ffi
 from ._version import version_info
 
 from six.moves import http_client
@@ -90,8 +90,8 @@ hop_by_hop = frozenset(('connection', 'keep-alive', 'proxy-authenticate',
 
 
 # URL fields as defined by the http-parser URL parser.
-_url_fields = (_lib.UF_SCHEMA, _lib.UF_HOST, _lib.UF_PORT, _lib.UF_PATH,
-               _lib.UF_QUERY, _lib.UF_FRAGMENT, _lib.UF_USERINFO)
+_url_fields = (lib.UF_SCHEMA, lib.UF_HOST, lib.UF_PORT, lib.UF_PATH,
+               lib.UF_QUERY, lib.UF_FRAGMENT, lib.UF_USERINFO)
 
 
 def parse_url(url, is_connect=False):
@@ -109,8 +109,8 @@ def parse_url(url, is_connect=False):
         url = url.tobytes()
     elif not isinstance(url, bytes):
         url = bytes(url)
-    result = _ffi.new('struct http_parser_url *')
-    error = _lib.http_parser_parse_url(url, len(url), is_connect, result)
+    result = ffi.new('struct http_parser_url *')
+    error = lib.http_parser_parse_url(url, len(url), is_connect, result)
     if error:
         raise ValueError('http_parser_parse_url(): could not parse')
     parsed = []
@@ -217,7 +217,7 @@ def _ba2s(ba):
 
 def _cd2s(cd):
     """Convert a cffi cdata('char *') to a str."""
-    s = _ffi.string(cd)
+    s = ffi.string(cd)
     if six.PY3:
         s = s.decode('iso-8859-1')
     return s
@@ -735,18 +735,10 @@ class HttpProtocol(MessageProtocol):
     def _create_parser(self):
         # Create a new CFFI http-parser and settings object that is hooked to
         # our callbacks.
-        self._parser = _ffi.new('http_parser *')
-        kind = _lib.HTTP_REQUEST if self._server_side else _lib.HTTP_RESPONSE
-        _lib.http_parser_init(self._parser, kind)
-        settings = _ffi.new('http_parser_settings *')
-        refs = {}  # prevent garbage collection of cffi callbacks
-        names = [name for name in dir(self) if name.startswith('on_')]
-        for name in names:
-            cbtype = 'http_cb' if 'complete' in name or 'begin' in name else 'http_data_cb'
-            cb = refs[name] = _ffi.callback(cbtype, getattr(self, name))
-            setattr(settings, name, cb)
-        self._settings = settings
-        self._callback_refs = refs
+        self._parser = ffi.new('http_parser *')
+        self._parser.data = ffi.new_handle(self)
+        kind = lib.HTTP_REQUEST if self._server_side else lib.HTTP_RESPONSE
+        lib.http_parser_init(self._parser, kind)
 
     def _update_header_size(self, length):
         # Add *length* to the size of the current HTTP header. If the size
@@ -768,8 +760,12 @@ class HttpProtocol(MessageProtocol):
     def get_read_buffer_size(self):
         return self._header_size + self._queue.qsize() + self._all_body_sizes
 
-    def on_message_begin(self, parser):
+    # Parser callbacks
+
+    @ffi.callback('http_cb')
+    def on_message_begin(parser):
         # http-parser callback: prepare for a new message
+        self = ffi.from_handle(parser.data)
         self._url = bytearray()
         self._field_name = bytearray()
         self._field_value = bytearray()
@@ -777,11 +773,13 @@ class HttpProtocol(MessageProtocol):
         self._message = HttpMessage()
         return 0
 
-    def on_url(self, parser, at, length):
+    @ffi.callback('http_data_cb')
+    def on_url(parser, at, length):
         # http-parser callback: got a piece of the URL
+        self = ffi.from_handle(parser.data)
         if not self._update_header_size(length):
             return 1
-        self._url.extend(_ffi.buffer(at, length))
+        self._url.extend(ffi.buffer(at, length))
         return 0
 
     def _complete_header_field(self, buf):
@@ -814,42 +812,48 @@ class HttpProtocol(MessageProtocol):
             del self._field_name[:]
             del self._field_value[:]
 
-    def on_header_field(self, parser, at, length):
+    @ffi.callback('http_data_cb')
+    def on_header_field(parser, at, length):
         # http-parser callback: got a piece of a header name
+        self = ffi.from_handle(parser.data)
         if not self._update_header_size(length):
             return 1
-        buf = _ffi.buffer(at, length)
+        buf = ffi.buffer(at, length)
         self._complete_header_field(buf)
         return 0
 
-    def on_header_value(self, parser, at, length):
+    @ffi.callback('http_data_cb')
+    def on_header_value(parser, at, length):
         # http-parser callback: got a piece of a header value
+        self = ffi.from_handle(parser.data)
         if not self._update_header_size(length):
             return 1
-        buf = _ffi.buffer(at, length)
+        buf = ffi.buffer(at, length)
         self._complete_header_value(buf)
         return 0
 
-    def on_headers_complete(self, parser):
+    @ffi.callback('http_cb')
+    def on_headers_complete(parser):
         # http-parser callback: the HTTP header is complete. This is the point
         # where we hand off the message to our consumer. Going forward,
         # on_body() will continue to write chunks of the body to message.body.
+        self = ffi.from_handle(parser.data)
         self._complete_header_value(b'')
         m = self._message
-        m.message_type = _lib.http_message_type(parser)
+        m.message_type = lib.http_message_type(parser)
         m.version = '{0}.{1}'.format(parser.http_major, parser.http_minor)
         if self._server_side:
-            m.method = _cd2s(_lib.http_method_str(parser.method))
+            m.method = _cd2s(lib.http_method_str(parser.method))
             m.url = _ba2s(self._url)
             try:
                 m.parsed_url = parse_url(self._url)
             except ValueError as e:
                 self._error = HttpError('urlsplit(): {0!s}'.format(e))
                 return 2  # error
-            m.is_upgrade = _lib.http_is_upgrade(parser)
+            m.is_upgrade = lib.http_is_upgrade(parser)
         else:
             m.status_code = parser.status_code
-        m.should_keep_alive = _lib.http_should_keep_alive(parser)
+        m.should_keep_alive = lib.http_should_keep_alive(parser)
         m.body = StreamReader(self._update_body_size)
         # Make the message available. There is no need to call
         # read_buffer_size_change() here as the changes sum up to 0.
@@ -861,17 +865,30 @@ class HttpProtocol(MessageProtocol):
             return 0
         return 1 if self._requests.pop(0) == 'HEAD' else 0
 
-    def on_body(self, parser, at, length):
+    @ffi.callback('http_data_cb')
+    def on_body(parser, at, length):
         # http-parser callback: got a body chunk
-        self._message.body.feed(bytes(_ffi.buffer(at, length)))
+        self = ffi.from_handle(parser.data)
+        self._message.body.feed(bytes(ffi.buffer(at, length)))
         return 0
 
-    def on_message_complete(self, parser):
+    @ffi.callback('http_cb')
+    def on_message_complete(parser):
         # http-parser callback: the body ended
         # complete any trailers that might be present
+        self = ffi.from_handle(parser.data)
         self._complete_header_value(b'')
         self._message.body.feed_eof()
         return 0
+
+    _settings = ffi.new('http_parser_settings *')
+    _settings.on_message_begin = on_message_begin
+    _settings.on_url = on_url
+    _settings.on_header_field = on_header_field
+    _settings.on_header_value = on_header_value
+    _settings.on_headers_complete = on_headers_complete
+    _settings.on_body = on_body
+    _settings.on_message_complete = on_message_complete
 
     def connection_made(self, transport):
         # Protocol callback
@@ -880,9 +897,9 @@ class HttpProtocol(MessageProtocol):
 
     def data_received(self, data):
         # Protocol callback
-        nbytes = _lib.http_parser_execute(self._parser, self._settings, data, len(data))
+        nbytes = lib.http_parser_execute(self._parser, self._settings, data, len(data))
         if nbytes != len(data):
-            msg = _cd2s(_lib.http_errno_name(_lib.http_errno(self._parser)))
+            msg = _cd2s(lib.http_errno_name(lib.http_errno(self._parser)))
             self._log.debug('http_parser_execute(): {0}'.format(msg))
             self._error = HttpError('parse error: {0}'.format(msg))
             if self._message:
@@ -893,9 +910,9 @@ class HttpProtocol(MessageProtocol):
     def connection_lost(self, exc):
         # Protocol callback
         # Feed the EOF to the parser. It will tell us it if was unexpected.
-        nbytes = _lib.http_parser_execute(self._parser, self._settings, b'', 0)
+        nbytes = lib.http_parser_execute(self._parser, self._settings, b'', 0)
         if nbytes != 0:
-            msg = _cd2s(_lib.http_errno_name(_lib.http_errno(self._parser)))
+            msg = _cd2s(lib.http_errno_name(lib.http_errno(self._parser)))
             self._log.debug('http_parser_execute(): {0}'.format(msg))
             if exc is None:
                 exc = HttpError('parse error: {0}'.format(msg))
