@@ -120,7 +120,7 @@ class TestCase(unittest.TestCase):
 
     def setUp(self):
         self._tmpindex = 1
-        self.__tmpdir = tempfile.mkdtemp('gruvi-test')
+        self.__tmpdir = os.path.realpath(tempfile.mkdtemp('gruvi-test'))
         self.__tmpinode = os.stat(self.__tmpdir).st_ino
 
     def tearDown(self):
