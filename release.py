@@ -73,6 +73,7 @@ def confirm_file_list():
     """Confirm differences between files in Git and in the sdist."""
     sh('git ls-files | sort > files.git')
     print('Comparing files in git against the source distribution...')
+    sh('rm -rf gruvi.egg-info')
     sh('python setup.py sdist >/dev/null 2>&1')
     sh('tar tfz dist/{0}-{1}.tar.gz'
        ' | sed -e \'s/^{0}-{1}\///\' -e \'/\/$/d\' -e \'/^$/d\''
