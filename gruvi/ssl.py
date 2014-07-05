@@ -24,51 +24,13 @@ if hasattr(socket, 'socketpair'):
 else:
     from .socketpair import socketpair
 
-__all__ = ['SslTransport', 'create_ssl_context']
-
 if six.PY2:
     from . import sslcompat
     HAVE_SSL_BACKPORTS = sslcompat._sslcompat is not None
-    __all__.append('HAVE_SSL_BACKPORTS')
+else:
+    HAVE_SSL_BACKPORTS = False
 
-
-class SslSocketInfo(object):
-    """A read-only view of an SSLSocket.
-
-    Instances of this class can be exposed to applications to get information
-    about the current state of an SSL connection.
-    """
-
-    def __init__(self, sslobj, context):
-        self._sslobj = sslobj
-        self._context = context
-
-    @property
-    def context(self):
-        """The SSL context."""
-        return self._context
-
-    def cipher(self):
-        """The currently selected cipher."""
-        return self._sslobj.cipher()
-
-    def compression(self):
-        """The currently selected compression algorithm."""
-        if hasattr(self._sslobj, 'compression'):
-            return self._sslobj.compression()
-        return sslcompat.compression(self._sslobj)
-
-    def getpeercert(self, binary_form=False):
-        """The certificate of the peer, if any."""
-        return self._sslobj.peer_certificate(binary_form)
-
-    def get_channel_binding(self, cb_type='tls-unique'):
-        """Channel bindings."""
-        if cb_type != 'tls-unique':
-            raise ValueError('unknown channel binding: {0}'.format(cb_type))
-        if hasattr(self._sslobj, 'tls_unique_cb'):
-            return self._sslobj.tls_unique_cb()
-        return sslcompat.tls_unique_cb(self._sslobj)
+__all__ = ['SslTransport', 'create_ssl_context', 'HAVE_SSL_BACKPORTS']
 
 
 def write_to_socket(sock, data):
@@ -173,13 +135,14 @@ class SslPipe(object):
         self._need_ssldata = False
 
     @property
-    def sslinfo(self):
-        """An SSLSocketInfo instance describing the current SSL state."""
-        if self._sslobj is None:
-            return
-        if self._sslinfo is None:
-            self._sslinfo = SslSocketInfo(self._sslobj, self._context)
-        return self._sslinfo
+    def sslsocket(self):
+        """The raw ``_ssl._SSLSocket`` instance."""
+        return self._sslobj
+
+    @property
+    def sslcontext(self):
+        """The raw ``_ssl._SSLContext`` instance."""
+        return self._context
 
     @property
     def need_ssldata(self):
@@ -361,9 +324,9 @@ class SslTransport(Transport):
     def __init__(self, handle, context, server_side, server_hostname=None,
                  do_handshake_on_connect=True, close_on_unwrap=True):
         """
-        The *context* argument specifies the :class:`ssl.SSLContext` to
-        use. In Python 2.x this class isn't available and you can use
-        :class:`sslcompat.SSLContext` instead.
+        The *context* argument specifies the :class:`ssl.SSLContext` to use.
+        You can use :func:`create_ssl_context` to create a new context which
+        also works on Python 2.x where :class:`ssl.SSLContext` does not exist.
 
         The *server_side* argument specifies whether this is a server side or a
         client side transport.
@@ -377,9 +340,10 @@ class SslTransport(Transport):
         be unencrypted until :meth:`do_handshake` is called. The default is to
         start the handshake immediately.
 
-        The optional *close_on_unwrap* argument specifies whether the transport
-        should be closed automatically after an SSL "close_notify" alert is
-        received. The default is to close the connection.
+        The optional *close_on_unwrap* argument specifies whether you want the
+        ability to continue using the connection after you call :meth:`unwrap`
+        of when an SSL "close_notify" is received from the remote peer. The
+        default is to close the connection.
         """
         super(SslTransport, self).__init__(handle)
         self._sslpipe = SslPipe(context, server_side, server_hostname)
@@ -389,24 +353,67 @@ class SslTransport(Transport):
         self._ssl_active = Event()
 
     def start(self, protocol):
-        """Bind to *protocol* and start calling callbacks on it."""
-        super(SslTransport, self).start(protocol)
-        if not self._do_handshake_on_connect:
-            return
-        self.do_handshake()
-        return self._ssl_active
+        # Bind to *protocol* and start calling callbacks on it.
+        events = super(SslTransport, self).start(protocol)
+        if self._do_handshake_on_connect:
+            self.do_handshake()
+            if events is None:
+                events = []
+            events.append(self._ssl_active)
+        return events
 
     def get_extra_info(self, name, default=None):
         """Return transport specific data.
 
-        In addition to the extra info from :class:`Transport`, the SSL
-        transport also exposes:
+        The following fields are available, in addition to the information
+        exposed by :meth:`Transport.get_extra_info`.
 
-         * ``sslinfo`` - an instance of :class:`SslSocketInfo` describing the
-           current SSL status.
+        ======================  ===============================================
+        Name                    Description
+        ======================  ===============================================
+        ``'compression'``       The compression algorithm being used, or `None`
+                                if the connection is not compressed. See
+                                :meth:`ssl.SSLSocket.compression`.
+        ``'cipher'``            A 3-tuple ``(name, version, bits)`` describing
+                                the cipher currently in use, or `None` if no
+                                cipher is currently in effect. See
+                                :meth:`ssl.SSLSocket.cipher`.
+        ``'peercert'``          The peer certificate. See
+                                :meth:`.ssl.SSLSocket.getpeercert`.
+        ``'tls_unique_cb'``     The tls-unique channel bindings, or None if no
+                                channel bindings are available.
+        ``'sslsocket'``         The internal ``_ssl._SSLSocket`` instance
+                                used by this transport.
+        ``'sslcontext'``        The internal ``_ssl._SSLContext`` instance
+                                used by this transport.
+        ======================  ===============================================
         """
-        if name == 'sslinfo':
-            return self._sslpipe.sslinfo
+        sslsock = self._sslpipe.sslsocket
+        sslctx = self._sslpipe.sslcontext
+        if sslsock is None:
+            return super(SslTransport, self).get_extra_info(name, default)
+        if name == 'compression':
+            if hasattr(sslsock, 'compression'):
+                return sslsock.compression()
+            elif HAVE_SSL_BACKPORTS:
+                return sslcompat.compression(sslsock)
+            else:
+                return default
+        elif name == 'cipher':
+            return sslsock.cipher()
+        elif name == 'peercert':
+            return sslsock.peer_certificate(False)
+        elif name == 'tls_unique_cb':
+            if hasattr(sslsock, 'tls_unique_cb'):
+                return sslsock.tls_unique_cb()
+            elif HAVE_SSL_BACKPORTS:
+                return sslcompat.tls_unique_cb(sslsock)
+            else:
+                return default
+        elif name == 'sslsocket':
+            return sslsock
+        elif name == 'sslcontext':
+            return sslctx
         else:
             return super(SslTransport, self).get_extra_info(name, default)
 
@@ -417,7 +424,7 @@ class SslTransport(Transport):
         self._sslpipe = None
 
     def write(self, data):
-        """Write *data* to the transport."""
+        # Write *data* to the transport.
         if not isinstance(data, (bytes, bytearray, compat.memoryview)):
             raise TypeError("data: expecting a bytes-like instance, got {0!r}"
                                 .format(type(data).__name__))
@@ -506,24 +513,36 @@ class SslTransport(Transport):
     def pause_reading(self):
         """Stop reading data.
 
-        Note that for SSL transports this call may be ignored if a handshake is
-        currently going on. And also note that reading can be resumed without
-        warning at any future point in time if a handshake occurs.
+        Flow control for SSL is a little bit more complicated than for a
+        regular :class:`Transport` because SSL handshakes can occur at any time
+        during a connection. These handshakes require reading to be enabled,
+        even if the application called :meth:`pause_reading` before.
 
-        The right way to handle this is as follows:
+        The approach taken by Gruvi is that when a handshake occurs, reading is
+        always enabled even if :meth:`pause_reading` was called before. I
+        believe this is the best way to prevent complex read side buffering
+        that could also result in read buffers of arbitrary size.
 
-         * In :meth:`Transport.data_received` you should set a flag called
-           "currently reading" every time the callback is called. Also you
-           should call :meth:`pause_reading` if the buffer size is above the
-           high-water mark.
-         * When you consume data from the protocol, you should check whether
-           the "currently reading" flag is set, and whether the current bufer
-           size is below or equal to the low-water mark. If both conditions are
-           met, you should call :meth:`resume_reading`.
+        The consequence is that if you are implementing your own protocol and
+        you want to support SSL, then your protocol should be able to handle a
+        callback even if it called :meth:`pause_reading` before. The
+        recommended way to do this is to store a flag "currently reading" and
+        set it when you call :meth:`resume_reading` and when
+        :meth:`Protocol.data_received` is called by the transport. Based on
+        this flag you can prevent calling :meth:`resume_reading` when you are
+        already reading due to a handshake.
         """
         if self._sslpipe.need_ssldata:
             return
         super(SslTransport, self).pause_reading()
+
+    def resume_reading(self):
+        """Resume reading data.
+
+        See the note in :meth:`pause_reading` for special considerations on
+        flow control with SSL.
+        """
+        return super(SslTransport, self).resume_reading()
 
     def do_handshake(self):
         """Start the SSL handshake.
@@ -586,7 +605,27 @@ class SslTransport(Transport):
 
 
 def create_ssl_context(**sslargs):
-    """Create a new SSL context."""
+    """Create a new SSL context in a way that is compatible with different
+    Python versions.
+
+    On Python 2.6 and 2.7, this creates a emulated SSL context. The returned
+    object implements the most important parts the :class:`ssl.SSLContext`
+    interface and can be used to configure the SSL connection settings.  It is
+    not a real context however and does not support such things as a session
+    cache. This function works even if :attr:`gruvi.HAVE_SSL_BACKPORTS` is set
+    to `False` (but in this case none of the Python 3.x features can be used,
+    obviously).
+
+    On Python 3.3, this creates an new context by calling the
+    :class:`ssl.SSLContext` constructor.
+
+    On Python 3.4+, this method creates a new context using
+    :func:`ssl.create_default_context`.
+
+    The *sslargs* keyword arguments can be used to set the *certfile*,
+    *ca_certs*, *cert_reqs* and *ciphers* context options as described for
+    :func:`ssl.wrap_socket`.
+    """
     version = sslargs.get('ssl_version')
     if hasattr(ssl, 'create_default_context') and version is None:
         # Python 3.4+

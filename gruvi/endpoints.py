@@ -13,86 +13,37 @@ import sys
 import socket
 import functools
 import textwrap
-import inspect
 import pyuv
 import six
 import errno
 
-from . import logging
+from . import logging, util
 from .hub import get_hub, switchpoint, switch_back
 from .sync import Event
 from .errors import Timeout
 from .transports import TransportError, Transport
 from .ssl import SslTransport, create_ssl_context
+from .address import getaddrinfo, saddr
 
-__all__ = ['saddr', 'paddr', 'getaddrinfo', 'create_connection',
-           'create_server', 'Server']
-
-
-def saddr(address):
-    """Return a family specific string representation for a socket address."""
-    if isinstance(address, six.binary_type) and six.PY3:
-        return address.decode('utf8')
-    elif isinstance(address, six.string_types):
-        return address
-    elif isinstance(address, tuple) and ':' in address[0]:
-        return '[{0}]:{1}'.format(address[0], address[1])
-    elif isinstance(address, tuple):
-        return '{0}:{1}'.format(*address)
-    else:
-        raise TypeError('illegal address type: {!s}'.format(type(address)))
+__all__ = ['create_connection', 'create_server', 'Endpoint', 'Client', 'Server']
 
 
-def paddr(address):
-    """The inverse of saddr."""
-    if address.startswith('['):
-        p1 = address.find(']:')
-        if p1 == -1:
-            raise ValueError
-        return (address[1:p1], int(address[p1+2:]))
-    elif ':' in address:
-        p1 = address.find(':')
-        return (address[:p1], int(address[p1+1:]))
-    else:
-        return address
-
-
-@switchpoint
-def getaddrinfo(host, port=0, family=0, socktype=0, protocol=0, flags=0, timeout=30):
-    """A cooperative version of :py:func:`socket.getaddrinfo`.
-
-    The address resolution is performed in the libuv thread pool.
-    """
-    hub = get_hub()
-    with switch_back(timeout) as switcher:
-        request = pyuv.util.getaddrinfo(hub.loop, switcher, host, port, family,
-                                        socktype, protocol, flags)
-        switcher.add_cleanup(request.cancel)
-        result = hub.switch()
-    result, error = result[0]
-    if error:
-        message = pyuv.errno.strerror(error)
-        raise pyuv.error.UVError(error, message)
-    return result
-
-
-def create_handle(cls, *args):
-    """Create a pyuv handle, connecting it to the default loop."""
-    hub = get_hub()
-    return cls(hub.loop, *args)
-
-
-def _use_af_unix():
+def _use_af_unix(addr):
     """Return whether to open a :class:`pyuv.Pipe` via an AF_UNIX socket."""
-    # Only use on platforms that don't return EAGAIN for AF_UNIX sockets
+    # This is used on Linux only to support abstract sockets.
+    if isinstance(addr, six.text_type) and u'\x00' not in addr \
+            or isinstance(addr, six.binary_type) and b'\x00' not in addr:
+        return False
     return sys.platform in ('linux', 'linux2', 'linux3')
 
 def _af_unix_helper(handle, address, op):
     """Connect or bind a :class:`pyuv.Pipe` to an AF_UNIX socket.
 
-    We use this on Linux to work around certain limitations in the libuv API,
-    currently the lack of abstract sockets and SO_PEERCRED.
+    We use this on Linux to work around the limitation in the libuv API that
+    socket names cannot have null bytes in them (requires for abstract
+    sockets on Linux).
     """
+    # Note that on Linux, connect() to an abstract socket never returns EAGAIN.
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.setblocking(False)
     try:
@@ -116,43 +67,53 @@ def _af_unix_helper(handle, address, op):
 @switchpoint
 def create_connection(protocol_factory, address, ssl=False, ssl_args={},
                       family=0, flags=0, local_address=None, timeout=None, mode='rw'):
-    """Create a new connection.
+    """Create a new client connection.
 
-    This method creates a stream transport, connects it to *address*, and then
-    waits for the connection to be established. When the connection is
-    established, a new protocol instance is created by calling
-    *protocol_factory*. The protocol is then connected to the transport by
-    calling its ``conection_made`` method. Finally the results are returned as
-    a ``(transport, protocol)`` tuple.
+    This method creates a new :class:`pyuv.Handle`, connects it to *address*,
+    and then waits for the connection to be established. When the connection is
+    established, the handle is wrapped in a transport, and a new protocol
+    instance is created by calling *protocol_factory*. The protocol is then
+    connected to the transport by calling the transport's
+    :meth:`~BaseTransport.start` method which in turn calls
+    :meth:`~BaseProtocol.connection_made` on the protocol. Finally the results
+    are returned as a ``(transport, protocol)`` tuple.
 
-    The address may be either be a string, a (host, port) tuple, or an already
-    connected :class:`pyuv.Stream` handle. If the address is a string, this
-    method connects to a named pipe using a :class:`pyuv.Pipe` handle.
+    The address may be either be a string, a (host, port) tuple, a
+    ``pyuv.Stream`` handle or a file descriptor:
 
-    If the address is a tuple, this method connects to a TCP/IP service using a
-    :class:`pyuv.TCP` handle. The host and port elements of the tuple are the
-    DNS and service names respectively, and will be resolved using
-    :func:`getaddrinfo`. The *family* and *flags* parameters are also passed to
-    :func:`getaddrinfo` and can be used to modify the address resolution.
-
-    The address my also be a :class:`pyuv.Stream` instance. In this case the
-    handle must already be connected.
+    * If the address is a string, this method connects to a named pipe using a
+      :class:`pyuv.Pipe` handle.
+    * If the address is a tuple, this method connects to a TCP/IP service using
+      a :class:`pyuv.TCP` handle. The host element of the tuple the IP address
+      or DNS name, and the port element is the port number or service name. The
+      tuple is always passed to :func:`getaddrinfo` for resolution together
+      with the *family* and *flags* arguments.
+    * If the address is a ``pyuv.Stream`` instance, it must be an already
+      connected stream.
+    * If the address is a file descriptor, then it is attached to a
+      :class:`pyuv.TTY` stream if :func:`os.isatty` returns true, or to a
+      :class:`pyuv.Pipe` instance otherwise.
 
     The *ssl* parameter indicates whether SSL should be used on top of the
     stream transport. If an SSL connection is desired, then *ssl* can be set to
     ``True`` or to an :class:`ssl.SSLContext` instance. In the former case a
     default SSL context is created. In the case of Python 2.x the :mod:`ssl`
-    module does not define an SSL context object and you may use the
-    :class:`gruvi.sslcompat.SSLContext` class instead. The *ssl_args* argument
-    may be used to pass keyword arguments to
+    module does not define an SSL context object and you can use
+    :func:`create_ssl_context` instead which works across all supported Python
+    versions. The *ssl_args* argument may be used to pass keyword arguments to
     :meth:`ssl.SSLContext.wrap_socket`.
 
     If an SSL connection was selected, the resulting transport will be a
-    :class:`gruvi.SslTransport` instance, otherwise it will be a
-    :class:`gruvi.Transport` instance.
+    :class:`SslTransport` instance, otherwise it will be a :class:`Transport`
+    instance.
 
-    The *local_address* keyword argument is relevant only for AF_INET
-    transports. If provided, it specifies the local address to bind to.
+    The *mode* parameter specifies if the transport should be put in read-only
+    (``'r'``), write-only (``'w'``) or read-write (``'rw'``) mode. For TTY
+    transports, the mode must be either read-only or write-only. For all other
+    transport the mode should usually be read-write.
+
+    The *local_address* keyword argument is relevant only for TCP transports.
+    If provided, it specifies the local address to bind to.
     """
     hub = get_hub()
     log = logging.get_logger()
@@ -182,7 +143,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
         log.debug('trying address {}', saddr(addr))
         handle = handle_type(hub.loop)
         try:
-            if handle_type is pyuv.Pipe and _use_af_unix():
+            if handle_type is pyuv.Pipe and _use_af_unix(addr):
                 _af_unix_helper(handle, addr, 'connect')
             else:
                 with switch_back(timeout) as switcher:
@@ -208,10 +169,52 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
         transport = SslTransport(handle, context, False, **ssl_args)
     else:
         transport = Transport(handle, mode)
-    event = transport.start(protocol)
-    if event is not None:
-        event.wait()
+    events = transport.start(protocol)
+    if events:
+        for event in events:
+            event.wait()
     return (transport, protocol)
+
+
+@switchpoint
+def create_server(protocol_factory, address=None, ssl=False, ssl_args={},
+                  family=0, flags=0, backlog=128):
+    """
+    Create a new network server.
+
+    This creates one or more :class:`pyuv.Handle` instances bound to *address*,
+    puts them in listen mode and starts accepting new connections. For each
+    accepted connection, a new transport is created which is connected to a new
+    protocol instance obtained by calling *protocol_factory*.
+
+    The *address* argument may be either be a string, a ``(host, port)`` tuple,
+    or a ``pyuv.Stream`` handle:
+
+    * If the address is a string, this method creates a new :class:`pyuv.Pipe`
+      instance and binds it to *address*.
+    * If the address is a tuple, this method creates one or more
+      :class:`pyuv.TCP` handles. The host element of the tuple the IP address
+      or DNS name, and the port element is the port number or service name. The
+      tuple is passed to :func:`getaddrinfo` for resolution together with the
+      *family* and *flags* arguments. A transport is created for each resolved
+      address.
+    * If the address is a ``pyuv.Stream`` handle, it must already be bound to
+      an address.
+
+    The *ssl* parameter indicates whether SSL should be used for accepted
+    connections. See :func:`create_connection` for a description of the *ssl*
+    and *ssl_args* parameters.
+
+    The *backlog* parameter specifies the listen backlog i.e the maximum
+    number of not yet accepted connections to queue.
+
+    The return value is a :class:`Server` instance that can be used to control
+    the listening transports.
+    """
+    server = Server(protocol_factory)
+    server.listen(address, ssl=ssl, ssl_args=ssl_args, family=family,
+                  flags=flags, backlog=backlog)
+    return server
 
 
 class Endpoint(object):
@@ -237,8 +240,17 @@ class Client(Endpoint):
 
     @property
     def connection(self):
-        """Return the ``(transport, protocol)`` pair, or None if not connected."""
         return self._connection
+
+    @property
+    def transport(self):
+        """Return the transport, or ``None`` if not connected."""
+        return self._connection[0]
+
+    @property
+    def protocol(self):
+        """Return the protocol, or ``None`` if not connected."""
+        return self._connection[1]
 
     @switchpoint
     def connect(self, address, **kwargs):
@@ -318,46 +330,30 @@ class Server(Endpoint):
         self.connection_made(transport, protocol)
         transport.start(protocol)
 
-    def _on_connection_lost(self, transport, protocol, connection_lost, *args):
-        self.connection_lost(transport, protocol, *args)
-        connection_lost(*args)
+    def _on_connection_lost(self, transport, protocol, connection_lost, exc):
+        self.connection_lost(transport, protocol, exc)
+        connection_lost(exc)
         self._connections.pop(transport, None)
         if not self._connections:
             self._all_closed.set()
 
     def connection_made(self, transport, protocol):
-        """Callback that is called when a new connection is made."""
+        """Called when a new connection is made."""
 
-    def connection_lost(self, transport, protocol, *args):
-        """Callback that is called when a connection is lost."""
+    def connection_lost(self, transport, protocol, exc):
+        """Called when a connection is lost."""
 
     @switchpoint
     def listen(self, address, ssl=False, ssl_args={}, family=0, flags=0, backlog=128):
         """Create a new transport, bind it to *address*, and start listening
         for new connections.
 
-        The address may be either be a string, a (host, port) tuple, or a
-        :class:`pyuv.Stream` handle.  If the address is a string, this method
-        creates a new :class:`pyuv.Pipe` instance, binds it to *address* and
-        will start listening for new connections on it.
+        For each new connection, a new transport is created that is bound to a
+        a new protocol obtained by calling the *protocol_factory* passed to the
+        constructor.
 
-        If the address is a tuple, this method creates a new :class:`pyuv.TCP`
-        handle. The host and port elements of the tuple are the DNS or IP
-        address, and service name or port number respectively. They will be
-        resolved resolved using :func:`getaddrinfo()`. The *family* and *flags*
-        parameters are also passed to :func:`getaddrinfo` and can be used to
-        modify the address resolution. The server will listen on all addresses
-        that are resolved.
-
-        The address may also a :class:`pyuv.Stream` handle. In this case it
-        must already be bound to an address.
-
-        The *ssl* parameter indicates whether SSL should be used for accepted
-        connections. See :func:`create_connection` for a description of the
-        *ssl* and *ssl_args* parameters.
-
-        The *backlog* parameter specifies the listen backlog i.e the maximum
-        number of not yet accepted connections to queue.
+        See :func:`create_server` for a description of *address* and the
+        supported keyword arguments.
         """
         handles = []
         if isinstance(address, six.string_types):
@@ -376,7 +372,7 @@ class Server(Endpoint):
         for addr in addresses:
             handle = handle_type(self._hub.loop)
             try:
-                if handle_type is pyuv.Pipe and _use_af_unix():
+                if handle_type is pyuv.Pipe and _use_af_unix(addr):
                     _af_unix_helper(handle, addr, 'bind')
                 else:
                     handle.bind(addr)
@@ -406,68 +402,29 @@ class Server(Endpoint):
         self._all_closed.wait()
 
 
-@switchpoint
-def create_server(protocol_factory, address=None, ssl=False, ssl_args={},
-                  family=0, flags=0, backlog=128):
-    """Create a new network server.
-
-    This method creates a new :class:`Server` instance and calls
-    :meth:`Server.listen` on it to listen for new connections. The server
-    instance is returned.
-
-    For a description of the arguments of this function, see
-    :meth:`Server.listen`.
-    """
-    server = Server(protocol_factory)
-    server.listen(address, ssl=ssl, ssl_args=ssl_args, family=family,
-                  flags=flags, backlog=backlog)
-    return server
-
-
-def add_method(template, method, name=None, moddict=None, classdict=None):
+def add_method(template, method, globs=None, depth=1):
     """Add a method to the class that's being defined in the enclosing scope.
 
     The *template* argument is a string containing the method template. The
     *method* argument is the method itself.
     """
-    if moddict is None or classdict is None:
-        frame = sys._getframe(1)
-        moddict = frame.f_globals if moddict is None else moddict
-        classdict = frame.f_locals if classdict is None else classdict
-    name = name or method.__name__
-    doc = method.__doc__ or ''
-    if isinstance(method, property):
-        signature = '(self)'
-        arglist = ''
-    else:
-        argspec = inspect.getargspec(method)
-        signature = inspect.formatargspec(*argspec)
-        arglist = inspect.formatargspec(argspec[0][1:], *argspec[1:], formatvalue=lambda x: '')
-    methoddef = template.format(name=name, signature=signature, docstring=doc, arglist=arglist)
-    code = compile(methoddef, moddict['__file__'], 'exec')
-    globs = {}
-    six.exec_(code, globs)
-    wrapped = globs[name]
+    frame = sys._getframe(depth)
+    classdict = frame.f_locals
+    wrapped = util.wrap(template, method, globs, depth+1, True)
     if getattr(method, 'switchpoint', False):
-        wrapped = switchpoint(wrapped)
-    if isinstance(method, property):
-        wrapped = property(wrapped)
-    classdict[name] = wrapped
+        wrapped = switchpoint(wrapped, update_doc=False)
+    classdict[method.__name__] = wrapped
 
 
 _protocol_method_template = textwrap.dedent("""\
     def {name}{signature}:
-        '''{docstring}'''
-        if not self.connection:
+        '''An alias for ``self.protocol.{name}()``.'''
+        if not self.protocol:
             raise RuntimeError('not connected')
-        return self.connection[1].{name}{arglist}
+        return self.protocol.{name}{arglist}
     """)
 
-def add_protocol_method(method, name=None, moddict=None, classdict=None):
+def add_protocol_method(method, globs=None, depth=1):
     """Import a method from a :class:`Protocol` the class that's being defined
     in the enclosing scope."""
-    if moddict is None or classdict is None:
-        frame = sys._getframe(1)
-        moddict = frame.f_globals if moddict is None else moddict
-        classdict = frame.f_locals if classdict is None else classdict
-    return add_method(_protocol_method_template, method, name, moddict, classdict)
+    return add_method(_protocol_method_template, method, globs, depth+1)

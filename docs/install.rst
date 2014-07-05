@@ -4,63 +4,86 @@
 Installation
 ************
 
-Gruvi uses the setuptools, so installation is relatively straightforward. You
-need Python version 2.6, 2.7, or 3.3+.
+Gruvi uses the setuptools, so installation is relatively straightforward. The
+following Python / OS combinations are supported:
 
-Some of Gruvi's dependencies contain C extensions. This means that you need to
-have a C compiler, and also the Python development files. Once you've made sure
-you have these, use the commands below to install the latest Gruvi into a
-virtualenv::
+==========  ==================  ===============================
+OS          Python versions     Notes
+==========  ==================  ===============================
+Posix       2.6, 2.7, 3.3+      Only Linux is regularly tested
+Mac OSX     2.6, 2.7, 3.3+      PPC is not tested
+Windows     2.6, 2.7, 3.3+      No SSL backports on 2.x
+==========  ==================  ===============================
 
-  $ virtualenv --distribute gruvi-dev
+Gruvi and some of its dependencies contain C extensions. This means that you
+need to have a C compiler, and also the Python development files. Gruvi also
+uses CFFI_ so you need to have that installed as well.
+
+Installation using pip
+**********************
+
+If you have the "pip" package manager, then you can install Gruvi directly from
+the Python Package Index::
+
+  $ pip install cffi
+  $ pip install gruvi
+
+You need to install CFFI first because the Gruvi setup script depends on it.
+
+Installation from source
+************************
+
+The following instructions install Gruvi in a virtualenv development
+environment::
+
+  $ pyvenv gruvi-dev  # "virtualenv gruvi-dev" with Python <= 3.3
   $ . gruvi-dev/bin/activate
   $ git clone https://github.com/geertj/gruvi
   $ cd gruvi
   $ pip install -r requirements.txt
-  $ python setup.py install
+  $ python setup.py develop
 
 Linux Specific Notes
 ********************
 
-Most Linux versions will have a supported version of Python installed. One
-small exception would be RHEL/CentOS 5 which by default comes with Python 2.4.
+Most mainstream Linux versions have a supported version of Python installed.
+One exception would be RHEL/CentOS 5 which by default comes with Python 2.4.
 
-Make sure you have gcc installed, and also the Python development files. On
-Debian/Ubuntu type systems::
+To install the required dependencies on Debian/Ubuntu systems::
 
-  $ sudo apt-get install gcc python-dev python-virtualenv git libffi-dev
+  $ sudo apt-get update
+  $ sudo apt-get install -y gcc python-dev python-virtualenv libffi-dev
 
 On Red Hat/Fedora type systems::
 
-  $ sudo yum install gcc python-devel python-virtualenv git libffi-devel
-
-After this follow the generic instructions above.
+  $ sudo yum install -y gcc python-devel python-virtualenv libffi-devel
 
 Mac OSX Specific Notes
 **********************
 
-Recent versions of OSX will have a supported Python version available. The
-easiest way to install a C compiler is to install Xcode from the Mac App Store.
-This is a free download. 
+Recent versions of OSX have a supported Python version available.
 
-After you’ve installed Xcode, go to Xcode -> Preferences -> Components, and
-install the “Command Line Tools” component as well.
+The easiest way to install a C compiler is to install Xcode from the Mac App
+Store. This is a free download.
 
-After this, follow the generic instructions above.
+Since OSX Mavericks, the required libffi dependency has become part of OSX
+itself, so there's no need to install it separately. If you are on an earlier
+version of OSX, it's recommended to install libffi via Homebrew.
 
 Windows Specific Notes
 **********************
 
-Windows does not come with a built-in Python, so you have to install one from
-python.org. For the C compiler, I'd recommend MinGW. Unfortunately because of
-issue12641_, compilation of C extensions is currently broken for MinGW. If you
-feel determined, you can see `these instructions`_ from another Python module
-that explain how to unbreak this.
+Windows does not come with a system provided version of Python, so you have to
+install one from python.org. It is recommended to use version 3.3 or 3.4.
 
-**Update**: It appears that Python 2.7.6 and 3.3.3 will fix this bug! At the
-time of writing (11/2/2013), both versions have release candidates, but the
-final versions have not yet been released.
+For the C compiler, I recommend to use Microsoft `Visual C++ 2010 Express`_.
+It is a free download, and it is the same compiler used to create the official
+Python builds for Windows since version 3.3.
+
+You can also use MinGW. In that case make sure you use either Python 2.7.6,
+3.3.3, 3.4 or later. These version contain a fix for issue12641_.
 
 
+.. _CFFI: https://pypi.python.org/pypi/cffi
 .. _issue12641: http://bugs.python.org/issue12641
-.. _these instructions: http://docs.testmill.cc/en/latest/appendices.html#windows-installation
+.. _`Visual C++ 2010 Express`: https://www.microsoft.com/visualstudio/eng/downloads#d-2010-express

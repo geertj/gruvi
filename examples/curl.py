@@ -3,7 +3,7 @@
 import sys
 import argparse
 from urllib.parse import urlsplit
-import gruvi
+from gruvi.http import HttpClient
 
 parser = argparse.ArgumentParser()
 parser.add_argument('url')
@@ -15,7 +15,7 @@ if not url.scheme:
 is_ssl = url.scheme == 'https'
 port = url.port if url.port else 443 if is_ssl else 80
 
-client = gruvi.HttpClient()
+client = HttpClient()
 client.connect((url.hostname, port), ssl=is_ssl)
 client.request('GET', url.path or '/')
 

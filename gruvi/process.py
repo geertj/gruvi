@@ -31,7 +31,7 @@ CREATE_PIPE = pyuv.UV_CREATE_PIPE | pyuv.UV_READABLE_PIPE | pyuv.UV_WRITABLE_PIP
 
 
 class Process(Endpoint):
-    """A process.
+    """A child process.
 
     This class allows you to start up a child process, communicate with it and
     control it. The API is modeled after the :class:`subprocess.Popen` class.
@@ -43,9 +43,10 @@ class Process(Endpoint):
         child. If it is not specified, then reading from the child will produce
         ``bytes`` objects.
 
-        The *universal_newlines* argument specifies whether to automatically
-        detect newlines, and translate them to ``'\\n'``. This setting requires
-        *encoding* to be set.
+        The *textio_args* argument can be used to pass keyword arguments to the
+        :class:`io.TextIOWrapper` instances that are used to wrap the raw
+        standard input and outputs in case *encoding* is provided. It can be
+        used e.g. to change buffering and enable universal newlines.
         """
         super(Process, self).__init__(self._create_protocol, timeout)
         self._encoding = encoding
@@ -180,7 +181,7 @@ class Process(Endpoint):
         standard input, output, and error, respectively. If set to None, then
         the child will inherit our respective stdio handle. If set to the
         special constant ``PIPE`` then a pipe is created. The pipe will be
-        connected to a :class:`stream.StreamProtocol` which you can use to read
+        connected to a :class:`gruvi.StreamProtocol` which you can use to read
         or write from it. The stream protocol instance is available under
         either :attr:`stdin`, :attr:`stdout` or :attr:`stderr`. All 3 stdio
         arguments can also be a file descriptor, a file-like object, or a pyuv
@@ -297,7 +298,7 @@ class Process(Endpoint):
     def wait(self, timeout=None):
         """Wait for the child to exit.
 
-        Wait for at most *timeout* seconds, or indefinitely if *timeout is
+        Wait for at most *timeout* seconds, or indefinitely if *timeout* is
         None. Return the value of the :attr:`returncode` attribute.
         """
         if not self._process:
@@ -309,12 +310,12 @@ class Process(Endpoint):
     def communicate(self, input=None):
         """Communicate with the child and return its output.
 
-        If *input* is provided, it is sent to the client. At the same time, the
-        child's standard output and standard error is read, until the child
-        exits.
+        If *input* is provided, it is sent to the client. Concurrent with
+        sending the input, the child's standard output and standard error are
+        read, until the child exits.
 
-        The return value is a tuple (stdout_data, stderr_data) containing the
-        data read from standard output and standard error, respetively.
+        The return value is a tuple ``(stdout_data, stderr_data)`` containing
+        the data read from standard output and standard error.
         """
         if input:
             self.stdin.write(input)

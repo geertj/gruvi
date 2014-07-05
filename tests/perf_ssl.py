@@ -47,7 +47,7 @@ class PerfSsl(PerformanceTest):
                 clientssl = []
             nbytes += len(received)
             t1 = time.time()
-        cipher = server.sslinfo.cipher()[0].lower().replace('-', '_')
+        cipher = server.sslsocket.cipher()[0].lower().replace('-', '_')
         name = 'ssl_throughput_{0}'.format(cipher)
         speed = nbytes / (t1 - t0) / (1024 * 1024)
         self.add_result(speed, name=name)

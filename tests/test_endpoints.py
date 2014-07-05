@@ -96,10 +96,11 @@ class TestCreateConnection(UnitTest):
         ctrans, cproto = create_connection(StreamProtocol, addr, ssl=context)
         # The SSL handshake should be completed at this point. This means that
         # there should be a channel binding.
-        sslinfo = ctrans.get_extra_info('sslinfo')
-        self.assertIsNotNone(sslinfo)
+        sslsock = ctrans.get_extra_info('sslsocket')
+        self.assertIsNotNone(sslsock)
         if six.PY3 or gruvi.HAVE_SSL_BACKPORTS:
-            self.assertGreater(len(sslinfo.get_channel_binding()), 0)
+            sslcb = ctrans.get_extra_info('tls_unique_cb')
+            self.assertGreater(len(sslcb), 0)
         strans, sproto = list(server.connections)[0]
         cproto.stream.write(b'foo\n')
         self.assertEqual(sproto.stream.readline(), b'foo\n')
@@ -117,16 +118,17 @@ class TestCreateConnection(UnitTest):
         ssl_args = {'do_handshake_on_connect': False}
         ctrans, cproto = create_connection(StreamProtocol, addr, ssl=context, ssl_args=ssl_args)
         # The SSL handshake has not been established at this point.
-        sslinfo = ctrans.get_extra_info('sslinfo')
-        self.assertIsNone(sslinfo)
+        sslsock = ctrans.get_extra_info('sslsocket')
+        self.assertIsNone(sslsock)
         # Now initiate the SSL handshake and allow it some time to complete
         ctrans.do_handshake()
         gruvi.sleep(0.1)
         # There should be a channel binding now.
-        sslinfo = ctrans.get_extra_info('sslinfo')
-        self.assertIsNotNone(sslinfo)
+        sslsock = ctrans.get_extra_info('sslsocket')
+        self.assertIsNotNone(sslsock)
         if six.PY3 or gruvi.HAVE_SSL_BACKPORTS:
-            self.assertGreater(len(sslinfo.get_channel_binding()), 0)
+            sslcb = ctrans.get_extra_info('tls_unique_cb')
+            self.assertGreater(len(sslcb), 0)
         strans, sproto = list(server.connections)[0]
         cproto.stream.write(b'foo\n')
         self.assertEqual(sproto.stream.readline(), b'foo\n')

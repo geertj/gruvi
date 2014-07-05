@@ -1,5 +1,13 @@
 Changes in version 0.9.3:
 
+* PEP-3156 style transports and protocols.
+* Incorporate SSL backports from Bluepass.
+* Replace Signal with stdlib-like Event and Condition.
+* Add support for working with child processes.
+* Add support for connecting protocols to a file descriptor.
+* Lots of small bug fixes and improvements.
+* Improved documentation.
+
 Changes in version 0.9.2:
 
 * Add support for JSON-RPC v2.0

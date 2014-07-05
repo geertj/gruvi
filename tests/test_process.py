@@ -19,7 +19,6 @@ import pkg_resources
 import gruvi
 from gruvi.hub import get_hub
 from gruvi.errors import *
-from gruvi.endpoints import create_handle
 from gruvi.process import *
 from gruvi.stream import StreamClient
 
@@ -281,7 +280,8 @@ class TestProcess(UnitTest):
     def test_inherit_handle(self):
         # Ensure that it's possible to pass a handle to the child.
         # Note: The "ipc" flag doubles as a read/write flag.
-        handle = create_handle(pyuv.Pipe, True)
+        hub = get_hub()
+        handle = pyuv.Pipe(hub.loop, True)
         proc = Process()
         proc.spawn(python_script(['catn', '3']), extra_handles=[handle])
         stream = StreamClient()

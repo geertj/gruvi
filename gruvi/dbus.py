@@ -7,13 +7,12 @@
 # complete list.
 
 """
-This module implements a D-BUS client and server.
+The :mod:`gruvi.dbus` module implements a D-BUS client and server.
 
-The implementation uses various pieces from Tom Cocagne's excellent `txdbus
+The implementation uses parts of the `txdbus
 <https://github.com/cocagne/txdbus>`_ project. A cut down copy of txdbus,
-containing only those parts needed by Gruvi, is available as
-:mod:`gruvi.txdbus`. You need this if you are providing a message handler (see
-below).
+containing only those parts needed by Gruvi, is available as ``gruvi.txdbus``.
+You need this if you are providing a message handler (see below).
 
 Both a client and a server/bus-side implementation are provided. The bus-side
 implementation is very bare bones and apart from the "Hello" message it does
@@ -32,12 +31,21 @@ object-oriented interface though.
 To receive notifications or to respond to method calls, you need to provide a
 *message handler* to the client or the server constructor. The signature of the
 message handler is: ``message_handler(message, protocol)``. Here, the *message*
-argument is an instance of :class:`gruvi.txdbus.DbusMessage`, and the
+argument is an instance of ``gruvi.txdbus.DbusMessages``, and the
 *protocol* will be the :class:`DbusProtocol` instance for the current
 connection.
 
 Message handlers runs in their own fiber, which allows them to call into
 switchpoints. There is one fiber for every connection.
+
+Usage example::
+
+  client = gruvi.DbusClient()
+  client.connect('session')
+  result = client.call_method('org.freedesktop.DBus', '/org/freedesktop/DBus',
+                              'org.freedesktop.DBus', 'ListNames')
+  for name in result[0]:
+      print('Name: {0}'.format(name))
 """
 
 from __future__ import absolute_import, print_function
@@ -47,14 +55,15 @@ import struct
 import binascii
 import codecs
 import six
+import pyuv
 
 from . import txdbus, compat
 from .hub import switchpoint, switch_back
 from .sync import Event
-from .transports import UvError
 from .protocols import ProtocolError, MessageProtocol
 from .stream import StreamWriter
-from .endpoints import Client, Server, add_protocol_method, saddr
+from .endpoints import Client, Server, add_protocol_method
+from .address import saddr
 
 __all__ = ['DbusError', 'DbusMethodCallError', 'DbusProtocol', 'DbusClient', 'DbusServer']
 
@@ -210,10 +219,10 @@ class DbusProtocol(MessageProtocol):
     S_CREDS_BYTE, S_AUTHENTICATE, S_MESSAGE_HEADER, S_MESSAGE = range(4)
 
     def __init__(self, server_side, message_handler=None, server_guid=None, timeout=None):
-        super(DbusProtocol, self).__init__(message_handler)
+        super(DbusProtocol, self).__init__(callable(message_handler), timeout=timeout)
+        self._message_handler = message_handler
         self._server_side = server_side
         self._name_acquired = Event()
-        self._timeout = timeout
         self._buffer = bytearray()
         self._method_calls = {}
         self._authenticator = None
@@ -252,6 +261,10 @@ class DbusProtocol(MessageProtocol):
         self._method_calls.clear()
         self._name_acquired.set()
         self._authenticator = None  # break cycle
+
+    def message_received(self, message):
+        # Protocol callback
+        self._message_handler(message, self._transport, self)
 
     def get_read_buffer_size(self):
         # Return the size of the read buffer.
@@ -409,8 +422,7 @@ class DbusProtocol(MessageProtocol):
     def send_message(self, message):
         """Send a D-BUS message.
 
-        The *message* argument must be :class:`gruvi.txdbus.DbusMessage`
-        instance.
+        The *message* argument must be ``gruvi.txdbus.DbusMessage`` instance.
         """
         if not isinstance(message, txdbus.DbusMessage):
             raise TypeError('message: expecting DbusMessage instance (got {0!r})',
@@ -496,7 +508,7 @@ class DbusClient(Client):
         for addr in addresses:
             try:
                 super(DbusClient, self).connect(addr)
-            except UvError:
+            except pyuv.error.UVError:
                 continue
             break
         else:
@@ -541,7 +553,7 @@ class DbusServer(Server):
         for addr in addresses:
             try:
                 super(DbusServer, self).listen(addr)
-            except UvError:
+            except pyuv.error.UVError:
                 self._log.error('skipping address {}', saddr(addr))
 
     def _create_protocol(self):

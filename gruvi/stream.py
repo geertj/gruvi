@@ -19,18 +19,19 @@ from .protocols import Protocol, ProtocolError
 from .endpoints import Client, Server, add_method
 from .hub import switchpoint
 
-__all__ = ['StreamReader', 'StreamWriter', 'StreamProtocol', 'StreamClient', 'StreamServer']
+__all__ = ['StreamReader', 'StreamWriter', 'ReadWriteStream', 'StreamProtocol',
+           'StreamClient', 'StreamServer']
 
 
 class StreamReader(BufferedIOBase):
     """A stream reader.
 
-    A stream reader is a blocking reader interface on top of a memory buffer.
-    The reader is a binary reader and therefore returns ``bytes`` instances.
+    This is a utility class that is used to implement a blocking reader
+    interface on top of a memory buffer.
 
-    This class implements the :class:`io.BufferedIOBase` interface. This means
-    that e.g. it can be wrapped with :class:`io.TextIOWrapper` to create a
-    stream reader that returns unicode strings.
+    A stream reader always operates on ``bytes`` instances. To create a reader
+    that works on unicode strings, you can wrap it with a
+    :class:`io.TextIOWrapper`.
     """
 
     def __init__(self, on_buffer_size_change=None, timeout=None):
@@ -144,6 +145,7 @@ class StreamReader(BufferedIOBase):
             raise compat.saved_exc(self._error)
         return b''.join(chunks)
 
+    @switchpoint
     def read1(self, size=-1):
         """Read up to *size* bytes.
 
@@ -222,6 +224,10 @@ class StreamWriter(BufferedIOBase):
 
     This class implements flow control in the write direction for a
     transport/protocol pair.
+
+    A stream writer always operates on ``bytes`` instances. To create a writer
+    that works on unicode strings, you can wrap it with a
+    :class:`io.TextIOWrapper`.
     """
 
     def __init__(self, transport, protocol):
@@ -241,9 +247,9 @@ class StreamWriter(BufferedIOBase):
         will be re-raised by future :meth:`write` and other method.
 
         This method may block if the protocol is currently blocked, i.e. if the
-        protocol's :meth:`Protocol.pause_writing` method was called by the
-        transport.  In this case, the write block until the protocol's
-        :meth:`Protocol.resume_writing` method is called.
+        protocol's :meth:`~gruvi.BaseProtocol.pause_writing` method was called
+        by the transport. In this case, the write block until the protocol's
+        :meth:`~gruvi.BaseProtocol.resume_writing` method is called.
         """
         self._protocol._may_write.wait()
         if self._transport._error:
@@ -268,7 +274,7 @@ class StreamWriter(BufferedIOBase):
 
     @switchpoint
     def write_eof(self):
-        """Close the write direction on the transport.
+        """Close the write direction of the transport.
 
         This method implements flow control as described in :meth:`write`. The
         EOF will only be written when the protocol is not paused.
@@ -294,7 +300,11 @@ class StreamWriter(BufferedIOBase):
 
 
 class ReadWriteStream(BufferedIOBase):
-    """Adapter that adapts a StreamProtocol to a BufferedIOBase."""
+    """A read-write stream.
+
+    This is an adapter class that creates a read-write stream on top of a
+    :class:`StreamReader` and a :class:`StreamWriter`.
+    """
 
     def __init__(self, reader, writer):
         self._reader = reader
@@ -323,6 +333,8 @@ class StreamProtocol(Protocol):
 
     @property
     def stream(self):
+        """A :class:`ReadWriteStream` instance that provides blocking, flow
+        controlled read and write access to the underlying transport."""
         return self._stream
 
     def _update_read_buffer(self, reader, oldsize, newsize):
@@ -364,12 +376,19 @@ class StreamClient(Client):
     def _create_protocol(self):
         return StreamProtocol(timeout=self._timeout)
 
+    @property
+    def stream(self):
+        """An alias for ``self.protocol.stream``"""
+        if not self.protocol:
+            raise ProtocolError('not connected')
+        return self.connection[1].stream
+
     _stream_method = textwrap.dedent("""\
         def {name}{signature}:
-            '''{docstring}'''
-            if not self._connection:
-                raise RuntimeError('not connected')
-            return self._connection[1].stream.{name}{arglist}
+            '''A alias for ``self.stream.{name}().``'''
+            if not self.protocol:
+                raise ProtocolError('not connected')
+            return self.stream.{name}{arglist}
             """)
 
     add_method(_stream_method, StreamReader.read)
@@ -382,15 +401,19 @@ class StreamClient(Client):
     add_method(_stream_method, StreamWriter.writelines)
     add_method(_stream_method, StreamWriter.write_eof)
 
-    @property
-    def stream(self):
-        return self.connection[1].stream
-
 
 class StreamServer(Server):
     """A stream server."""
 
     def __init__(self, stream_handler, timeout=None):
+        """The *stream_handler* argument is a handler function to handle client
+        connections. The handler will be called as ``stream_handler(stream,
+        transport, protocol)``. The handler for each connection will run in a
+        separate fiber so it can use blocking I/O on the stream. When the
+        handler returns, the stream is closed.
+
+        See :ref:`example-stream-server` for an example.
+        """
         super(StreamServer, self).__init__(self._create_protocol, timeout=timeout)
         self._stream_handler = stream_handler
         self._dispatchers = {}

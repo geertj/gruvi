@@ -1,6 +1,5 @@
 TODO:
 
-* Increase test coverage.
 * Should we expose a Protocol.transport? If so the message handler signature
   can be simplied to handler(protocol, message) or handler(message, protocol)
 * Fibers in the Fiber pool should be single shot.
@@ -19,6 +18,9 @@ TODO:
 * Rename jsonrpc_ffi to json_ffi. Make json_splitter.c move analogous to
   http_parser.c using callbacks.
 * util.py -> utils.py
+* Implement Future.add_done_callback() and futures.wait()
+* The Events returned by Protocol.connection_made() and Transport.start()
+  should be Futures so that exceptions can be passed into the waiter.
 
 Things that could be done if they are useful:
 

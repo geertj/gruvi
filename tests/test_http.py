@@ -11,7 +11,7 @@ from __future__ import absolute_import, print_function
 import six
 
 import gruvi
-from gruvi.http import *
+from gruvi.http import HttpServer, HttpClient
 from gruvi.http import HttpMessage, HttpProtocol, HttpRequest, HttpResponse
 from gruvi.http import parse_url, parse_option_header
 from gruvi.http_ffi import lib as _lib

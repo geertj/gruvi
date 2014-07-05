@@ -11,16 +11,14 @@ from __future__ import absolute_import, print_function
 import signal
 import collections
 import threading
-import inspect
 import textwrap
 import itertools
 import traceback
-import six
 
 import pyuv
 import fibers
 
-from . import logging, compat
+from . import logging, compat, util
 from .errors import Timeout
 
 __all__ = ['switchpoint', 'assert_no_switchpoints', 'switch_back', 'get_hub',
@@ -42,62 +40,45 @@ _switchpoint_template = textwrap.dedent("""\
         return _{name}{arglist}
 """)
 
-def switchpoint(func):
+def switchpoint(func, update_doc=True):
     """Mark *func* as a switchpoint.
 
-    Use this function as a decorator to mark any method or function that may
-    call :meth:`Hub.switch`, as follows::
+    In Gruvi, all methods and functions that call :meth:`Hub.switch` directly,
+    and all public APIs that can cause an indirect switch, are marked as a
+    switchpoint. It is recommended that you mark your own methods and functions
+    in the same way. Example::
 
-        @switchpoint
-        def myfunc():
-            # May call Hub.switch() here
-            pass
-
-    You only need to mark methods and functions that invoke :meth:`Hub.switch`
-    directly, not via intermediate callables.
+      @switchpoint
+      def myfunc():
+          # may call Hub.switch() here
     """
     name = func.__name__
     doc = func.__doc__ or ''
-    if not doc.endswith('*This method is a switchpoint.*\n'):
+    if update_doc and not doc.endswith('*This method is a switchpoint.*\n'):
         indent = [len(list(itertools.takewhile(str.isspace, line)))
                   for line in doc.splitlines() if line and not line.isspace()]
         indent = indent[0] if len(indent) == 1 else min(indent[1:] or [0])
         doc += '\n\n' + ' ' * indent + '*This method is a switchpoint.*\n'
-    # Put the entire docstring on one line so that the line numbers in a
-    # @switchpoint traceback match thsoe in _switchpoint_template
-    doc = doc.replace('\n', '\\n')
-    argspec = inspect.getargspec(func)
-    signature = inspect.formatargspec(*argspec)
-    arglist = inspect.formatargspec(*argspec, formatvalue=lambda x: '')
-    funcdef = _switchpoint_template.format(name=name, signature=signature,
-                                           docstring=doc, arglist=arglist)
-    code = compile(funcdef, '@switchpoint', 'exec')
+        func.__doc__ = doc
     globs = {'get_hub': get_hub, 'getcurrent': fibers.current, '_{0}'.format(name): func}
-    six.exec_(code, globs)
-    wrapped = globs[name]
+    wrapped = util.wrap(_switchpoint_template, func, globs, 2)
     wrapped.func = func
     wrapped.switchpoint = True
     return wrapped
 
 
 class assert_no_switchpoints(object):
-    """Context manager to define a block in which no switchpoints may be called.
+    """Context manager that defines a block in which no switches may happen,
+    and in which no switchpoints may be called.
 
-    Use this method in case you need to modify a shared state in a non-atomic
-    way, and where you want to make suresure that you're not incidentally
-    calling out indirectly to a switchpoint::
+    Use it as follows::
 
-        with assert_no_switchpoints():
-            do_something()
-            do_something_else()
+      with assert_no_switchpoints():
+          do_something()
+          do_something_else()
 
-    If a switchpoint is called while the block is active, a ``AssertionError``
-    is raised (even if the switchpoint did not switch).
-
-    This context manager should not be overused. Normally you should know which
-    functions are switchpoints or may end up calling switchpoints. Or
-    alternatively you could refactor your code to make sure that a global state
-    modification is done in a single leaf function.
+    If the context manager detects a switch or a call into a switchpoint it
+    raises an :exc:`AssertionError`.
     """
 
     __slots__ = ('_hub',)
@@ -115,46 +96,42 @@ class assert_no_switchpoints(object):
 
 
 class switch_back(object):
-    """A switchback object.
+    """A context manager to facilitate switching back to the current fiber.
 
-    A switchback object is a callable object that can be used as a context
-    manager to switch back to the current fiber after it has switched away to
-    the hub.
+    Instances of this class are callable, and are intended to be used as the
+    callback argument for an asynchronous operation. When called, the
+    switchback object causes :meth:`Hub.switch` to return in the *origin* fiber
+    (the fiber that created the switchback object). The return value in the
+    origin fiber will be an ``(args, kwargs)`` tuple containing positional and
+    keyword arguments passed to the callback.
 
-    Idiomatic use of a switchback instance is as follows::
+    When the context manager exits it will be deactivated. If it is called
+    after that then no switch will happen. Also the cleanup callbacks are run
+    when the context manager exits.
 
-      with switch_back(timeout) as switcher:
-          start_async_job(job, callback=switcher)
+    In the example below, a switchback object is used to wait for at most 10
+    seconds for a SIGHUP signal::
+
+      hub = get_hub()
+      with switch_back(timeout=10) as switcher:
+          sigh = pyuv.Signal(hub.loop)
+          sigh.start(switcher, signal.SIGHUP)
+          switcher.add_cleanup(sigh.close)
           hub.switch()
-
-    In this code fragment, ``start_async_job`` is a function that starts an
-    asynchronous job that will call a callback when it is done. The switcher
-    instance is passed as the callback. After the job has been started, the
-    fiber switches to the hub using :meth:`Hub.switch`. This causes the event
-    loop to run.
-
-    Once the asynchronous job is done, the switchback instance is called. This
-    schedules a switch to the original fiber, which in turn causes
-    :meth:`Hub.switch` to return there. The original fiber, also called the
-    origin fiber, is the fiber that was current when the switchback instance
-    was created. It is captured by the switchback constructor.
-
-    When :meth:`Hub.switch` returns in the origin fiber, the return value will
-    be an ``(args, kwargs)`` tuple containing the positional and keyword
-    arguments that were passed when the switchback was called.
     """
 
     __slots__ = ('_timeout', '_hub', '_fiber', '_timer', '_callbacks')
 
     def __init__(self, timeout=None, hub=None):
         """
-        The *timeout* argument of can be used to force a timeout after this
-        many seconds. It can be an int or a float. If a timeout happens,
+        The *timeout* argument can be used to force a timeout after this many
+        seconds. It can be an int or a float. If a timeout happens,
         :meth:`Hub.switch` will raise a :class:`Timeout` exception in the
         origin fiber. The default is None, meaning there is no timeout.
 
-        The *hub* argument can be used to specfiy an alternate hub to use.
-        By default, the Hub returned by :func:`get_hub` is used.
+        The *hub* argument can be used to specify an alternate hub to use.
+        This argument is used by the unit tests and should normally not be
+        needed.
         """
         self._timeout = timeout
         self._hub = hub or get_hub()
@@ -207,11 +184,8 @@ class switch_back(object):
         self._fiber = None
 
     def add_cleanup(self, callback, *args):
-        """Add a cleanup action.
-
-        The *callback* will be called with any provided positional arguments
-        when the context manager exits.
-        """
+        """Add a cleanup action. The callback is run with the provided
+        positional arguments when the context manager exists."""
         if self._callbacks is None:
             self._callbacks = []
         self._callbacks.append((callback, args))
@@ -229,10 +203,7 @@ class switch_back(object):
 _local = threading.local()
 
 def get_hub():
-    """Return the singleton instance of the hub.
-
-    By default there is one Hub per thread.
-    """
+    """Return the instance of the hub."""
     try:
         hub = _local.hub
     except AttributeError:
@@ -241,21 +212,20 @@ def get_hub():
 
 
 class Hub(fibers.Fiber):
-    """The central fiber scheduler.
+    """The central fiber scheduler and event loop manager."""
 
-    The hub is created automatically the first time it is needed, so it is not
-    necessary to instantiate this class yourself.
+    # The hub is created automatically the first time it is needed,so it is not
+    # necessary to instantiate this class yourself.
+    #
+    # By default there is one hub per thread. To access the per thread instance,
+    # use get_hub()
+    #
+    # The hub is used by fibers to pause themselves until a wake-up condition
+    # becomes true. See the documentation for switch_back for details
 
-    By default there is one hub per thread. To access the per thread instance,
-    use :func:`get_hub`.
-
-    The hub is used by fibers to pause themselves until a wake-up condition
-    becomes true. See the documentation for :class:`switch_back` for details.
-
-    Callbacks can be run in the hub's fiber by using :meth:`run_callback`.
-    """
-
-    # By default the Hub honors CTRL-C
+    #: When CTRL-C is pressed, the default action taken by the Hub is to call
+    #: its own :meth:`close` method. Set this attribute to True to disable this
+    #: behavior and ignore CTRL-C instead.
     ignore_interrupt = False
 
     def __init__(self):
@@ -287,12 +257,15 @@ class Hub(fibers.Fiber):
 
     @property
     def loop(self):
-        """The pyuv event loop used by this hub instance."""
+        """The event loop used by this hub instance. This is an instance of
+        :class:`pyuv.Loop`."""
         return self._loop
 
     @property
     def data(self):
-        """A per-hub dict that can be used by applications to store data."""
+        """A per-hub dictionary that can be used by applications to store data.
+
+        Keys starting with ``'gruvi:'`` are reserved for internal use."""
         return self._data
 
     def _on_sigint(self, h, signo):
@@ -321,11 +294,9 @@ class Hub(fibers.Fiber):
     def close(self):
         """Close the hub.
 
-        This stops the event loop, and causes the hub fiber to exit and
-        switch back to the root fiber.
-
-        This method is thread-safe. It is allowed call this method from a
-        different thread than the one running the Hub.
+        This sets a flag that will cause the event loop to exit when it next
+        runs. The hub fiber will then exit and control is transferred back to
+        the root fiber.
         """
         if self._loop is None:
             return
@@ -366,18 +337,17 @@ class Hub(fibers.Fiber):
     def switch(self):
         """Switch to the hub.
 
-        This method pauses the current fiber and runs the event loop.
+        This method pauses the current fiber and runs the event loop. The
+        caller should ensure that it has set up appropriate callbacks so that
+        it will get scheduled again, preferably using :class:`switch_back`. In
+        this case then return value of this method will be an ``(args,
+        kwargs)`` tuple containing the arguments passed to the switch back
+        instance.
 
-        The caller should ensure that it has set up appropriate switchbacks
-        using :class:`switch_back`. If a switchback was called, the return
-        value is an ``(args, kwargs)`` tuple containing its arguments.  If a
-        timeout or another exception was raised by the switchback, the
-        exception is re-raised here.
-
-        If this method is called from the root fiber then there is an
-        additional case if the hub exited. If the hub exited due to a call to
-        :meth:`close` then this method returns None. And if the hub exited due
-        to a exception, that exception is re-raised here.
+        If this method is called from the root fiber then there are two
+        additional cases. If the hub exited due to a call to :meth:`close`,
+        then this method returns None. And if the hub exited due to a
+        exception, that exception is re-raised here.
         """
         if self._loop is None or not self.is_alive():
             raise RuntimeError('hub is closed/dead')
@@ -420,7 +390,7 @@ class Hub(fibers.Fiber):
 
 @switchpoint
 def sleep(secs):
-    """Sleep for *secs* seconds."""
+    """Sleep for *secs* seconds. The *secs* argument can be an int or a float."""
     hub = get_hub()
     try:
         with switch_back(secs):

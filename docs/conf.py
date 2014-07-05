@@ -21,8 +21,56 @@ sys.path.insert(0, os.path.abspath('..'))
 # Naming conflict with sphinx.
 import setup as gruvi_setup
 
-# Allow code to detect if it's running under sphinx
-sys.running_under_sphinx = True
+# -- Tweaks ----
+
+# We implement the :show-inheritance: directive ourselves so that we can show
+# the class name in the "gruvi" package rather than the one in the "gruvi.xxxx"
+# submodule implementing the class.
+#
+# The code below is certain quite fragile. It depends on the fact that
+# autodoc-process-signature is raised *before* autodoc adds the base classes
+# itself. We use this hook to turn off the "show_inheritance" option so that
+# this doesn't happen. Note that autodoc-process-docstring is run after the
+# base classes are already added so this is too large to turn the automatic
+# processing off.
+
+def process_signature(app, what, name, obj, options, sig, retann):
+    if 'my-show-inheritance' not in options:
+        options['my-show-inheritance'] = options.get('show-inheritance')
+        options['show-inheritance'] = False
+    # This is another gross hack. Square brackets are used by the "method"
+    # directive to denote optional parameters. The parser in Sphinx splits the
+    # arguments by ','. If an argument looks like "foo=[]", it would be
+    # recognizes as an argument "header=" and an empty group. As an ugly hack,
+    # insert a non-printable character (ascii 1F = unit separator), so that our
+    # argument does not end with ']'. See Sphinx issue #1503
+    if sig and '[]' in sig:
+        return (sig.replace('[]', '[]\x1f'), retann)
+
+done = set()
+
+def process_docstring(app, what, name, obj, options, lines):
+    if what != 'class' or not options.get('my-show-inheritance') or name in done:
+        return
+    bases = []
+    for base in getattr(obj, '__bases__', []):
+        if base is object:
+            continue
+        modname = getattr(base, '__module__')
+        if modname == '__builtin__':
+            modname = ''
+        elif modname.startswith('gruvi.') and \
+                    modname not in ('gruvi.http', 'gruvi.jsonrpc', 'gruvi.dbus'):
+            modname = 'gruvi'
+        bases.append(u':class:`%s.%s`' % (modname, base.__name__))
+    if bases:
+        lines[:0] = [u'Bases: %s' % ', '.join(bases), '']
+    done.add(name)
+
+def setup(app):
+    app.connect('autodoc-process-signature', process_signature)
+    app.connect('autodoc-process-docstring', process_docstring)
+
 
 # -- General configuration -----------------------------------------------------
 
@@ -47,7 +95,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Gruvi'
-copyright = u'2012-2013, Geert Jansen'
+copyright = u'2012-2014, Geert Jansen'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -126,7 +174,7 @@ html_theme = 'pyramid'
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+html_static_path = []
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.

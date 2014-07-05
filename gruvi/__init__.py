@@ -26,6 +26,7 @@ from .futures import *
 from .transports import *
 from .protocols import *
 from .endpoints import *
+from .address import *
 from .process import *
 from .stream import *
 from .http import *

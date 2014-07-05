@@ -16,13 +16,11 @@ import struct
 from . import logging, compat
 from .errors import Error
 
-UvError = pyuv.error.UVError
-
-__all__ = ['UvError', 'TransportError', 'BaseTransport', 'Transport', 'DatagramTransport']
+__all__ = ['TransportError', 'BaseTransport', 'Transport', 'DatagramTransport']
 
 
 class TransportError(Error):
-    """Transport error."""
+    """A transport error."""
 
     def __init__(self, message, errno=None):
         super(TransportError, self).__init__(message)
@@ -33,16 +31,16 @@ class TransportError(Error):
         return self._errno
 
     @classmethod
-    def from_errno(cls, errno, message=None):
-        if message is None:
-            message = '{0}: {1}'.format(pyuv.errno.errorcode.get(errno, errno),
-                                        pyuv.errno.strerror(errno))
-
+    def from_errno(cls, errno):
+        """Create a new instance from a :mod:`pyuv.errno` error code."""
+        message = '{0}: {1}'.format(pyuv.errno.errorcode.get(errno, errno),
+                                    pyuv.errno.strerror(errno))
         return cls(message, errno)
 
 
 class BaseTransport(object):
-    """Base class for :mod:`pyuv` based transports."""
+    """Base class for :mod:`pyuv` based transports. There is no public
+    constructor."""
 
     write_buffer_size = 65536
 
@@ -66,10 +64,24 @@ class BaseTransport(object):
         if self._protocol is not None:
             raise RuntimeError('already started')
         self._protocol = protocol
-        self._protocol.connection_made(self)
+        return self._protocol.connection_made(self)
 
     def get_extra_info(self, name, default=None):
-        """Get transport specific data."""
+        """Get transport specific data.
+
+        The following information is available for all transports:
+
+        ==============  =================================================
+        Name            Description
+        ==============  =================================================
+        ``'handle'``    The pyuv handle that is being wrapped.
+        ``'sockname'``  The socket name i.e. the result of the
+                        ``getsockname()`` system call.
+        ``'peername'``  The peer name i.e. the result of the
+                        ``getpeername()`` system call.
+        ``'fd'``        The handle's file descriptor. Unix only.
+        ==============  =================================================
+        """
         if name == 'handle':
             return self._handle
         elif name == 'sockname':
@@ -142,28 +154,28 @@ class BaseTransport(object):
 
 
 class Transport(BaseTransport):
-    """A stream transport.
-
-    This is an adapter class that adapts the :class:`pyuv.Stream` API to a
-    stream transport as specified in PEP 3156.
-    """
+    """A connection oriented transport."""
 
     def __init__(self, handle, mode='rw'):
         """
         The *handle* argument is the pyuv handle for which to create the
-        transport. It must be a :class:`pyuv.Stream` instance.
+        transport. It must be a ``pyuv.Stream`` instance, so either a
+        :class:`pyuv.TCP`, :class:`pyuv.Pipe` or a :class:`pyuv.TTY`.
+
+        The *mode* argument specifies if this is transport is read-only
+        (``'r'``), write-only (``'w'``) or read-write (``'rw'``).
         """
         if not isinstance(handle, pyuv.Stream):
             raise TypeError("handle: expecting a 'pyuv.Stream' instance, got {0!r}"
                                 .format(type(handle).__name__))
         super(Transport, self).__init__(handle, mode)
 
-    def start(self, protocol, mode='rw'):
-        """Bind to *protocol* and start calling callbacks on it."""
-        super(Transport, self).start(protocol)
+    def start(self, protocol):
+        events = super(Transport, self).start(protocol)
         if self._readable:
             self._handle.start_read(self._read_callback)
             self._reading = True
+        return events
 
     def _read_callback(self, handle, data, error):
         # Callback used with handle.start_read().
@@ -201,7 +213,7 @@ class Transport(BaseTransport):
         self._reading = False
 
     def resume_reading(self):
-        """Start calling callbacks on the protocol."""
+        """Resume calling callbacks on the protocol."""
         if not self._readable:
             raise TransportError('transport is not readable')
         elif self._error:
@@ -266,7 +278,7 @@ class Transport(BaseTransport):
             self.write(line)
 
     def write_eof(self):
-        """Shut down the write side of the transport."""
+        """Shut down the write direction of the transport."""
         if not self._writable:
             raise TransportError('transport is not writable')
         elif self._error:
@@ -288,18 +300,49 @@ class Transport(BaseTransport):
         """Whether this transport can close the write direction."""
         return True
 
+    def get_extra_info(self, name, default=None):
+        """Get transport specific data.
+
+        In addition to the fields from :meth:`BaseTransport.get_extra_info`,
+        the following information is also available:
+
+        ==================  ===================================================
+        Name                Description
+        ==================  ===================================================
+        ``'winsize'``       The terminal window size as a ``(cols, rows)``
+                            tuple. Only available for :class:`pyuv.TTY`
+                            handles.
+        ``'unix_creds'``    The Unix credentials of the peer as a
+                            ``(pid, uid, gid)`` tuple. Only available for
+                            :class:`pyuv.Pipe` handles on Unix.
+        ==================  ===================================================
+        """
+        if name == 'winsize':
+            if not isinstance(self._handle, pyuv.TTY):
+                return default
+            return self._handle.get_winsize()
+        elif name == 'unix_creds':
+            if not isinstance(self._handle, pyuv.Pipe) or not hasattr(socket, 'SO_PEERCRED'):
+                return default
+            fd = self._handle._fileno()
+            sock = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_DGRAM)  # will dup()
+            creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i'))
+            sock.close()
+            return struct.unpack('3i', creds)
+        else:
+            return super(Transport, self).get_extra_info(name, default)
+
 
 class DatagramTransport(BaseTransport):
-    """A datagram transport.
-
-    This is an adapter class that adapts the :class:`pyuv.UDP` API to a
-    datagram transport as specified in PEP 3156.
-    """
+    """A datagram transport."""
 
     def __init__(self, handle, mode='rw'):
         """
         The *handle* argument is the pyuv handle for which to create the
         transport. It must be a :class:`pyuv.UDP` instance.
+
+        The *mode* argument specifies if this is transport is read-only
+        (``'r'``), write-only (``'w'``) or read-write (``'rw'``).
         """
         if not isinstance(handle, pyuv.UDP):
             raise TypeError("handle: expecting a 'pyuv.UDP' instance, got {0!r}"
@@ -307,10 +350,10 @@ class DatagramTransport(BaseTransport):
         super(DatagramTransport, self).__init__(handle, mode)
 
     def start(self, protocol):
-        """Bind to *protocol* and start calling callbacks on it."""
-        super(DatagramTransport, self).start(protocol)
+        events = super(DatagramTransport, self).start(protocol)
         if self._readable:
             self._handle.start_recv(self._recv_callback)
+        return events
 
     def _recv_callback(self, handle, addr, flags, data, error):
         """Callback used with handle.start_recv()."""
@@ -342,9 +385,9 @@ class DatagramTransport(BaseTransport):
             self._closing = False
 
     def sendto(self, data, addr=None):
-        """Send a datagram.
+        """Send a datagram containing *data* to *addr*.
 
-        If *addr* is not specified, the handle must have been bound to a
+        The *addr* argument may be omitted only if the handle was bound to a
         default remote address.
         """
         if not isinstance(data, bytes):

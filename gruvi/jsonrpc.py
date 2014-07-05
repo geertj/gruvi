@@ -7,7 +7,7 @@
 # complete list.
 
 """
-This module implements a JSON-RPC client and server.
+The :mod:`gruvi.jsonrpc` module implements a JSON-RPC client and server.
 
 There are two main version of JSON-RPC: version 1.0 and version 2.0. These
 version are not compatible with each other. Fortunately though, it is possible
@@ -24,7 +24,7 @@ The "batch" feature of version 2.0 is not supported. It more relevant for
 JSON-RPC over HTTP rather for that clients and servers that operate directly on
 top of a connection.
 
-This module provides to main classes: :class:`JsonRpcClient` and
+This module provides two main classes: :class:`JsonRpcClient` and
 :class:`JsonRpcServer`. The difference is merely who initiates the connection
 at the transport level. The JSON-RPC protocol itself does not distinguish
 between clients and servers.
@@ -58,7 +58,8 @@ from . import compat
 from .hub import switchpoint, switch_back
 from .protocols import ProtocolError, MessageProtocol
 from .stream import StreamWriter
-from .endpoints import Client, Server, add_protocol_method, saddr
+from .endpoints import Client, Server, add_protocol_method
+from .address import saddr
 from .jsonrpc_ffi import lib as _lib, ffi as _ffi
 
 __all__ = ['JsonRpcError', 'JsonRpcMethodCallError', 'JsonRpcProtocol',
@@ -243,9 +244,9 @@ class JsonRpcProtocol(MessageProtocol):
     read_buffer_size = 65536
 
     def __init__(self, message_handler=None, version='2.0', timeout=None):
-        super(JsonRpcProtocol, self).__init__(message_handler)
+        super(JsonRpcProtocol, self).__init__(callable(message_handler), timeout=timeout)
+        self._message_handler = message_handler
         self._version = version
-        self._timeout = timeout
         self._buffer = bytearray()
         self._context = _ffi.new('struct split_context *')
         self._method_calls = {}
@@ -335,6 +336,10 @@ class JsonRpcProtocol(MessageProtocol):
             return
         self.read_buffer_size_changed()
 
+    def message_received(self, message):
+        # Protocol callback
+        self._message_handler(message, self._transport, self)
+
     def _set_tracefile(self, tracefile):
         """Log protocol exchanges to *tracefile*."""
         if isinstance(tracefile, six.string_types):
@@ -383,7 +388,7 @@ class JsonRpcProtocol(MessageProtocol):
         returned. On error, an exception is raised.
 
         This method also takes a an optional *timeout* keyword argument that
-        overrides the default :attr:`timeout`.
+        overrides the default timeout passed to the constructor.
         """
         if self._error:
             raise compat.saved_exc(self._error)

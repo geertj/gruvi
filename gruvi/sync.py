@@ -19,8 +19,11 @@ __all__ = ['Lock', 'RLock', 'Event', 'Condition', 'QueueEmpty', 'QueueFull',
            'Queue', 'LifoQueue', 'PriorityQueue']
 
 
+# All primitives in this module a thread safe!
+
+
 class _Lock(object):
-    """Base class for regular and re-entrant locks."""
+    """Base class for regular and reentrant locks."""
 
     __slots__ = ('_reentrant', '_lock', '_locked', '_owner', '_waiters')
 
@@ -126,13 +129,10 @@ class _Lock(object):
 
 
 class Lock(_Lock):
-    """A lock object.
+    """A lock.
 
-    The lock is acquired using :meth:`acquire` and released using
-    :meth:`release`. A lock can also be used as a context manager.
-
-    A Lock is thread safe. This class is the fiber-aware equivalent of
-    :class:`threading.Lock`.
+    The lock can be locked and unlocked explicitly using :meth:`acquire` and
+    :meth:`release`, and it can also be used as a context manager.
     """
 
     __slots__ = _Lock.__slots__
@@ -142,17 +142,14 @@ class Lock(_Lock):
 
 
 class RLock(_Lock):
-    """A re-entrant lock object.
+    """A reentrant lock.
 
-    A re-entrant lock has the notion of a "lock owner" and a "lock count". If a
-    re-entrant lock is acquired, and it was already acquired by the current
+    A reentrant lock has the notion of a "lock owner" and a "lock count". If a
+    reentrant lock is acquired, and it was already acquired by the current
     fiber, then the lock count is increased and the acquire call will be
-    successful. Unlocking a re-entrant lock may only be done by the lock owner.
+    successful. Unlocking a reentrant lock may only be done by the lock owner.
     The lock becomes unlocked only after it is released as many times as it was
     acquired.
-
-    A RLock is thread safe. This class is the fiber-aware equivalent of
-    :class:`threading.RLock`.
     """
 
     __slots__ = _Lock.__slots__
@@ -180,10 +177,7 @@ class RLock(_Lock):
 
 
 class Event(object):
-    """An Event.
-
-    An event is a synchronization primitive that can make zero or more fibers
-    wait for a programmer-raised event.
+    """An event.
 
     An event contains an internal flag that is initially False. The flag can be
     set using the :meth:`set` method and cleared using the :meth:`clear`
@@ -193,9 +187,6 @@ class Event(object):
     is "sticky". Setting the event will unblock all current waiters and will
     cause future calls to :meth:`wait` not to block, until :meth:`clear` is
     called again.
-
-    An event is thread safe. This class is the fiber-aware equivalent of
-    :class:`threading.Event`.
     """
 
     __slots__ = ('_flag', '_lock', '_waiters')
@@ -293,9 +284,6 @@ def release_save(lock):
 class Condition(object):
     """A condition.
 
-    A condition is a synchronization primitive that can make zero or more
-    fibers wait for a programmer-raised event.
-
     A condition is always associated with a lock. The state of the condition
     may only change when the caller has acquired the lock. While the lock is
     held, a condition can be waited for using :meth:`wait`. The wait method
@@ -304,13 +292,10 @@ class Condition(object):
 
     The difference between a condition and an :class:`Event` is that a
     condition is edge-trigerred. This means that when a condition is notified,
-    only fibers that are waiting *at that exact time* are unblocked. Any fiber
-    that calls :meth:`wait` after the notification, will block until the next
-    notification. This also explains why a lock is needed. Without the lock
-    there would be a race condition between notification and waiting.
-
-    A condition is thread safe. This class is the fiber-aware equivalent of
-    :class:`threading.Condition`.
+    only fibers that are waiting *at the time of notification* are unblocked.
+    Any fiber that calls :meth:`wait` after the notification, will block until
+    the next notification. This also explains why a lock is needed. Without the
+    lock there would be a race condition between notification and waiting.
     """
 
     __slots__ = ('_lock', '_waiters')
@@ -404,11 +389,7 @@ class QueueFull(Exception):
 
 
 class Queue(object):
-    """A synchronized FIFO queue.
-
-    A queue is thread-safe. This class is the fiber-aware equivalent of
-    :class:`queue.Queue`.
-    """
+    """A synchronized FIFO queue. """
 
     __slots__ = ('_maxsize', '_unfinished_tasks', '_heap', '_size', '_counter',
                  '_lock', '_notempty', '_notfull', '_alldone')
@@ -555,9 +536,8 @@ class LifoQueue(Queue):
 class PriorityQueue(Queue):
     """A priority queue.
 
-    Items that are added via :meth:`put` must be ``(priority, item)`` tuples.
-    The priority element must be a numeric priority. Lower numerical values
-    indicate a higher priority.
+    Items that are added via :meth:`~Queue.put` are typically ``(priority,
+    item)`` tuples. Lower values for priority indicate a higher priority.
 
     See :class:`Queue` for a description of the API.
     """

@@ -14,16 +14,12 @@ from . import fibers, compat
 from .hub import switchpoint, switch_back
 from .sync import Event, Queue
 
-__all__ = ['Future', 'Pool', 'FiberPool', 'ThreadPool', 'get_io_pool',
+__all__ = ['Future', 'PoolBase', 'FiberPool', 'ThreadPool', 'get_io_pool',
            'get_cpu_pool', 'blocking']
 
 
 class Future(object):
-    """The result of an asynchronous function call.
-
-    Futures are created by :class:`FiberPool.submit` and :class:`ThreadPool.submit`
-    and represent the not-yet-available result of the submitted functions.
-    """
+    """The result of an asynchronous function call."""
 
     __slots__ = ['_result', '_exception', '_done']
 

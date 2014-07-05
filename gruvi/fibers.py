@@ -20,25 +20,42 @@ __all__ = ['current_fiber', 'Fiber', 'spawn']
 
 
 def current_fiber():
-    """Return the current fiber."""
+    """Return the current fiber.
+
+    Note: The root and hub fiber are "bare" :class:`fibers.Fiber` instances.
+    Calling this method there returns the bare instance, not a
+    :class:`gruvi.Fiber` instance.
+    """
     return fibers.current()
 
 
 class Fiber(fibers.Fiber):
-    """An explicitly scheduled execution context aka *co-routine*.
+    """An cooperatively scheduled execution context aka *green thread* aka
+    *co-routine*."""
 
-    This class is a very thin layer on top of :class:`fibers.Fiber`. It adds a
-    :meth:`start` method that schedules a switch via the hub. It also enforces
-    that only the hub may call :meth:`switch`.
-
-    All user created fibers should use this interface. The only fibers in a
-    Gruvi application that use the "raw" interface from the :class:`fibers`
-    package are the root fiber and the :class:`Hub`.
-    """
+    # This class is a very thin layer on top of fibers.Fiber. It adds a start()
+    # method that schedules a switch via the hub. It also enforces that only
+    # the hub may call switch().
+    #
+    # All user created fibers should use this interface. The only fibers in a
+    # Gruvi application that use the "raw" interface from the fibers package
+    # are the root fiber and the Hub.
 
     __slots__ = ('_name', 'context', '_target', '_log', '_thread', '_done')
 
     def __init__(self, target, args=(), kwargs={}, name=None, hub=None):
+        """
+        The *target* argument is the main function of the fiber. It must be a
+        Python callable. The *args* and *kwargs* specify its arguments and
+        keyword arguments, respectively.
+
+        The *name* argument specifies the fiber name. This is purely a
+        diagnositic tool is used e.g. in log messages.
+
+        The *hub* argument can be used to override the hub that will be used to
+        schedule this fiber. This argument is used by the unit tests and should
+        not by needed.
+        """
         self._hub = hub or get_hub()
         super(Fiber, self).__init__(self.run, args, kwargs, self._hub)
         if name is None:
@@ -65,7 +82,7 @@ class Fiber(fibers.Fiber):
         self._hub.run_callback(self.switch)
 
     def switch(self, value=None):
-        """Switch to this fiber."""
+        # Only the hub may call this.
         if self.current() is not self._hub:
             raise RuntimeError('only the Hub may switch() to a fiber')
         if threading.current_thread() is not self._thread:
@@ -80,7 +97,7 @@ class Fiber(fibers.Fiber):
         event loop.
 
         The exception *exc* will be thrown in the fiber. If *exc* is not
-        specified, a :exception:`Cancelled` exception is used.
+        specified, a :exc:`Cancelled` exception is used.
         """
         if not self.is_alive():
             return
@@ -106,7 +123,14 @@ class Fiber(fibers.Fiber):
 
 
 def spawn(func, *args, **kwargs):
-    """Spawn function *func* in a separate greenlet."""
+    """Spawn a new fiber.
+
+    A new :class:`Fiber` is created with main function *func* and supplied
+    positional and keyword arguments. The fiber is then scheduled to start by
+    calling its :meth:`~Fiber.start` method.
+
+    The fiber instance is returned.
+    """
     fiber = Fiber(func, args, kwargs)
     fiber.start()
     return fiber

@@ -124,12 +124,12 @@ class TestSslPipe(UnitTest):
         self.assertEqual(len(serverssl), 1)
         self.assertGreater(len(serverssl[0]), 0)  # the s->c close_notify
         self.assertEqual(appdata, [b''])
-        self.assertIsNone(server.sslinfo)
+        self.assertIsNone(server.sslsocket)
         # Send back the server response to the client.
         clientssl, appdata = client.feed_ssldata(serverssl[0])
         self.assertEqual(clientssl, [])
         self.assertEqual(appdata, [])
-        self.assertIsNone(client.sslinfo)
+        self.assertIsNone(client.sslsocket)
         client.close()
         server.close()
 
@@ -182,8 +182,8 @@ class TestSslPipe(UnitTest):
         clientssl = client.shutdown()
         serverssl = server.shutdown()
         received = communicate(buf, client, server, clientssl, serverssl)
-        self.assertIsNone(client.sslinfo)
-        self.assertIsNone(server.sslinfo)
+        self.assertIsNone(client.sslsocket)
+        self.assertIsNone(server.sslsocket)
         self.assertEqual(received, buf)  # this was sent in the clear
         client.close()
         server.close()

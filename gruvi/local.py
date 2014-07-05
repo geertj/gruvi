@@ -15,17 +15,15 @@ __all__ = ['local']
 
 
 class local(object):
-    """Fiber local storage.
+    """Fiber-local data.
 
-    The API for local storage is the same as that of :class:`threading.local`.
-    To create a fiber local value, instantiate this class and store attributes
-    on it::
+    To manage fiber-local data, instantiate this class and store attributes on
+    it::
 
         mydata = local()
         mydata.x = 10
 
-    The values of the attributes will be different (or unset) for different
-    fibers.
+    Attributes have a value or are unset independently for each fiber.
     """
 
     def __init__(self):

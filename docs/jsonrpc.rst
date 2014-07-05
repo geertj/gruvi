@@ -1,7 +1,7 @@
-=================================================
-:mod:`gruvi.jsonrpc` - JSON-RPC Client and Server
-=================================================
+**************************************************
+:mod:`gruvi.jsonrpc` -- JSON-RPC Client and Server
+**************************************************
 
 .. automodule:: gruvi.jsonrpc
    :members:
-   :inherited-members:
+   :show-inheritance:

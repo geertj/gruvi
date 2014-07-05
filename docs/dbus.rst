@@ -1,6 +1,7 @@
-:py:mod:`gruvi.dbus` -- D-BUS Client
-====================================
+********************************************
+:mod:`gruvi.dbus` -- D-BUS Client and Server
+********************************************
 
 .. automodule:: gruvi.dbus
    :members:
-   :inherited-members:
+   :show-inheritance:

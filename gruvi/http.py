@@ -52,22 +52,23 @@ from __future__ import absolute_import, print_function
 
 import re
 import time
+import textwrap
 import six
 
 from . import logging, compat
 from .hub import switchpoint
-from .util import docfrom
 from .errors import Error
 from .protocols import MessageProtocol
 from .stream import StreamWriter
-from .endpoints import Client, Server, add_protocol_method
+from .endpoints import Client, Server, add_method, add_protocol_method
 from .stream import StreamReader
 from .http_ffi import lib as _lib, ffi as _ffi
 from ._version import version_info
 
 from six.moves import http_client
 
-__all__ = ['HttpError', 'HttpClient', 'HttpServer']
+__all__ = ['HttpError', 'HttpRequest', 'HttpResponse', 'HttpProtocol',
+           'HttpClient', 'HttpServer']
 
 
 # Export some definitions from  http.client.
@@ -320,14 +321,11 @@ class ErrorStream(object):
 class HttpRequest(object):
     """A HTTP request.
 
-    Instances of this class are returned by :meth:`HttpProtocol.request` when
-    you set the *body* parameter to ``None``.
-
-    This class allows you to write the request body yourself using the
-    :meth:`write` and :meth:`end_request` methods. This can be useful if you
-    need to send a large input that cannot be easily presented as as a
-    file-like object or a generator, or if you want to use "chunked" encoding
-    trailers.
+    Instances of this class are returned by :meth:`HttpProtocol.request`. This
+    class allows you to write the request body yourself using the :meth:`write`
+    and :meth:`end_request` methods. This can be useful if you need to send a
+    large input that cannot be easily presented as as a file-like object or a
+    generator, or if you want to use "chunked" encoding trailers.
     """
 
     def __init__(self, transport, protocol):
@@ -434,7 +432,12 @@ class HttpRequest(object):
 
 
 class HttpResponse(object):
-    """An HTTP response as returned by :meth:`HttpClient.getresponse`."""
+    """A HTTP response.
+
+    Instances of this class are returned by :meth:`HttpProtocol.getresponse`.
+    This class allows you to get access to all information related to a HTTP
+    response, including the HTTP headers and body.
+    """
 
     def __init__(self, message):
         self._message = message
@@ -479,42 +482,21 @@ class HttpResponse(object):
 
     @property
     def body(self):
-        """A :class:`StreamReader` instance for reading the response body."""
+        """A :class:`gruvi.StreamReader` instance for reading the response
+        body."""
         return self._message.body
 
-    @switchpoint
-    def read(self, size=-1):
-        """Read up to *size* bytes from the response body.
+    _body_method = textwrap.dedent("""\
+        def {name}{signature}:
+            '''A alias for ``self.body.{name}().``'''
+            return self.body.{name}{arglist}
+            """)
 
-        If *size* is not specified or negative, read the entire body.
-        """
-        return self._message.body.read(size)
-
-    @switchpoint
-    def readline(self, limit=-1):
-        """Read a single line from the response body.
-
-        If the end of the body is reached before an entire line could be read,
-        a partial line is returned. If *limit* is specified, at most this many
-        bytes will be read.
-        """
-        return self._message.body.readline(limit)
-
-    @switchpoint
-    @docfrom(StreamReader.readlines)
-    def readlines(self, hint=-1):
-        """Read the response body and return it as a list of lines.
-
-        If *hint* is specified, then lines will be read until their combined
-        size will be equal or larger than *hint*, or until the end of the body
-        is reached, whichever happens first.
-        """
-        return self._message.body.readlines(hint)
-
-    @property
-    def __iter__(self):
-        """Generate lines from the response body."""
-        return self._message.body.__iter__
+    add_method(_body_method, StreamReader.read)
+    add_method(_body_method, StreamReader.read1)
+    add_method(_body_method, StreamReader.readline)
+    add_method(_body_method, StreamReader.readlines)
+    add_method(_body_method, StreamReader.__iter__)
 
 
 class WsgiHandler(object):
@@ -703,7 +685,7 @@ class WsgiHandler(object):
 
 
 class HttpProtocol(MessageProtocol):
-    """HTTP protocol."""
+    """HTTP protocol implementation."""
 
     identifier = '{0[name]}/{0[version]}'.format(version_info)
 
@@ -713,8 +695,8 @@ class HttpProtocol(MessageProtocol):
         The *server_side* argument specifies whether this is a client or server
         side protocol.
 
-        If this is a server side protocol, then the *wsgi_application* argument
-        must be provided, and it must be a WSGI application callable.
+        If this is a server side protocol, the *wsgi_application* argument is
+        mandatory and it must be a WSGI application callable.
 
         The *server_name* argument can be used to override the server name for
         server side protocols. If not provided, then the socket name of the
@@ -722,12 +704,12 @@ class HttpProtocol(MessageProtocol):
         """
         if server_side and not application:
             raise ValueError('application is required for server-side protocol')
-        message_handler = WsgiHandler(application) if server_side else None
-        super(HttpProtocol, self).__init__(message_handler)
+        super(HttpProtocol, self).__init__(server_side, timeout=timeout)
         self._server_side = server_side
+        self._message_handler = WsgiHandler(application) if server_side else None
         self._server_name = server_name
         if version not in ('1.0', '1.1'):
-            raise ValueError('version: unsupported version {0!s}'.format(version))
+            raise ValueError('version: unsupported version {0!r}'.format(version))
         self._version = version
         self._timeout = timeout
         self._create_parser()
@@ -920,6 +902,10 @@ class HttpProtocol(MessageProtocol):
             self._queue.put_nowait(self._error)
         super(HttpProtocol, self).connection_lost(exc)
 
+    def message_received(self, message):
+        # Protocol callback
+        self._message_handler(message, self._transport, self)
+
     @switchpoint
     def request(self, method, url, headers=[], body=b''):
         """Make a new HTTP request.
@@ -958,7 +944,7 @@ class HttpProtocol(MessageProtocol):
 
         You may make multiple requests before reading a response. This is
         called pipelining, and can improve per request latency greatly. For
-        every request that you make, you must call :meth:`get-response` exactly
+        every request that you make, you must call :meth:`getresponse` exactly
         once. The remote HTTP implementation will send by the responses in the
         same order as the requests.
         """
@@ -992,7 +978,7 @@ class HttpProtocol(MessageProtocol):
         returns, only the response header has been read. The response body can
         be read using the :meth:`HttpResponse.read` and similar methods.
 
-        Note that it is requires  that you read the entire body of each
+        Note that it is required that you read the entire body of each
         response if you use HTTP pipelining. Specifically, it is an error to
         call :meth:`getresponse` when the body of the response returned by a
         previous invocation has not yet been fully read.
@@ -1023,7 +1009,6 @@ class HttpClient(Client):
         super(HttpClient, self).__init__(self._create_protocol, timeout=timeout)
         self._server_name = None
 
-    @docfrom(Client.connect)
     def connect(self, address, **kwargs):
         # Capture the host name that we are connecting to. We need this for
         # generating "Host" headers in HTTP/1.1
@@ -1047,14 +1032,13 @@ class HttpServer(Server):
     """A HTTP server."""
 
     def __init__(self, application, server_name=None, timeout=None):
-        """The constructor takes the following arugments.  The *wsgi_handler*
-        argument must be a WSGI callable. See `PEP 333
-        <http://www.python.org/dev/peps/pep-0333/>`_.
+        """The constructor takes the following arguments.  The *wsgi_handler*
+        argument must be a WSGI callable. See :pep:`333`.
 
         The optional *server_name* argument can be used to specify a server
         name. This might be needed by the WSGI application to construct
         absolute URLs. If not provided, then the host portion of the address
-        passed to :meth:`listen` will be used.
+        passed to :meth:`~gruvi.Server.listen` will be used.
 
         The optional *timeout* argument can be used to specify a timeout for
         the various network operations used within the server.

@@ -14,11 +14,12 @@ from .errors import Error, Cancelled
 from .hub import get_hub
 from .fibers import Fiber
 
-__all__ = ['ProtocolError', 'BaseProtocol', 'Protocol', 'DatagramProtocol']
+__all__ = ['ProtocolError', 'BaseProtocol', 'Protocol', 'DatagramProtocol',
+           'MessageProtocol']
 
 
 class ProtocolError(Error):
-    """Base class for Protocol errors."""
+    """A protocol error."""
 
 
 class BaseProtocol(object):
@@ -27,6 +28,8 @@ class BaseProtocol(object):
     read_buffer_size = 65536
 
     def __init__(self, timeout=None):
+        """The *timeout* argument specifies a default timeout for various
+        protocol operations."""
         self._timeout = timeout
         self._transport = None
         self._log = logging.get_logger()
@@ -93,32 +96,47 @@ class BaseProtocol(object):
 
 
 class Protocol(BaseProtocol):
-    """Base class for stream oriented protocols."""
+    """Base class for connection oriented protocols."""
 
     def data_received(self, data):
-        """A new chunk of data was received."""
+        """Called when a new chunk of data is received."""
 
     def eof_received(self):
-        """An EOF was received."""
+        """Called when an EOF is received."""
 
 
 class MessageProtocol(Protocol):
     """Base class for message oriented protocols."""
 
-    def __init__(self, message_handler=None, timeout=None):
+    def __init__(self, dispatch, timeout=None):
+        """The *dispatch* argument controls whether a fiber is started that
+        will call the :meth:`message_received` callback for incoming messages.
+
+        The *timeout* argument specifies a default timeout for various protocol
+        operations.
+        """
         super(MessageProtocol, self).__init__(timeout=timeout)
-        self._message_handler = message_handler
         self._queue = Queue()
-        if callable(message_handler):
-            name = util.split_cap_words(type(self).__name__)[0]
-            key = 'gruvi:next_{0}_dispatcher'.format(name.lower())
-            seq = self._hub.data.setdefault(key, 1)
-            self._hub.data[key] += 1
-            name = '{0}-{1}'.format(name, seq)
-            self._dispatcher = Fiber(self._dispatch_loop, name=name)
-            self._dispatcher.start()
-        else:
+        if not dispatch:
             self._dispatcher = None
+            return
+        name = util.split_cap_words(type(self).__name__)[0]
+        key = 'gruvi:next_{0}_dispatcher'.format(name.lower())
+        seq = self._hub.data.setdefault(key, 1)
+        self._hub.data[key] += 1
+        name = '{0}-{1}'.format(name, seq)
+        self._dispatcher = Fiber(self._dispatch_loop, name=name)
+        self._dispatcher.start()
+
+    @property
+    def queue(self):
+        """A :class:`~gruvi.Queue` instance containing parsed messages."""
+        return self._queue
+
+    @property
+    def dispatcher(self):
+        """The dispatcher fiber, or None if there is no dispatcher."""
+        return self._dispatcher
 
     def connection_lost(self, exc):
         # Protocol callback.
@@ -131,18 +149,13 @@ class MessageProtocol(Protocol):
             self._dispatcher = None
 
     def message_received(self, message):
-        # Protocol callback
-        self._message_handler(message, self._transport, self)
-
-    def get_message(self, block=True, timeout=None):
-        """Return a message from the queue."""
-        return self._queue.get(block, timeout)
+        """Called by the dispatcher fiber when a new message is added to the
+        :attr:`queue`."""
 
     def _dispatch_loop(self):
         # Dispatcher loop: runs in a separate fiber and is only started
-        # when there is a message handler.
+        # if dispatch=True in the constructor.
         self._log.debug('dispatcher starting')
-        assert self._message_handler is not None
         try:
             while True:
                 message = self._queue.get()
@@ -165,7 +178,7 @@ class DatagramProtocol(BaseProtocol):
     """Base classs for datagram oriented protocols."""
 
     def datagram_received(self, data, addr):
-        """A new datagram was received."""
+        """Called when a new datagram is received."""
 
     def error_received(self, exc):
-        """An error was received."""
+        """Called when an error has occurred."""

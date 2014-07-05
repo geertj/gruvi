@@ -1,16 +1,18 @@
-*************
-API Reference
-*************
+*********
+Reference
+*********
+
+.. module:: gruvi
 
 .. toctree::
    :maxdepth: 2
 
-   gruvi
-   sync
-   local
+   front
    fibers
-   hub
-   transports
-   protocols
+   sync
    futures
-   util
+   address
+   lowlevel
+   streams
+   process
+   included
