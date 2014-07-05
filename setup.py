@@ -94,7 +94,7 @@ def main():
     try:
         import http_ffi
         import jsonrpc_ffi
-    except cffi.VerificationError as e:
+    except cffi.VerificationError:
         if not sys.platform.startswith('win'):
             raise
         # On my Windows 7 system, the first build reproducably results in a
