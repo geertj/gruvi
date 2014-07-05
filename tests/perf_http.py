@@ -20,9 +20,9 @@ class PerfHttp(PerformanceTest):
         transport = MockTransport()
         protocol = HttpProtocol(False)
         transport.start(protocol)
-        r = b'HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n'
-        r += b'x' * 1000
-        reqs = 10 * r
+        r = b'HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\n'
+        r += b'x' * 10000
+        reqs = 4 * r
         nbytes = 0
         t0 = t1 = time.time()
         while t1 - t0 < 1:

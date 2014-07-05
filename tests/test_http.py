@@ -13,35 +13,11 @@ import six
 import gruvi
 from gruvi.http import HttpServer, HttpClient
 from gruvi.http import HttpMessage, HttpProtocol, HttpResponse
-from gruvi.http import parse_url, parse_option_header
+from gruvi.http import parse_option_header
 from gruvi.http_ffi import lib as _lib
 from gruvi.stream import StreamReader
-from gruvi.compat import memoryview
 
 from support import UnitTest, unittest, MockTransport
-
-
-class TestParseUrl(UnitTest):
-
-    def test_basic(self):
-        parsed = parse_url('http://foo.org/bar')
-        self.assertEqual(parsed, ['http', 'foo.org', '', '/bar', '', '', ''])
-
-    def test_bytes(self):
-        parsed = parse_url(b'http://foo.org/bar')
-        self.assertEqual(parsed, ['http', 'foo.org', '', '/bar', '', '', ''])
-
-    def test_bytearray(self):
-        parsed = parse_url(bytearray(b'http://foo.org/bar'))
-        self.assertEqual(parsed, ['http', 'foo.org', '', '/bar', '', '', ''])
-
-    def test_memoryview(self):
-        parsed = parse_url(memoryview(b'http://foo.org/bar'))
-        self.assertEqual(parsed, ['http', 'foo.org', '', '/bar', '', '', ''])
-
-    def test_full_url(self):
-        parsed = parse_url('http://foo.org:80/bar?query#fragment')
-        self.assertEqual(parsed, ['http', 'foo.org', '80', '/bar', 'query', 'fragment', ''])
 
 
 class TestSplitOptionHeader(UnitTest):
@@ -129,7 +105,7 @@ class TestHttpProtocol(UnitTest):
         self.assertEqual(m.url, '/')
         self.assertFalse(m.is_upgrade)
         self.assertTrue(m.should_keep_alive)
-        self.assertEqual(m.parsed_url, ['', '', '', '/', '', '', ''])
+        self.assertEqual(m.parsed_url, ('', '', '/', '', ''))
         self.assertEqual(m.headers, [('Host', 'example.com')])
         self.assertEqual(m.trailers, [])
         self.assertIsInstance(m.body, StreamReader)
@@ -236,7 +212,7 @@ class TestHttpProtocol(UnitTest):
         self.parse_request(r)
         env = self.get_request()
         m = env['test.message']
-        self.assertEqual(m.parsed_url, ['', '', '', '/foo/bar', '', '', ''])
+        self.assertEqual(m.parsed_url, ('', '', '/foo/bar', '', ''))
 
     def test_long_request_url(self):
         r = b'GET http://user:pass@example.com:80/foo/bar?baz=qux#quux HTTP/1.1\r\n' \
@@ -244,8 +220,8 @@ class TestHttpProtocol(UnitTest):
         self.parse_request(r)
         env = self.get_request()
         m = env['test.message']
-        self.assertEqual(m.parsed_url, ['http', 'example.com', '80', '/foo/bar',
-                                        'baz=qux', 'quux', 'user:pass'])
+        self.assertEqual(m.parsed_url, ('http', 'user:pass@example.com:80',
+                                        '/foo/bar', 'baz=qux', 'quux'))
 
     # Tests that parse a response
 

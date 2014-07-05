@@ -66,6 +66,7 @@ from .http_ffi import lib, ffi
 from ._version import version_info
 
 from six.moves import http_client
+from six.moves.urllib_parse import urlsplit
 
 __all__ = ['HttpError', 'HttpRequest', 'HttpResponse', 'HttpProtocol',
            'HttpClient', 'HttpServer']
@@ -89,39 +90,13 @@ hop_by_hop = frozenset(('connection', 'keep-alive', 'proxy-authenticate',
                         'transfer-encoding', 'upgrade'))
 
 
-# URL fields as defined by the http-parser URL parser.
-_url_fields = (lib.UF_SCHEMA, lib.UF_HOST, lib.UF_PORT, lib.UF_PATH,
-               lib.UF_QUERY, lib.UF_FRAGMENT, lib.UF_USERINFO)
-
-
-def parse_url(url, is_connect=False):
-    """Split a URL into its components.
-
-    This function is similar to :func:`urllib.parse.urlsplit` but it uses the
-    http-parser URL splitter via CFFI.
-
-    The return value is a sequence: (scheme, host, port, path, query, fragment,
-    userinfo).
-    """
-    if isinstance(url, six.text_type):
-        url = url.encode('iso-8859-1')
-    elif hasattr(url, 'tobytes'):
-        url = url.tobytes()
-    elif not isinstance(url, bytes):
-        url = bytes(url)
-    result = ffi.new('struct http_parser_url *')
-    error = lib.http_parser_parse_url(url, len(url), is_connect, result)
-    if error:
-        raise ValueError('http_parser_parse_url(): could not parse')
-    parsed = []
-    for field in _url_fields:
-        if result.field_set & (1 << field):
-            span = result.field_data[field]
-            comp = url[span.off:span.off+span.len].decode('iso-8859-1')
-        else:
-            comp = ''
-        parsed.append(comp)
-    return parsed
+# Keep a cache of HTTP methods numbers -> method strings
+_http_methods = {}
+for i in range(100):
+    method = ffi.string(lib.http_method_str(i)).decode('ascii')
+    if not method.isupper():
+        break
+    _http_methods[i] = method
 
 
 # RFC 2626 section 2.2 grammar definitions:
@@ -184,19 +159,26 @@ _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 _rfc1123_fmt = '%a, %d %b %Y %H:%M:%S GMT'
+_last_stamp = None
+_last_date = None
 
 def rfc1123_date(timestamp=None):
     """Create a RFC1123 style Date header for *timestamp*.
 
     If *timestamp* is None, use the current time.
     """
+    global _last_stamp, _last_date
     if timestamp is None:
-        timestamp = time.time()
+        timestamp = int(time.time())
+    if timestamp == _last_stamp:
+        return _last_date
     tm = time.gmtime(timestamp)
     # The time stamp must be GMT, and cannot be localized
     s = _rfc1123_fmt.replace('%a', _weekdays[tm.tm_wday]) \
                     .replace('%b', _months[tm.tm_mon-1])
-    return time.strftime(s, tm)
+    _last_date = time.strftime(s, tm)
+    _last_stamp = timestamp
+    return _last_date
 
 
 def _s2b(s):
@@ -254,22 +236,24 @@ def create_chunked_body_end(trailers=None):
 
 def create_request(version, method, url, headers):
     """Create a HTTP request header."""
-    message = bytearray()
-    message.extend(_s2b('{0} {1} HTTP/{2}\r\n'.format(method, url, version)))
+    # According to my measurements using b''.join is faster that constructing a
+    # bytearray.
+    message = []
+    message.append(_s2b('{0} {1} HTTP/{2}\r\n'.format(method, url, version)))
     for name, value in headers:
-        message.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
-    message.extend(b'\r\n')
-    return message
+        message.append(_s2b('{0}: {1}\r\n'.format(name, value)))
+    message.append(b'\r\n')
+    return b''.join(message)
 
 
 def create_response(version, status, headers):
     """Create a HTTP response header."""
-    message = bytearray()
-    message.extend(_s2b('HTTP/{0} {1}\r\n'.format(version, status)))
+    message = []
+    message.append(_s2b('HTTP/{0} {1}\r\n'.format(version, status)))
     for name, value in headers:
-        message.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
-    message.extend(b'\r\n')
-    return message
+        message.append(_s2b('{0}: {1}\r\n'.format(name, value)))
+    message.append(b'\r\n')
+    return b''.join(message)
 
 
 class HttpError(Error):
@@ -609,7 +593,9 @@ class WsgiHandler(object):
         self._headers_sent = False
         self._chunked = False
         self._message = message
-        self.create_environ()
+        if not self._environ:
+            self.create_environ()
+        self.update_environ()
         if __debug__:
             self._log.debug('request: {} {}', message.method, message.url)
         result = None
@@ -631,7 +617,6 @@ class WsgiHandler(object):
 
     def create_environ(self):
         # Initialize the environment with per connection variables.
-        m = self._message
         env = self._environ
         # CGI variables
         env['SCRIPT_NAME'] = ''
@@ -643,28 +628,10 @@ class WsgiHandler(object):
             env['SERVER_NAME'] = self._protocol.server_name or sockname
             env['SERVER_PORT'] = ''
         env['SERVER_SOFTWARE'] = self._protocol.identifier
-        env['SERVER_PROTOCOL'] = 'HTTP/{0}'.format(m.version)
-        env['REQUEST_METHOD'] = m.method
-        env['PATH_INFO'] = m.parsed_url[3]
-        env['QUERY_STRING'] = m.parsed_url[4]
-        for field, value in m.headers:
-            if field.title() == 'Content-Length':
-                env['CONTENT_LENGTH'] = value
-            elif field.title() == 'Content-Type':
-                env['CONTENT_TYPE'] = value
-            else:
-                env['HTTP_{0}'.format(field.upper().replace('-', '_'))] = value
-        env['REQUEST_URI'] = m.url
-        # Support the de-facto X-Forwarded-For and X-Forwarded-Proto headers
-        # that are added by reverse proxies.
-        remote = env.get('HTTP_X_FORWARDED_FOR')
-        peername = self._transport.get_extra_info('peername')
-        env['REMOTE_ADDR'] = remote if remote else peername[0] \
-                                        if isinstance(peername, tuple) else ''
         # SSL information
-        sslinfo = self._transport.get_extra_info('sslinfo')
-        cipherinfo = sslinfo.cipher() if sslinfo else None
-        if sslinfo and cipherinfo:
+        sslsock = self._transport.get_extra_info('sslsocket')
+        cipherinfo = sslsock.cipher() if sslsock else None
+        if sslsock and cipherinfo:
             env['HTTPS'] = '1'
             env['SSL_CIPHER'] = cipherinfo[0]
             env['SSL_PROTOCOL'] = cipherinfo[1]
@@ -675,15 +642,37 @@ class WsgiHandler(object):
         env['wsgi.multithread'] = True
         env['wsgi.multiprocess'] = True
         env['wsgi.run_once'] = False
-        env['wsgi.input'] = m.body
-        proto = env.get('HTTP_X_FORWARDED_PROTO')
-        env['wsgi.url_scheme'] = proto if proto else 'https' \
-                                        if env.get('HTTPS') else 'http'
-        env['REQUEST_SCHEME'] = env['wsgi.url_scheme']
         # Gruvi specific variables
         env['gruvi.version'] = version_info['version']
         env['gruvi.transport'] = self._transport
         env['gruvi.protocol'] = self._protocol
+        env['gruvi.sockname'] = sockname
+        env['gruvi.peername'] = self._transport.get_extra_info('peername')
+
+    def update_environ(self):
+        m = self._message
+        env = self._environ
+        env['SERVER_PROTOCOL'] = 'HTTP/' + m.version
+        env['REQUEST_METHOD'] = m.method
+        env['PATH_INFO'] = m.parsed_url[2]
+        env['QUERY_STRING'] = m.parsed_url[4]
+        for field, value in m.headers:
+            name = field.upper().replace('-', '_')
+            if name != 'CONTENT_LENGTH' and name != 'CONTENT_TYPE':
+                name = 'HTTP_' + name
+            env[name] = value
+        env['REQUEST_URI'] = m.url
+        env['wsgi.input'] = m.body
+        # Support the de-facto X-Forwarded-For and X-Forwarded-Proto headers
+        # that are added by reverse proxies.
+        peername = env['gruvi.peername']
+        remote = env.get('HTTP_X_FORWARDED_FOR')
+        env['REMOTE_ADDR'] = remote if remote else peername[0] \
+                                        if isinstance(peername, tuple) else ''
+        proto = env.get('HTTP_X_FORWARDED_PROTO')
+        env['wsgi.url_scheme'] = proto if proto else 'https' \
+                                        if env.get('HTTPS') else 'http'
+        env['REQUEST_SCHEME'] = env['wsgi.url_scheme']
 
 
 class HttpProtocol(MessageProtocol):
@@ -749,13 +738,13 @@ class HttpProtocol(MessageProtocol):
         if self._header_size >= self._read_buffer_high:
             self._error = HttpError('HTTP header too large')
             return False
-        self.read_buffer_size_changed()
         return True
 
     def _update_body_size(self, reader, oldsize, newsize):
         # Installed as the "on_buffer_size_changed" callback to the Reader
         # instances of all requests in the queue.
         self._all_body_sizes += (newsize - oldsize)
+        self.read_buffer_size_changed()
 
     def get_read_buffer_size(self):
         return self._header_size + self._queue.qsize() + self._all_body_sizes
@@ -767,6 +756,7 @@ class HttpProtocol(MessageProtocol):
         # http-parser callback: prepare for a new message
         self = ffi.from_handle(parser.data)
         self._url = bytearray()
+        self._header = bytearray()
         self._field_name = bytearray()
         self._field_value = bytearray()
         assert self._header_size == 0
@@ -843,10 +833,10 @@ class HttpProtocol(MessageProtocol):
         m.message_type = lib.http_message_type(parser)
         m.version = '{0}.{1}'.format(parser.http_major, parser.http_minor)
         if self._server_side:
-            m.method = _cd2s(lib.http_method_str(parser.method))
+            m.method = _http_methods.get(parser.method, '<unknown>')
             m.url = _ba2s(self._url)
             try:
-                m.parsed_url = parse_url(self._url)
+                m.parsed_url = urlsplit(m.url)
             except ValueError as e:
                 self._error = HttpError('urlsplit(): {0!s}'.format(e))
                 return 2  # error
@@ -906,6 +896,7 @@ class HttpProtocol(MessageProtocol):
                 self._message.body.feed_error(self._error)
             self._queue.put_nowait(self._error)
             self._transport.close()
+        self.read_buffer_size_changed()
 
     def connection_lost(self, exc):
         # Protocol callback
