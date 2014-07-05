@@ -610,7 +610,8 @@ class WsgiHandler(object):
         self._chunked = False
         self._message = message
         self.create_environ()
-        self._log.debug('request: {} {}', message.method, message.url)
+        if __debug__:
+            self._log.debug('request: {} {}', message.method, message.url)
         result = None
         try:
             result = self._application(self._environ, self.start_response)
@@ -623,9 +624,10 @@ class WsgiHandler(object):
             self._prev_body = self._message.body
             if hasattr(result, 'close'):
                 result.close()
-        ctype = get_field(self._headers, 'Content-Type', 'unknown')
-        clen = get_field(self._headers, 'Content-Length', 'unknown')
-        self._log.debug('response: {0} ({1}; {2} bytes)'.format(self._status, ctype, clen))
+        if __debug__:
+            ctype = get_field(self._headers, 'Content-Type', 'unknown')
+            clen = get_field(self._headers, 'Content-Length', 'unknown')
+            self._log.debug('response: {0} ({1}; {2} bytes)'.format(self._status, ctype, clen))
 
     def create_environ(self):
         # Initialize the environment with per connection variables.

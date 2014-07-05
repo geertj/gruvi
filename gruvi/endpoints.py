@@ -318,9 +318,10 @@ class Server(Endpoint):
             transport = Transport(client)
         transport._log = self._log
         self._all_closed.clear()
-        self._log.debug('new connection on {}', saddr(client.getsockname()))
-        if hasattr(client, 'getpeername'):
-            self._log.debug('remote peer is {}', saddr(client.getpeername()))
+        if __debug__:
+            self._log.debug('new connection on {}', saddr(client.getsockname()))
+            if hasattr(client, 'getpeername'):
+                self._log.debug('remote peer is {}', saddr(client.getpeername()))
         protocol = self._protocol_factory()
         protocol._log = self._log
         self._connections[transport] = protocol
