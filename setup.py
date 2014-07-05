@@ -12,6 +12,7 @@ import os
 import sys
 import textwrap
 import json
+import time
 import re
 
 from setuptools import setup, Extension
@@ -90,8 +91,27 @@ def main():
     update_version()
     # Import the FFI modules without importing the package.
     sys.path.append('gruvi')
-    import http_ffi
-    import jsonrpc_ffi
+    try:
+        import http_ffi
+        import jsonrpc_ffi
+    except cffi.VerificationError as e:
+        if not sys.platform.startswith('win'):
+            raise
+        # On my Windows 7 system, the first build reproducably results in a
+        # link.exe error 1104. There multiple reports on the Internet of people
+        # running into this. It is caused by /some/ process locking an
+        # executable file (here a .pyd file created by CFFI). Different people
+        # reported success disabling different programs like a virus scanner
+        # but none of those worked for me. However, it appears that if we just
+        # try again importing the ffi modules that things *do* work. So just do
+        # that.
+        # The sleep() below isn't really necessary for me but since I don't
+        # know which program is locking the file I put it in just in case there
+        # is a race condition that for some reason I am not triggering.
+        print('Enabling workaround for link.exe error 1104')
+        time.sleep(1)
+        import http_ffi
+        import jsonrpc_ffi
     ext_modules = [http_ffi.ffi.verifier.get_extension(),
                    jsonrpc_ffi.ffi.verifier.get_extension()]
     # On Windows, don't compile _sslcompat by default. Windows doesn't have a
