@@ -18,11 +18,11 @@ import pkg_resources
 
 import gruvi
 from gruvi.hub import get_hub
-from gruvi.errors import *
-from gruvi.process import *
+from gruvi.errors import Timeout
+from gruvi.process import Process, PIPE, DEVNULL
 from gruvi.stream import StreamClient
 
-from support import *
+from support import UnitTest, unittest
 
 
 def create_cmd_wrappers(bindir):

@@ -14,11 +14,12 @@ import socket
 
 import gruvi
 from gruvi import txdbus
-from gruvi.dbus import *
+from gruvi.dbus import DbusError, DbusMethodCallError
+from gruvi.dbus import DbusProtocol, DbusClient, DbusServer
 from gruvi.dbus import parse_dbus_header, TxdbusAuthenticator
 from gruvi.transports import TransportError
 
-from support import *
+from support import UnitTest, unittest, SkipTest, MockTransport
 
 
 class TestParseDbusHeader(UnitTest):

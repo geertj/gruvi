@@ -18,7 +18,7 @@ import threading
 import weakref
 
 import gruvi
-from support import *
+from support import UnitTest, unittest, SkipTest
 
 
 class TestHub(UnitTest):
@@ -39,9 +39,9 @@ class TestHub(UnitTest):
         self.assertEqual(argspec.keywords, 'kwargs')
         self.assertEqual(argspec.defaults, (None,))
         result = wrapper(1, 2, qux='foo')
-        self.assertEqual(result, (1, 2, None, (), { 'qux': 'foo'}))
+        self.assertEqual(result, (1, 2, None, (), {'qux': 'foo'}))
         result = wrapper(1, 2, 3, 4, qux='foo')
-        self.assertEqual(result, (1, 2, 3, (4,), { 'qux': 'foo'}))
+        self.assertEqual(result, (1, 2, 3, (4,), {'qux': 'foo'}))
 
     def test_sigint(self):
         # The Hub should exit on CTRL-C (SIGINT).
@@ -179,7 +179,7 @@ class TestSwitchBack(UnitTest):
         # A timeout in a switch_back instance should cause hub.switch() to
         # raise a Timeout exception.
         hub = gruvi.get_hub()
-        with gruvi.switch_back(0.01) as switcher:
+        with gruvi.switch_back(0.01):
             self.assertRaises(gruvi.Timeout, hub.switch)
 
     def test_throw(self):

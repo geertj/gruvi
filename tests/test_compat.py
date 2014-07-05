@@ -8,7 +8,7 @@
 
 from __future__ import absolute_import, print_function
 
-from support import *
+from support import UnitTest, unittest
 from gruvi.compat import fixup_format_string
 
 

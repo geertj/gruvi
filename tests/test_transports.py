@@ -11,8 +11,8 @@ from __future__ import absolute_import, print_function
 import pyuv
 import socket
 
-from support import *
-from gruvi.transports import *
+from support import UnitTest, unittest
+from gruvi.transports import TransportError, Transport, DatagramTransport
 
 
 class ProtocolLogger(object):
@@ -22,7 +22,7 @@ class ProtocolLogger(object):
     def __init__(self):
         self.events = []
         self.transport = None
-    
+
     def get_events(self, typ):
         return [ev for ev in self.events if ev[0] == typ]
 

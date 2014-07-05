@@ -10,8 +10,8 @@ from __future__ import absolute_import, print_function, division
 
 import time
 
-from gruvi.dbus import *
-from support import *
+from gruvi.dbus import DbusClient, DbusServer
+from support import PerformanceTest, unittest
 from test_dbus import echo_app
 
 

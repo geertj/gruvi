@@ -9,15 +9,15 @@
 from __future__ import absolute_import, print_function
 
 import os
-import pyuv
 import json
 
 import gruvi
 from gruvi import jsonrpc
-from gruvi.jsonrpc import *
+from gruvi.jsonrpc import JsonRpcError, JsonRpcMethodCallError
+from gruvi.jsonrpc import JsonRpcProtocol, JsonRpcClient, JsonRpcServer
 from gruvi.jsonrpc_ffi import ffi as _ffi, lib as _lib
 from gruvi.transports import TransportError
-from support import *
+from support import UnitTest, unittest, MockTransport
 
 
 _keepalive = None
@@ -99,15 +99,13 @@ class TestJsonRpcFfi(UnitTest):
 
     def test_incremental(self):
         r = b'{ "foo": "bar" }'
-        state = 0
         ctx = _ffi.new('struct split_context *')
         for i in range(len(r)-1):
             set_buffer(ctx, r[i:i+1])
             error = _lib.json_split(ctx)
             self.assertEqual(error, ctx.error) == _lib.INCOMPLETE
             self.assertEqual(ctx.offset, 1)
-        buf = ctx.buf = _ffi.new('char[]', r[-1:])
-        ctx.buflen = 1; ctx.offset = 0
+        set_buffer(ctx, r[-1:])
         error = _lib.json_split(ctx)
         self.assertEqual(error, ctx.error) == 0
         self.assertEqual(ctx.offset, 1)
@@ -139,7 +137,7 @@ class TestJsonRpcProtocol(UnitTest):
         mm = self.get_messages()
         self.assertEqual(len(mm), 1)
         self.assertIsInstance(mm[0], dict)
-        self.assertEqual(mm[0], { 'id': '1', 'method': 'foo' })
+        self.assertEqual(mm[0], {'id': '1', 'method': 'foo'})
         pp = self.protocols
         self.assertEqual(len(pp), 1)
         self.assertIs(pp[0], proto)
@@ -151,8 +149,8 @@ class TestJsonRpcProtocol(UnitTest):
         proto.data_received(m)
         mm = self.get_messages()
         self.assertEqual(len(mm), 2)
-        self.assertEqual(mm[0], { 'id': '1', 'method': 'foo' })
-        self.assertEqual(mm[1], { 'id': '2', 'method': 'bar' })
+        self.assertEqual(mm[0], {'id': '1', 'method': 'foo'})
+        self.assertEqual(mm[1], {'id': '2', 'method': 'bar'})
         pp = self.protocols
         self.assertEqual(len(pp), 2)
         self.assertIs(pp[0], proto)
@@ -165,8 +163,8 @@ class TestJsonRpcProtocol(UnitTest):
         proto.data_received(m)
         mm = self.get_messages()
         self.assertEqual(len(mm), 2)
-        self.assertEqual(mm[0], { 'id': '1', 'method': 'foo' })
-        self.assertEqual(mm[1], { 'id': '2', 'method': 'bar' })
+        self.assertEqual(mm[0], {'id': '1', 'method': 'foo'})
+        self.assertEqual(mm[1], {'id': '2', 'method': 'bar'})
 
     def test_incremental(self):
         m = b'{ "id": "1", "method": "foo" }'
@@ -177,7 +175,7 @@ class TestJsonRpcProtocol(UnitTest):
         proto.data_received(m[-1:])
         mm = self.get_messages()
         self.assertEqual(len(mm), 1)
-        self.assertEqual(mm[0], { 'id': '1', 'method': 'foo' })
+        self.assertEqual(mm[0], {'id': '1', 'method': 'foo'})
 
     def test_framing_error(self):
         m = b'xxx'
@@ -206,7 +204,7 @@ class TestJsonRpcProtocol(UnitTest):
         proto.data_received(m)
         self.assertEqual(self.get_messages(), [])
         self.assertIsInstance(proto._error, JsonRpcError)
- 
+
     def test_maximum_message_size_exceeded(self):
         proto = self.protocol
         proto.set_read_buffer_limits(100)
@@ -327,7 +325,7 @@ class TestJsonRpc(UnitTest):
         self.assertEqual(result, ['foo', 'bar'])
         server.close()
         client.close()
-    
+
     def test_call_method_error(self):
         server = JsonRpcServer(echo_app)
         server.listen(('127.0.0.1', 0))
@@ -340,7 +338,7 @@ class TestJsonRpc(UnitTest):
         self.assertEqual(exc.error['code'], jsonrpc.METHOD_NOT_FOUND)
         server.close()
         client.close()
- 
+
     def test_send_notification(self):
         server = JsonRpcServer(notification_app())
         server.listen(('127.0.0.1', 0))
@@ -352,7 +350,7 @@ class TestJsonRpc(UnitTest):
         self.assertEqual(notifications, [['notify_foo', ['foo']]])
         server.close()
         client.close()
- 
+
     def test_call_method_ping_pong(self):
         server = JsonRpcServer(reflect_app)
         server.listen(('127.0.0.1', 0))

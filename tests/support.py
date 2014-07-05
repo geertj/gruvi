@@ -15,11 +15,10 @@ import socket
 import tempfile
 import logging
 import subprocess
-import functools
 import ssl
 import six
 
-if sys.version_info[:2] >= (2,7):
+if sys.version_info[:2] >= (2, 7):
     import unittest
 else:
     import unittest2 as unittest
@@ -85,12 +84,12 @@ def sizeof(obj, exclude=None):
     size = sys.getsizeof(obj)
     if hasattr(obj, '__dict__'):
         size += sys.getsizeof(obj.__dict__)
-        for key,value in obj.__dict__.items():
+        for key, value in obj.__dict__.items():
             if exclude is not None and key in exclude:
                 continue
             s = sizeof(key)
             s += sizeof(value, exclude)
-            #print('{}.{}: {}'.format(type(obj).__name__, key, s))
+            # print('{}.{}: {}'.format(type(obj).__name__, key, s))
             size += s
     elif hasattr(obj, '__slots__'):
         for key in obj.__slots__:
@@ -98,7 +97,7 @@ def sizeof(obj, exclude=None):
                 if exclude is not None and key in exclude:
                     continue
                 s = sizeof(getattr(obj, key), exclude)
-                #print('{}.{}: {}'.format(type(obj).__name__, key, s))
+                # print('{}.{}: {}'.format(type(obj).__name__, key, s))
                 size += s
     return size
 

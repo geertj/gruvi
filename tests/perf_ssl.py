@@ -12,9 +12,8 @@ import os
 import time
 import ssl
 
-import gruvi
 from gruvi.ssl import SslPipe
-from support import *
+from support import PerformanceTest, unittest, SkipTest
 from test_ssl import communicate
 
 if hasattr(ssl, 'SSLContext'):

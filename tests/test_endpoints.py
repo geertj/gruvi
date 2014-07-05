@@ -12,11 +12,10 @@ import socket
 import six
 
 import gruvi
-from gruvi.transports import TransportError
 from gruvi.stream import StreamProtocol
 from gruvi.endpoints import create_server, create_connection, getaddrinfo
 
-from support import *
+from support import UnitTest, unittest
 
 
 class TestCreateConnection(UnitTest):
@@ -60,7 +59,6 @@ class TestCreateConnection(UnitTest):
         ctrans, cproto = create_connection(StreamProtocol, addr, ssl=context)
         # No need to sleep here because create_connection waits for the SSL
         # handshake to complete
-        #gruvi.sleep(0.1)  # allow Server to accept()
         strans, sproto = list(server.connections)[0]
         cproto.stream.write(b'foo\n')
         self.assertEqual(sproto.stream.readline(), b'foo\n')
@@ -78,7 +76,6 @@ class TestCreateConnection(UnitTest):
         ctrans, cproto = create_connection(StreamProtocol, addr, ssl=context)
         # No need to sleep here because create_connection waits for the SSL
         # handshake to complete
-        #gruvi.sleep(0.1)  # allow Server to accept()
         strans, sproto = list(server.connections)[0]
         cproto.stream.write(b'foo\n')
         self.assertEqual(sproto.stream.readline(), b'foo\n')

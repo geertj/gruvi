@@ -13,7 +13,7 @@ import subprocess
 from setup import version_info as vinfo
 
 if sys.version_info[0] == 2:
-    input = raw_input
+    input = __builtins__.raw_input
 
 
 def sh(cmd, *args):
@@ -47,7 +47,7 @@ def get_release_versions():
         relver = version[:-4]
         override = input('What version do you want to release [{0}]: '.format(relver))
         if override:
-            relver = release
+            relver = override
     else:
         print('Current version is NOT a development version: {0}'.format(version))
         if not confirm('Do you want to release this version?'):

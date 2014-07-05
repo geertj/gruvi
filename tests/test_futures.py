@@ -11,8 +11,8 @@ from __future__ import absolute_import, print_function
 import random
 
 import gruvi
-from gruvi.futures import *
-from support import *
+from gruvi.futures import FiberPool, ThreadPool, Future
+from support import UnitTest, unittest
 
 
 class TestFuture(UnitTest):

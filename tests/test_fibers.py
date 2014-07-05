@@ -9,7 +9,7 @@
 from __future__ import absolute_import, print_function
 
 import gruvi
-from support import *
+from support import UnitTest, unittest
 
 
 class TestFiber(UnitTest):

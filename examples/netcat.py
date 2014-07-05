@@ -2,7 +2,6 @@
 
 import sys
 import argparse
-import pyuv
 import gruvi
 
 parser = argparse.ArgumentParser()

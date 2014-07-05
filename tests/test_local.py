@@ -10,7 +10,7 @@ from __future__ import absolute_import, print_function
 
 import gc
 import gruvi
-from support import *
+from support import UnitTest, unittest
 
 
 class TestLocal(UnitTest):
@@ -44,7 +44,6 @@ class TestLocal(UnitTest):
         self.assertEqual(interleaved, [1, 2, 1, 2])
 
     def test_cleanup_on_fiber_exit(self):
-        hub = gruvi.get_hub()
         local = gruvi.local()
         def fiber1():
             local.foo = 10

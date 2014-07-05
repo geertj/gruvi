@@ -88,8 +88,10 @@ def update_version():
 def main():
     os.chdir(topdir)
     update_version()
+    # Import the FFI modules without importing the package.
     sys.path.append('gruvi')
-    import http_ffi, jsonrpc_ffi
+    import http_ffi
+    import jsonrpc_ffi
     ext_modules = [http_ffi.ffi.verifier.get_extension(),
                    jsonrpc_ffi.ffi.verifier.get_extension()]
     # On Windows, don't compile _sslcompat by default. Windows doesn't have a
@@ -104,10 +106,10 @@ def main():
                                      libraries=['ssl', 'crypto']))
     sys.path.pop()
     setup(
-        packages = ['gruvi', 'gruvi.txdbus'],
-        install_requires = ['cffi', 'fibers', 'pyuv', 'six'],
-        ext_package = 'gruvi',
-        ext_modules = ext_modules,
+        packages=['gruvi', 'gruvi.txdbus'],
+        install_requires=['cffi', 'fibers', 'pyuv', 'six'],
+        ext_package='gruvi',
+        ext_modules=ext_modules,
         **version_info
     )
 

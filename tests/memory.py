@@ -10,7 +10,7 @@ from __future__ import absolute_import, print_function
 
 import gruvi
 from gruvi.logging import get_logger
-from support import *
+from support import MemoryTest, unittest, sizeof
 
 
 class TestMemory(MemoryTest):

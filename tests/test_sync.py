@@ -8,18 +8,12 @@
 
 from __future__ import absolute_import, print_function, division
 
-import gc
-import time
 import random
 import threading
-import weakref
-import random
 
 import gruvi
-from gruvi.sync import *
-from gruvi.hub import get_hub, switch_back
-from gruvi import util
-from support import *
+from gruvi.hub import get_hub
+from support import UnitTest, unittest
 
 
 def lock_unlock(lock, count=50):
@@ -59,7 +53,6 @@ class TestLock(UnitTest):
 
     def test_non_blocking(self):
         # Ensure that the blocking argument to acquire() works.
-        hub = get_hub()
         lock = gruvi.Lock()
         lock.acquire()
         self.assertFalse(lock.acquire(blocking=False))
@@ -200,7 +193,6 @@ class TestRLock(UnitTest):
 
     def test_non_blocking(self):
         # Ensure that the blocking argument to acquire() works.
-        hub = get_hub()
         lock = gruvi.RLock()
         sync = gruvi.Lock()
         def lock_rlock():
@@ -270,7 +262,7 @@ class TestEvent(UnitTest):
 
     def test_basic(self):
         # Ensure that an event can be set and cleared
-        event = Event()
+        event = gruvi.Event()
         self.assertFalse(event)
         self.assertFalse(event._flag)
         event.set()
@@ -281,13 +273,13 @@ class TestEvent(UnitTest):
         self.assertFalse(event._flag)
 
     def test_wait(self):
-        event = Event()
+        event = gruvi.Event()
         done = []
         def waiter():
             done.append(False)
             event.wait()
             done.append(True)
-        fiber = gruvi.spawn(waiter)
+        gruvi.spawn(waiter)
         gruvi.sleep(0)
         self.assertEqual(done, [False])
         event.set()
@@ -306,7 +298,7 @@ class TestCondition(UnitTest):
                 waiting[0] += 1
                 cond.wait()
                 waiting[0] -= 1
-        fiber = gruvi.spawn(wait_cond)
+        gruvi.spawn(wait_cond)
         gruvi.sleep(0)
         self.assertEqual(waiting[0], 1)
         with cond:
@@ -363,12 +355,12 @@ class TestCondition(UnitTest):
         gruvi.sleep(0)
         self.assertEqual(waiting[0], 10)
         with cond:
-            cond.notify(1) # no predicate matches
+            cond.notify(1)  # no predicate matches
         gruvi.sleep(0)
         self.assertEqual(waiting[0], 10)
         unblock += [0]
         with cond:
-            cond.notify(1) # one predicate matches
+            cond.notify(1)  # one predicate matches
         gruvi.sleep(0)
         self.assertEqual(waiting[0], 9)
         unblock += [2, 3]
@@ -411,7 +403,7 @@ class TestCondition(UnitTest):
                 waiters[0] += 1
                 cond.notify()
                 waiters[0] -= 1
-        fiber = gruvi.spawn(notify_cond)
+        gruvi.spawn(notify_cond)
         with cond:
             self.assertEqual(waiters[0], 0)
             self.assertFalse(cond.wait_for(lambda: False, timeout=0.1))
@@ -469,7 +461,7 @@ class TestQueue(UnitTest):
         def put_queue(value):
             gruvi.sleep(0.01)
             queue.put(value)
-        fiber = gruvi.spawn(put_queue, 'foo')
+        gruvi.spawn(put_queue, 'foo')
         self.assertEqual(queue.get(), 'foo')
 
     def test_get_timeout(self):
@@ -548,7 +540,7 @@ class TestQueue(UnitTest):
         # fibers, and have the fibers do some random sleeps. Then let it run
         # and test the result.
         result = []
-        reference  = []
+        reference = []
         lock = gruvi.Lock()
         def put_queue(tid, fid, count):
             for i in range(count):
@@ -578,11 +570,11 @@ class TestQueue(UnitTest):
         threads = []
         # 5 procuders and 5 consumers, each with 20 fibers
         for i in range(5):
-            thread = threading.Thread(target=thread_put, args=(i,20,5))
+            thread = threading.Thread(target=thread_put, args=(i, 20, 5))
             thread.start()
             threads.append(thread)
         for i in range(5):
-            thread = threading.Thread(target=thread_get, args=(20,5))
+            thread = threading.Thread(target=thread_get, args=(20, 5))
             thread.start()
             threads.append(thread)
         for thread in threads:

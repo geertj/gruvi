@@ -12,7 +12,7 @@ import os
 import sys
 import signal
 
-from support import *
+from support import TestCase, unittest
 from test_process import create_cmd_wrappers
 
 import gruvi

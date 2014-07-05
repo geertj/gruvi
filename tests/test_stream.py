@@ -14,10 +14,10 @@ import hashlib
 from io import TextIOWrapper
 
 import gruvi
-from gruvi.stream import *
-from gruvi.errors import *
+from gruvi.stream import StreamReader, StreamProtocol, StreamClient, StreamServer
+from gruvi.errors import Timeout
 from gruvi.transports import TransportError
-from support import *
+from support import UnitTest, unittest, MockTransport
 
 
 class TestStreamReader(UnitTest):
@@ -179,7 +179,7 @@ class TestStreamReader(UnitTest):
         gruvi.spawn(write_more)
         self.assertEqual(reader.readlines(), [b'foo\n', b'bar\n'])
         self.assertEqual(reader.readlines(), [])
- 
+
     def test_readlines_error(self):
         reader = StreamReader()
         reader.feed(b'foo\nbar\n')
@@ -216,7 +216,7 @@ class TestStreamReader(UnitTest):
             reader.feed(b'bar\n')
             gruvi.sleep(0.01)
             reader.feed_eof()
-        fib = gruvi.spawn(write_more)
+        gruvi.spawn(write_more)
         it = iter(reader)
         self.assertEqual(six.next(it), b'foo\n')
         self.assertEqual(six.next(it), b'bar\n')
@@ -316,7 +316,7 @@ class TestStreamProtocol(UnitTest):
         protocol.data_received(b'foo\n')
         stream = protocol.stream
         self.assertEqual(stream.readline(), b'foo\n')
- 
+
     def test_readlines(self):
         # Test that readlines() works.
         transport = MockTransport()
@@ -326,7 +326,7 @@ class TestStreamProtocol(UnitTest):
         protocol.eof_received()
         stream = protocol.stream
         self.assertEqual(stream.readlines(), [b'foo\n', b'bar\n'])
- 
+
     def test_iter(self):
         # Ensure that iterating over a stream protocol produces lines.
         transport = MockTransport()
@@ -511,7 +511,7 @@ class TestStream(UnitTest):
                 if buf == b'':  # conneciton closed: EOF
                     client.close()
                 clients.append(client)
-        except TransportError as e:
+        except TransportError:
             pass
         self.assertLessEqual(len(server.connections), server.max_connections)
         for client in clients:

@@ -12,13 +12,13 @@ import six
 
 import gruvi
 from gruvi.http import HttpServer, HttpClient
-from gruvi.http import HttpMessage, HttpProtocol, HttpRequest, HttpResponse
+from gruvi.http import HttpMessage, HttpProtocol, HttpResponse
 from gruvi.http import parse_url, parse_option_header
 from gruvi.http_ffi import lib as _lib
 from gruvi.stream import StreamReader
 from gruvi.compat import memoryview
 
-from support import *
+from support import UnitTest, unittest, MockTransport
 
 
 class TestParseUrl(UnitTest):

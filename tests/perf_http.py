@@ -11,7 +11,7 @@ from __future__ import absolute_import, print_function, division
 import time
 
 from gruvi.http import HttpProtocol
-from support import *
+from support import PerformanceTest, unittest, MockTransport
 
 
 class PerfHttp(PerformanceTest):

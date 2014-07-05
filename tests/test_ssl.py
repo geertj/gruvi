@@ -9,15 +9,12 @@
 from __future__ import print_function, absolute_import
 
 import os
-import sys
-import time
 import ssl
 import socket
 import pyuv
 
-import gruvi
 from gruvi.ssl import SslPipe, SslTransport
-from support import *
+from support import UnitTest, unittest, SkipTest
 from test_transports import EventLoopTest, TransportTest
 
 if hasattr(ssl, 'SSLContext'):
@@ -28,12 +25,12 @@ else:
 
 def communicate(buf, client, server, clientssl, serverssl):
     """Send *buf* from *client* to *server* over SSL.
-    
+
     The *clientssl* and *serverssl* arguments are potentially empty list of
     initial SSL data. The clientssl list is SSL data from the client to send to
     the server, the serverssl list is SSL data to send from the server to the
     client.
-    
+
     The data that is received on the server is returned.
     """
     received = []
