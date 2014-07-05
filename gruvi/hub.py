@@ -288,7 +288,7 @@ class Hub(fibers.Fiber):
         # The exception is cleared by pyuv when this method is called. So we
         # have to format *exc_info ourselves, we cannot use _log.exception().
         self._log.error('uncaught exception in pyuv callback')
-        trace = '\n'.join(traceback.format_tb(exc_info[2]))
+        trace = '\n'.join(traceback.format_exception(*exc_info))
         self._log.error('Traceback (most recent call last):\n{}', trace)
 
     def close(self):
