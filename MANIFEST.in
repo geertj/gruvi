@@ -3,8 +3,11 @@ include setup.cfg tox.ini
 include AUTHORS LICENSE README.rst MANIFEST.in TODO
 include requirements.txt dev-requirements.txt
 include gruvi/*.py gruvi/txdbus/*.py
+include src/*.[ch] gruvi/_sslcompat.c
 include tests/*.py
+include tests/bin/*
+exclude tests/bin/*.*
 include changelog.txt
 include docs/Makefile docs/conf.py docs/*.rst
-include src/*.[ch]
+include examples/*.py
 exclude gruvi/__pycache__/*.c *.so

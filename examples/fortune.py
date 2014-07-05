@@ -4,7 +4,7 @@ import locale
 import gruvi
 
 def fortune_app(environ, start_response):
-    print('New connection from {}'.format(environ['REMOTE_ADDR']))
+    print('New connection from {0}'.format(environ['REMOTE_ADDR']))
     proc = gruvi.Process(encoding=locale.getpreferredencoding())
     proc.spawn('fortune', stdout=gruvi.PIPE)
     fortune = proc.stdout.read()
@@ -13,9 +13,9 @@ def fortune_app(environ, start_response):
     return [fortune.encode('utf-8')]
 
 server = gruvi.HttpServer(fortune_app)
-server.listen(('localhost', 8000))
+server.listen(('localhost', 0))
 for addr in server.addresses:
-    print('Listen on {}'.format(gruvi.saddr(addr)))
+    print('Listen on {0}'.format(gruvi.saddr(addr)))
 
 try:
     gruvi.get_hub().switch()

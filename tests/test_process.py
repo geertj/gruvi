@@ -79,6 +79,9 @@ class TestProcess(UnitTest):
         super(TestProcess, cls).setUpClass()
         bindir = os.path.join(cls.testdir, 'bin')
         create_cmd_wrappers(bindir)
+        path = os.environ.get('PATH', '')
+        if bindir not in path:
+            os.environ['PATH'] = os.pathsep.join([bindir, path])
 
     def test_spawn(self):
         # Ensure that spawning a child works.

@@ -295,7 +295,7 @@ class Process(Endpoint):
         return self.returncode
 
     @switchpoint
-    def wait(self, timeout=None):
+    def wait(self, timeout=-1):
         """Wait for the child to exit.
 
         Wait for at most *timeout* seconds, or indefinitely if *timeout* is
@@ -303,11 +303,13 @@ class Process(Endpoint):
         """
         if not self._process:
             return
+        if timeout == -1:
+            timeout = self._timeout
         self._child_exited.wait(timeout)
         return self.returncode
 
     @switchpoint
-    def communicate(self, input=None):
+    def communicate(self, input=None, timeout=-1):
         """Communicate with the child and return its output.
 
         If *input* is provided, it is sent to the client. Concurrent with
@@ -317,24 +319,29 @@ class Process(Endpoint):
         The return value is a tuple ``(stdout_data, stderr_data)`` containing
         the data read from standard output and standard error.
         """
-        if input:
-            self.stdin.write(input)
-        data = [[], []]
+        if timeout == -1:
+            timeout = self._timeout
+        output = [[], []]
         def writer(stream, data):
             offset = 0
             while offset < len(data):
                 offset += stream.write(data[offset:])
             stream.close()
         def reader(stream, data):
+            readfrom = (lambda s: s.read(4096)) if self._encoding else (lambda s: s.read1())
             while True:
-                buf = stream.read(self._bufsize)
+                buf = readfrom(stream)
                 if not buf:
                     break
                 data.append(buf)
-        fibers.spawn(writer, self.stdin, input or b'')
-        fibers.spawn(reader, self.stdout, data[0])
-        fibers.spawn(reader, self.stderr, data[1])
-        self.wait()
-        stdout_data = b''.join(data[0])
-        stderr_data = b''.join(data[1])
+        if self.stdin:
+            fibers.spawn(writer, self.stdin, input or b'')
+        if self.stdout:
+            fibers.spawn(reader, self.stdout, output[0])
+        if self.stderr:
+            fibers.spawn(reader, self.stderr, output[1])
+        self.wait(timeout)
+        empty = '' if self._encoding else b''
+        stdout_data = empty.join(output[0])
+        stderr_data = empty.join(output[1])
         return (stdout_data, stderr_data)

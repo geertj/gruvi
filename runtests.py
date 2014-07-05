@@ -24,7 +24,7 @@ parser.add_argument('-v', '--verbose', help='be more verbose', action='store_tru
 parser.add_argument('-f', '--failfast', help='stop on first failure', action='store_true')
 parser.add_argument('-b', '--buffer', help='buffer stdout and stderr', action='store_true')
 parser.add_argument('suite', nargs='+', help='name of test suite to run', metavar='suite',
-                    choices=('unit', 'performance', 'memory', 'documentation'))
+                    choices=('unit', 'performance', 'memory', 'documentation', 'examples'))
 args = parser.parse_args()
 
 # Change directory to tests/ irrespective of where we're called from.
@@ -47,6 +47,7 @@ from support import *
 suite = TestSuite()
 
 for name in args.suite:
+    TestCase.setup_loader()
     if name == 'unit':
         pattern = 'test_*.py'
     elif name == 'performance':
@@ -59,6 +60,8 @@ for name in args.suite:
         MemoryTest.start_new_results()
     elif name == 'documentation':
         pattern = 'documentation.py'
+    elif name == 'examples':
+        pattern = 'examples.py'
     loader = TestLoader()
     tests = loader.discover('.', pattern)
     suite.addTest(tests)

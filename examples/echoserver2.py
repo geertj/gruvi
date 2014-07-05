@@ -15,9 +15,9 @@ class EchoProtocol(gruvi.Protocol):
     def eof_received(self):
         print('Connection lost')
 
-server = gruvi.create_server(EchoProtocol, ('localhost', 7777))
+server = gruvi.create_server(EchoProtocol, ('localhost', 0))
 for addr in server.addresses:
-    print('Listen on {}'.format(gruvi.saddr(addr)))
+    print('Listen on {0}'.format(gruvi.saddr(addr)))
 
 try:
     gruvi.get_hub().switch()

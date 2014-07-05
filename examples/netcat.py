@@ -3,7 +3,7 @@
 import sys
 import argparse
 import pyuv
-from gruvi
+import gruvi
 
 parser = argparse.ArgumentParser()
 parser.add_argument('hostname')

@@ -106,6 +106,8 @@ def sizeof(obj, exclude=None):
 class TestCase(unittest.TestCase):
     """Base class for test suites."""
 
+    test_prefix = 'test'
+
     @classmethod
     def setUpClass(cls):
         setup_logging()
@@ -116,10 +118,6 @@ class TestCase(unittest.TestCase):
         if not os.access(certname, os.R_OK):
             create_ssl_certificate(certname)
         cls.certname = certname
-        bindir = os.path.join(cls.testdir, 'bin')
-        path = os.environ.get('PATH', '')
-        if not path.startswith(bindir):
-            os.environ['PATH'] = os.pathsep.join([bindir, path])
 
     def setUp(self):
         self._tmpindex = 1
@@ -150,6 +148,10 @@ class TestCase(unittest.TestCase):
             handle.close()
         if active:
             raise RuntimeError('test leaked {0} active handles'.format(len(active)))
+
+    @classmethod
+    def setup_loader(cls):
+        unittest.TestLoader.testMethodPrefix = cls.test_prefix
 
     @property
     def tempdir(self):
@@ -213,10 +215,6 @@ class PerformanceTest(TestCase):
             params = ','.join(['{0}={1}'.format(k, params[k]) for k in params])
         with open(self.results_name, 'a') as fout:
             fout.write('{0:<32s} {1:<16.2f} {2:s}\n'.format(name, result, params))
-
-    @classmethod
-    def setup_loader(cls):
-        unittest.TestLoader.testMethodPrefix = cls.test_prefix
 
     @classmethod
     def start_new_results(cls):
