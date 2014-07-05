@@ -118,7 +118,7 @@ class PoolBase(object):
         if self._closed:
             raise RuntimeError('pool is closed')
         result = Future()
-        self._queue.put((func, args, result))
+        self._queue.put_nowait((func, args, result))
         self._spawn_workers()
         return result
 
