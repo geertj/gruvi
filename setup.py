@@ -40,7 +40,7 @@ PY2 = sys.version_info[0] == 2
 
 version_info = {
     'name': 'gruvi',
-    'version': '0.10.1',
+    'version': '0.10.2.dev',
     'description': 'Synchronous evented IO with pyuv and fibers',
     'author': 'Geert Jansen',
     'author_email': 'geertj@gmail.com',
