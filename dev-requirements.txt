@@ -2,3 +2,5 @@
 sphinx
 wheel
 flake8
+tox
+detox
