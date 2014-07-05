@@ -1,11 +1,10 @@
 Welcome to Gruvi
 ================
 
-Gruvi is an IO library for Python. It combines the efficiencies of event-based
-I/O with a sequential programming model. Gruvi uses libuv_ (via pyuv_) as the
-underlying high-performance event-based I/O layer, and used coroutines based on
-fibers_ to create a traditional sequential programming model on top of the
-libuv_ event-based callback model.
+Gruvi is an IO library for Python. It uses libuv_ (via pyuv_) as the underlying
+high-performance event-based I/O layer, and coroutines based on fibers_ to
+create a traditional sequential programming model on top of the libuv_
+event-based callback model.
 
 Gruvi is similar in concept to asyncio_, gevent_, and eventlet_. For a
 rationale on why I've created a new library, see the Rationale_ section in the
