@@ -143,20 +143,21 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
         log.debug('trying address {}', saddr(addr))
         handle = handle_type(hub.loop)
         try:
+            error = None
             if handle_type is pyuv.Pipe and _use_af_unix(addr):
                 _af_unix_helper(handle, addr, 'connect')
             else:
                 with switch_back(timeout) as switcher:
                     handle.connect(addr, switcher)
-                    hub.switch()
+                    result = hub.switch()
+                    _, error = result[0]
         except pyuv.error.UVError as e:
             error = e[0]
         except Timeout:
             error = pyuv.errno.UV_ETIMEDOUT
-        else:
-            error = None
         if not error:
             break
+        handle.close()
         log.warning('connect() failed with error {}', error)
     if error:
         log.error('all addresses failed')

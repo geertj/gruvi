@@ -14,6 +14,7 @@ import six
 import gruvi
 from gruvi.stream import StreamProtocol
 from gruvi.endpoints import create_server, create_connection, getaddrinfo
+from gruvi.transports import TransportError
 
 from support import UnitTest, unittest
 
@@ -133,6 +134,20 @@ class TestCreateConnection(UnitTest):
         self.assertEqual(len(list(server.connections)), 0)
         self.assertEqual(cproto.stream.readline(), b'')
         ctrans.close()
+
+    def test_tcp_connection_refused(self):
+        # Ensure that create_connection raises an exception when connecting to
+        # a TCP port where there is no listener.
+        server = create_server(StreamProtocol, ('localhost', 0))
+        addr = server.addresses[0]
+        server.close()
+        self.assertRaises(TransportError, create_connection, StreamProtocol, addr)
+
+    def test_pipe_connection_refused(self):
+        # Ensure that create_connection raises an exception when connecting to
+        # a Pipe that has no listener.
+        addr = self.pipename()
+        self.assertRaises(TransportError, create_connection, StreamProtocol, addr)
 
 
 class TestGetAddrInfo(UnitTest):
