@@ -178,6 +178,8 @@ class TestPipeTransport(TransportTest, EventLoopTest):
         return addr
 
 
+# Skip until #169 is fixed.
+@unittest.skip
 class TestUdpTransport(EventLoopTest):
 
     def create_handle(self):
