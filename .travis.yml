@@ -10,4 +10,4 @@ env:
 install:
   - pip install cffi tox
 script:
-  - tox -e $TOX_ENV
+  - tox -e $TOX_ENV -- runtests.py -v
