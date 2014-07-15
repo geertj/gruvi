@@ -160,7 +160,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
         handle.close()
         log.warning('connect() failed with error {}', error)
     if error:
-        log.error('all addresses failed')
+        log.warning('all addresses failed')
         raise TransportError.from_errno(error)
     if local_address:
         handle.bind(*local_address)
