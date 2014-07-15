@@ -911,6 +911,8 @@ class HttpProtocol(MessageProtocol):
                 self._message.body.feed_error(self._error)
             self._queue.put_nowait(self._error)
         super(HttpProtocol, self).connection_lost(exc)
+        if not self._server_side:
+            self._queue.put_nowait(self._error)
 
     def message_received(self, message):
         # Protocol callback
