@@ -56,7 +56,11 @@ class _Lock(object):
         """
         hub = get_hub()
         try:
-            with switch_back(timeout) as switcher:
+            # switcher.__call__ needs to be synchronized with a lock IF it can
+            # be called from different threads. This is the case here because
+            # this method may be called from multiple threads and the callbacks
+            # are run in the calling thread. So pass it our _lock.
+            with switch_back(timeout, lock=self._lock) as switcher:
                 with self._lock:
                     if not self._locked:
                         self._locked = 1
@@ -76,7 +80,9 @@ class _Lock(object):
                 # switchback in our hub, it won't execute it yet. So the
                 # switchback won't actually happen until we switch to the hub.
                 hub.switch()
-                # Here the lock should be ours
+                # Here the lock should be ours because _release() wakes up only
+                # the fiber that it passed the lock.
+                assert self._locked > 0
                 assert self._owner is fibers.current()
         except Exception as e:
             # Likely a Timeout but could also be e.g. Cancelled
@@ -87,10 +93,29 @@ class _Lock(object):
                     if self._waiters[i] is switcher:
                         del self._waiters[i]
                         break
+                # This fiber was passed the lock but before that an exception
+                # was already scheduled with run_callback() (likely through
+                # Fiber.throw())
+                if self._owner is fibers.current():
+                    self._release()
             if isinstance(e, Timeout):
                 return False
             raise
         return True
+
+    def _release(self):
+        # Low-level release. Lock must be held.
+        if self._locked > 1:
+            self._locked -= 1
+            return
+        while self._waiters:
+            switcher = self._waiters.pop(0)
+            if switcher:
+                self._owner = switcher.fiber
+                switcher.switch()  # no-lock variant of __call__()
+                return
+        self._owner = None
+        self._locked = 0
 
     def release(self):
         """Release the lock."""
@@ -99,17 +124,7 @@ class _Lock(object):
                 raise RuntimeError('lock not currently held')
             elif self._reentrant and self._owner is not fibers.current():
                 raise RuntimeError('lock not owned by this fiber')
-            if self._locked > 1:
-                self._locked -= 1
-            elif not self._waiters:
-                self._locked = 0
-                self._owner = None
-            else:
-                # Don't unlock + lock but rather pass the lock directly to the
-                # fiber that is next in line.
-                switcher = self._waiters.pop(0)
-                self._owner = switcher.fiber
-                switcher()
+            self._release()
 
     __enter__ = acquire
     __exit__ = lambda self, *exc_info: self.release()
@@ -211,7 +226,7 @@ class Event(object):
             if not self._waiters:
                 return
             for notify in self._waiters:
-                notify()
+                notify.switch()
             del self._waiters[:]
 
     def clear(self):
@@ -223,28 +238,27 @@ class Event(object):
     def wait(self, timeout=None):
         """If the internal flag is set, return immediately. Otherwise block
         until the flag gets set by another fiber calling :meth:`set`."""
+        if self._flag:
+            return
         hub = get_hub()
-        self._lock.acquire()
         try:
-            if self._flag:
-                return
-            with switch_back(timeout) as switcher:
-                if self._waiters is None:
-                    self._waiters = []
-                self._waiters.append(switcher)
-                self._lock.release()
-                try:
-                    hub.switch()
-                finally:
-                    self._lock.acquire()
+            with switch_back(timeout, lock=self._lock) as switcher:
+                with self._lock:
+                    if self._flag:
+                        return
+                    if self._waiters is None:
+                        self._waiters = []
+                    self._waiters.append(switcher)
+                # See note in Lock.acquire() why we can call to hub.switch()
+                # outside the lock.
+                hub.switch()
         except Exception:
-            for i in reversed(range(len(self._waiters))):
-                if self._waiters[i] is switcher:
-                    del self._waiters[i]
-                    break
+            with self._lock:
+                for i in reversed(range(len(self._waiters))):
+                    if self._waiters[i] is switcher:
+                        del self._waiters[i]
+                        break
             raise
-        finally:
-            self._lock.release()
 
 
 # Utility functions for a condition to work with both Locks and RLocks.
@@ -277,6 +291,15 @@ def release_save(lock):
         return lock._release_save()
     elif hasattr(lock, 'release'):
         lock.release()
+    else:
+        raise TypeError('expecting Lock/RLock')
+
+def thread_lock(lock):
+    """Return the thread lock for *lock*."""
+    if hasattr(lock, '_lock'):
+        return lock._lock
+    elif hasattr(lock, 'acquire'):
+        return lock
     else:
         raise TypeError('expecting Lock/RLock')
 
@@ -327,9 +350,9 @@ class Condition(object):
         notified = 0
         for i in range(min(n, len(self._waiters))):
             notify, predicate = self._waiters[i-notified]
-            if callable(predicate) and not predicate():
+            if not notify or callable(predicate) and not predicate():
                 continue
-            notify()
+            notify.switch()
             del self._waiters[i-notified]
             notified += 1
 
@@ -357,11 +380,11 @@ class Condition(object):
         The *predicate* argument must be a callable that takes no arguments.
         Its result is interpreted as a boolean value.
         """
-        hub = get_hub()
         if not is_locked(self._lock):
             raise RuntimeError('lock is not locked')
+        hub = get_hub()
         try:
-            with switch_back(timeout) as switcher:
+            with switch_back(timeout, lock=thread_lock(self._lock)) as switcher:
                 self._waiters.append((switcher, predicate))
                 # See the comment in Lock.acquire() why it is OK to release the
                 # lock here before calling hub.switch().
@@ -369,10 +392,11 @@ class Condition(object):
                 state = release_save(self._lock)
                 hub.switch()
         except Exception as e:
-            for i in reversed(range(len(self._waiters))):
-                if self._waiters[i][0] is switcher:
-                    del self._waiters[i]
-                    break
+            with self._lock:
+                for i in reversed(range(len(self._waiters))):
+                    if self._waiters[i][0] is switcher:
+                        del self._waiters[i]
+                        break
             if isinstance(e, Timeout):
                 return False
             raise

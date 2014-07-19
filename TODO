@@ -20,6 +20,8 @@ TODO:
 * Implement Future.add_done_callback() and futures.wait()
 * The Events returned by Protocol.connection_made() and Transport.start()
   should be Futures so that exceptions can be passed into the waiter.
+* gruvi.Event is not complying with the threading API. It raises a Timeout on
+  timeout rather than returning _flag.
 
 Things that could be done if they are useful:
 

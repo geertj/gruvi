@@ -120,9 +120,9 @@ class switch_back(object):
           hub.switch()
     """
 
-    __slots__ = ('_timeout', '_hub', '_fiber', '_timer', '_callbacks')
+    __slots__ = ('_timeout', '_hub', '_fiber', '_timer', '_callbacks', '_lock')
 
-    def __init__(self, timeout=None, hub=None):
+    def __init__(self, timeout=None, hub=None, lock=None):
         """
         The *timeout* argument can be used to force a timeout after this many
         seconds. It can be an int or a float. If a timeout happens,
@@ -137,6 +137,7 @@ class switch_back(object):
         self._hub = hub or get_hub()
         self._fiber = fibers.current()
         self._callbacks = None
+        self._lock = lock
 
     @property
     def fiber(self):
@@ -148,6 +149,21 @@ class switch_back(object):
         """The timeout, or None if there is no timeout."""
         return self._timeout
 
+    __nonzero__ = lambda self: bool(self._hub and self._fiber.is_alive())
+    __bool__ = __nonzero__
+
+    def switch(self, *args, **kwargs):
+        """Switch back to the origin fiber. The fiber is switch in next time
+        the event loop runs."""
+        if self._hub is None or not self._fiber.is_alive():
+            return
+        if self._timeout is not None and args == (self._timer,):
+            value = Timeout('Timeout in switch_back() block')
+        else:
+            value = (args, kwargs)
+        self._hub.run_callback(self._fiber.switch, value)
+        self._hub = None  # switch back at most once!
+
     def throw(self, exc):
         """Throw an exception into the origin fiber. The exception is thrown
         the next time the event loop runs."""
@@ -157,6 +173,13 @@ class switch_back(object):
         if self._hub is None or not self._fiber.is_alive():
             return
         self._hub.run_callback(self._fiber.throw, exc)
+
+    def add_cleanup(self, callback, *args):
+        """Add a cleanup action. The callback is run with the provided
+        positional arguments when the context manager exists."""
+        if self._callbacks is None:
+            self._callbacks = []
+        self._callbacks.append((callback, args))
 
     def __enter__(self):
         if self._timeout is not None:
@@ -183,21 +206,19 @@ class switch_back(object):
         self._hub = None
         self._fiber = None
 
-    def add_cleanup(self, callback, *args):
-        """Add a cleanup action. The callback is run with the provided
-        positional arguments when the context manager exists."""
-        if self._callbacks is None:
-            self._callbacks = []
-        self._callbacks.append((callback, args))
-
     def __call__(self, *args, **kwargs):
-        if self._hub is None or not self._fiber.is_alive():
-            return
-        if self._timeout is not None and args == (self._timer,):
-            value = Timeout('Timeout in switch_back() block')
-        else:
-            value = (args, kwargs)
-        self._hub.run_callback(self._fiber.switch, value)
+        # This method is thread safe if a lock was passed into the constructor
+        # (and is the only method in this class for which this is the case.
+        # This functionality is provided because this class is used by thread
+        # safe objects where it can happen that the timeout and the regular
+        # invocation of this method can happen in different threads.
+        if self._lock:
+            self._lock.acquire()
+        try:
+            self.switch(*args, **kwargs)
+        finally:
+            if self._lock:
+                self._lock.release()
 
 
 _local = threading.local()
