@@ -16,97 +16,29 @@ from gruvi.hub import get_hub
 from support import UnitTest, unittest
 
 
-def lock_unlock(lock, count=50):
-    failed = 0
-    timeouts = 0
-    for i in range(count):
-        # the granularity of libuv's timers is 1ms.
-        gruvi.sleep(random.randint(0, 14)/10000)
-        timeout = random.choice((None, None, None, 0.001))
-        while not lock.acquire(timeout=timeout):
-            timeouts += 1
-        gruvi.sleep(random.randint(0, 14)/10000)
-        failed += (1 if lock._locked != 1 or lock._owner is not gruvi.current_fiber() else 0)
-        lock.release()
-    return failed
+class LockTests(object):
+    # Shared tests for Lock and RLock
 
-
-class TestLock(UnitTest):
+    Lock = None
 
     def test_basic(self):
-        # Ensure that acquire() and release() works.
-        lock = gruvi.Lock()
-        self.assertFalse(lock.locked())
+        # Lock and unlock the rlock once.
+        lock = gruvi.RLock()
         lock.acquire()
         self.assertTrue(lock.locked())
         lock.release()
         self.assertFalse(lock.locked())
 
-    def test_timeout(self):
-        # Ensure that the timeout argument to acquire() works.
-        hub = get_hub()
-        lock = gruvi.Lock()
-        lock.acquire()
-        t0 = hub.loop.now()
-        self.assertFalse(lock.acquire(timeout=0.01))
-        t1 = hub.loop.now()
-        self.assertGreater(t1-t0, 10)
-        self.assertFalse(lock._waiters)
-
-    def test_non_blocking(self):
-        # Ensure that the blocking argument to acquire() works.
-        lock = gruvi.Lock()
-        lock.acquire()
-        self.assertFalse(lock.acquire(blocking=False))
-        self.assertFalse(lock._waiters)
-
     def test_context_manager(self):
         # Ensure that a lock can be used as a context manager.
-        lock = gruvi.Lock()
+        lock = self.Lock()
         with lock:
             self.assertTrue(lock.locked())
         self.assertFalse(lock.locked())
 
-    def test_acquire_release_threads(self):
-        # Ensure that a lock can be locked and unlocked in different threads.
-        lock = gruvi.Lock()
-        sync = gruvi.Lock()
-        failed = [0]
-        def thread_lock():
-            lock.acquire()
-            failed[0] += (1 if not lock.locked() else 0)
-            sync.release()
-        def thread_unlock():
-            sync.acquire()
-            lock.release()
-            failed[0] += (1 if lock.locked() else 0)
-            sync.release()
-        sync.acquire()
-        t1 = threading.Thread(target=thread_lock)
-        t2 = threading.Thread(target=thread_unlock)
-        t1.start(); t2.start()
-        t1.join(); t2.join()
-        self.assertEqual(failed[0], 0)
-
-    def test_fiber_safety(self):
-        # Start a bunch of fibers, each locking the rlock a few times before
-        # unlocking it again. Ensure that the locks don't overlap.
-        lock = gruvi.Lock()
-        failed = [0]
-        def run_test():
-            failed[0] += lock_unlock(lock, 20)
-        fibers = []
-        for i in range(20):
-            fiber = gruvi.Fiber(run_test)
-            fiber.start()
-            fibers.append(fiber)
-        for fib in fibers:
-            fib.join()
-        self.assertEqual(failed[0], 0)
-
     def test_lock_order(self):
         # Locks are fair and are granted in order.
-        lock = gruvi.Lock()
+        lock = self.Lock()
         order = []
         def run_test(ix):
             lock.acquire()
@@ -123,9 +55,25 @@ class TestLock(UnitTest):
             fib.join()
         self.assertEqual(order, list(range(len(fibers))))
 
+    def test_fiber_safety(self):
+        # Start a bunch of fibers, each locking the rlock a few times before
+        # unlocking it again. Ensure that the locks don't overlap.
+        lock = self.Lock()
+        failed = [0]
+        def run_test():
+            failed[0] += self.lock_unlock(lock, 20)
+        fibers = []
+        for i in range(20):
+            fiber = gruvi.Fiber(run_test)
+            fiber.start()
+            fibers.append(fiber)
+        for fib in fibers:
+            fib.join()
+        self.assertEqual(failed[0], 0)
+
     def test_fiber_safety_timeout(self):
         # Test correctness of the lock in case of timeouts.
-        lock = gruvi.Lock()
+        lock = self.Lock()
         order = []
         def run_test(ix):
             lock.acquire()
@@ -154,10 +102,10 @@ class TestLock(UnitTest):
         # Start a bunch of threads, each starting a bunch of fibers. Each fiber
         # will lock the rlock a few times before unlocking it again. Ensure
         # that the locks don't overlap.
-        lock = gruvi.Lock()
+        lock = self.Lock()
         failed = []
         def run_test():
-            failed[0] += lock_unlock(lock, 10)
+            failed.append(self.lock_unlock(lock, 10))
         def run_thread():
             fibers = []
             for i in range(5):
@@ -176,35 +124,90 @@ class TestLock(UnitTest):
         self.assertEqual(sum(failed), 0)
 
 
-def lock_unlock_reentrant(lock, count=10):
-    failed = 0
-    timeouts = 0
-    for i in range(count):
-        gruvi.sleep(random.randint(0, 14)/10000)
-        timeout = random.choice((None, None, None, 0.001))
-        while not lock.acquire(timeout=timeout):
-            timeouts += 1
-        gruvi.sleep(random.randint(0, 14)/10000)
-        failed += (1 if lock._locked != 1 or lock._owner is not gruvi.current_fiber() else 0)
+class TestLock(UnitTest, LockTests):
+
+    Lock = gruvi.Lock
+
+    def lock_unlock(self, lock, count):
+        failed = 0
+        timeouts = 0
+        for i in range(count):
+            # the granularity of libuv's timers is 1ms.
+            gruvi.sleep(random.randint(0, 14)/10000)
+            timeout = random.choice((None, None, None, 0.001))
+            while not lock.acquire(timeout=timeout):
+                timeouts += 1
+            gruvi.sleep(random.randint(0, 14)/10000)
+            if lock._locked != 1 or lock._owner is not gruvi.current_fiber():
+                failed += 1
+            lock.release()
+        return failed
+
+    def test_timeout(self):
+        # Ensure that the timeout argument to acquire() works.
+        hub = get_hub()
+        lock = gruvi.Lock()
         lock.acquire()
-        gruvi.sleep(random.randint(0, 14)/10000)
-        failed += (1 if lock._locked != 2 or lock._owner is not gruvi.current_fiber() else 0)
-        lock.release()
-        gruvi.sleep(random.randint(0, 14)/10000)
-        failed += (1 if lock._locked != 1 or lock._owner is not gruvi.current_fiber() else 0)
-        lock.release()
-    return failed
+        t0 = hub.loop.now()
+        self.assertFalse(lock.acquire(timeout=0.01))
+        t1 = hub.loop.now()
+        self.assertGreater(t1-t0, 10)
+        self.assertFalse(lock._waiters)
 
-
-class TestRLock(UnitTest):
-
-    def test_basic(self):
-        # Lock and unlock the rlock once.
-        lock = gruvi.RLock()
+    def test_non_blocking(self):
+        # Ensure that the blocking argument to acquire() works.
+        lock = gruvi.Lock()
         lock.acquire()
-        self.assertTrue(lock.locked())
-        lock.release()
-        self.assertFalse(lock.locked())
+        self.assertFalse(lock.acquire(blocking=False))
+        self.assertFalse(lock._waiters)
+
+    def test_acquire_release_threads(self):
+        # Ensure that a lock can be locked and unlocked in different threads.
+        lock = self.Lock()
+        sync = self.Lock()
+        failed = [0]
+        def thread_lock():
+            lock.acquire()
+            failed[0] += (1 if not lock.locked() else 0)
+            sync.release()
+        def thread_unlock():
+            sync.acquire()
+            lock.release()
+            failed[0] += (1 if lock.locked() else 0)
+            sync.release()
+        sync.acquire()
+        t1 = threading.Thread(target=thread_lock)
+        t2 = threading.Thread(target=thread_unlock)
+        t1.start(); t2.start()
+        t1.join(); t2.join()
+        self.assertEqual(failed[0], 0)
+
+
+class TestRLock(UnitTest, LockTests):
+
+    Lock = gruvi.RLock
+
+    def lock_unlock(self, lock, count):
+        failed = 0
+        timeouts = 0
+        for i in range(count):
+            gruvi.sleep(random.randint(0, 14)/10000)
+            timeout = random.choice((None, None, None, 0.001))
+            while not lock.acquire(timeout=timeout):
+                timeouts += 1
+            gruvi.sleep(random.randint(0, 14)/10000)
+            if lock._locked != 1 or lock._owner is not gruvi.current_fiber():
+                failed += 1
+            lock.acquire()
+            gruvi.sleep(random.randint(0, 14)/10000)
+            if lock._locked != 2 or lock._owner is not gruvi.current_fiber():
+                failed += 1
+            lock.release()
+            gruvi.sleep(random.randint(0, 14)/10000)
+            if lock._locked != 1 or lock._owner is not gruvi.current_fiber():
+                failed += 1
+            lock.release()
+        return failed
 
     def test_multiple(self):
         # Lock and unlock the rlock a few times
@@ -259,100 +262,6 @@ class TestRLock(UnitTest):
         sync.release()
         fiber.join()
         self.assertFalse(lock._waiters)
-
-    def test_context_manager(self):
-        # Ensure that an RLock can be used as a context manager.
-        lock = gruvi.RLock()
-        with lock:
-            self.assertTrue(lock.locked())
-        self.assertFalse(lock.locked())
-
-    def test_fiber_safety(self):
-        # Start a bunch of fibers, each locking the rlock a few times before
-        # unlocking it again. Ensure that the locks don't overlap.
-        lock = gruvi.RLock()
-        failed = [0]
-        def run_test():
-            failed[0] += lock_unlock_reentrant(lock, 10)
-        fibers = []
-        for i in range(20):
-            fiber = gruvi.Fiber(run_test)
-            fiber.start()
-            fibers.append(fiber)
-        for fib in fibers:
-            fib.join()
-        self.assertEqual(failed[0], 0)
-
-    def test_lock_order(self):
-        # RLocks are fair and are granted in order.
-        lock = gruvi.RLock()
-        order = []
-        def run_test(ix):
-            lock.acquire()
-            order.append(ix)
-            lock.release()
-        fibers = []
-        for i in range(5):
-            fibers.append(gruvi.spawn(run_test, i))
-        lock.acquire()
-        gruvi.sleep(0)
-        self.assertEqual(order, [])
-        lock.release()
-        for fib in fibers:
-            fib.join()
-        self.assertEqual(order, list(range(len(fibers))))
-
-    def test_fiber_safety_timeout(self):
-        # Test correctness of the lock in case of timeouts.
-        lock = gruvi.RLock()
-        order = []
-        def run_test(ix):
-            lock.acquire()
-            order.append(ix)
-            lock.release()
-        fibers = []
-        for i in range(5):
-            fibers.append(gruvi.spawn(run_test, i))
-        # There's 5 elements in lock._waiter now. Kill the first one, and
-        # schedule a cancel for the second one. Both conditions should be
-        # handled appropriately and no deadlocks should happen.
-        lock.acquire()
-        gruvi.sleep(0)  # make sure all fibers are waiting on lock.acquire()
-        fibers[0].cancel()
-        gruvi.sleep(0)  # first one will be gone
-        self.assertFalse(fibers[0].is_alive())
-        fibers[1].cancel()  # a Cancelled is now scheduled for number two
-        self.assertTrue(fibers[1].is_alive())
-        lock.release()
-        for fib in fibers:
-            fib.join()
-        # All fibers should have gotten the lock except 1 and 2.
-        self.assertEqual(order, list(range(2, len(fibers))))
-
-    def test_thread_safety(self):
-        # Start a bunch of threads, each starting a bunch of fibers. Each fiber
-        # will lock the rlock a few times before unlocking it again. Ensure
-        # that the locks don't overlap.
-        lock = gruvi.RLock()
-        failed = []
-        def run_test():
-            failed.append(lock_unlock_reentrant(lock, 10))
-        def run_thread():
-            fibers = []
-            for i in range(5):
-                fiber = gruvi.Fiber(run_test)
-                fiber.start()
-                fibers.append(fiber)
-            for fib in fibers:
-                fib.join()
-        threads = []
-        for i in range(5):
-            thread = threading.Thread(target=run_thread)
-            thread.start()
-            threads.append(thread)
-        for thread in threads:
-            thread.join()
-        self.assertEqual(sum(failed), 0)
 
 
 class TestEvent(UnitTest):
