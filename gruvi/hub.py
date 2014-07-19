@@ -272,7 +272,9 @@ class Hub(fibers.Fiber):
         # SIGINT handler. Terminate the hub and switch back to the root, where
         # a KeyboardInterrupt will be raised.
         if self.ignore_interrupt:
+            self._log.debug('SIGINT received, ignoring')
             return
+        self._log.debug('SIGINT received, delivering as KeyboardInterrupt')
         self._error = KeyboardInterrupt('CTRL-C pressed')
         self.close()
 
