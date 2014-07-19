@@ -74,6 +74,11 @@ class Fiber(fibers.Fiber):
         """The fiber's name."""
         return self._name
 
+    @property
+    def alive(self):
+        """Whether the fiber is alive."""
+        return self.is_alive()
+
     def start(self):
         """Schedule the fiber to be started in the next iteration of the
         event loop."""
