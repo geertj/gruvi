@@ -13,7 +13,6 @@ import sys
 import signal
 
 from support import TestCase, unittest
-from test_process import create_cmd_wrappers
 
 import gruvi
 from gruvi import Process, PIPE, StreamClient, HttpClient
@@ -25,12 +24,6 @@ class TestExamples(TestCase):
     @classmethod
     def setUpClass(cls):
         super(TestExamples, cls).setUpClass()
-        # Add tests/bin to $PATH for the "fortune" program
-        bindir = os.path.join(cls.testdir, 'bin')
-        create_cmd_wrappers(bindir)
-        path = os.environ['PATH']
-        if bindir not in path:
-            os.environ['PATH'] = os.pathsep.join([bindir, path])
         exampledir = os.path.join(cls.topdir, 'examples')
         os.chdir(exampledir)
 

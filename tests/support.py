@@ -15,6 +15,7 @@ import socket
 import tempfile
 import logging
 import subprocess
+import pkg_resources
 import ssl
 import six
 
@@ -77,6 +78,41 @@ def create_ssl_certificate(fname):
         sys.stderr.write('openssl stderr: {0}\n'.format(stderr))
 
 
+def create_cmd_wrappers(bindir):
+    """On Windows, Create executable file wrappers for our utilities in tests/bin."""
+    # This is relevant on Windows only. On Unix our utilities can be executed
+    # by uv_spawn() directly.
+    #
+    # On Windows, a simple solution could be to create .bat file wrappers.
+    # However that doesn't work because uv_spawn() uses CreateProcess() which
+    # only supports .exe and .com files.
+    #
+    # The solution is to create little .exe wrapper for each program.
+    # Fortunately this is easy. Setuptools contains such a wrapper as a package
+    # resource. We need to copy it, and create a basename-script.py wrapper.
+    if not sys.platform.startswith('win'):
+        return
+    shebang = '#!{0}\r\n'.format(sys.executable)
+    wrapper = None
+    for fname in os.listdir(bindir):
+        if '.' in fname:
+            continue
+        absname = os.path.join(bindir, fname)
+        scriptname = absname + '-script.py'
+        exename = absname + '.exe'
+        if os.access(scriptname, os.R_OK) and os.access(exename, os.X_OK):
+            continue
+        with open(absname) as fin:
+            lines = [line.rstrip() + '\r\n' for line in fin.readlines()]
+            lines[0] = shebang
+        with open(scriptname, 'w') as fout:
+            fout.writelines(lines)
+        if wrapper is None:
+            wrapper = pkg_resources.resource_string('setuptools', 'cli.exe')
+        with open(exename, 'wb') as fout:
+            fout.write(wrapper)
+
+
 def sizeof(obj, exclude=None):
     """Return the size in bytes of *obj*."""
     if obj is None or obj is False or obj is True:
@@ -117,6 +153,11 @@ class TestCase(unittest.TestCase):
         if not os.access(certname, os.R_OK):
             create_ssl_certificate(certname)
         cls.certname = certname
+        bindir = os.path.join(cls.testdir, 'bin')
+        path = os.environ.get('PATH', '')
+        if bindir not in path:
+            create_cmd_wrappers(bindir)
+            os.environ['PATH'] = os.pathsep.join([bindir, path])
 
     def setUp(self):
         self._tmpindex = 1
