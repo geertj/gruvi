@@ -9,7 +9,7 @@ env:
   - TOX_ENV=flake8
   - TOX_ENV=coverage
 install:
-  - pip install tox
+  - pip install cffi tox
 script:
   - tox -e $TOX_ENV -- -v
   - if [ $TOX_ENV = "coverage" ] then pip install coveralls; coveralls; fi
