@@ -17,3 +17,5 @@ _version.py
 tests/memory.txt
 tests/performance.txt
 header
+.coverage
+htmlcov

@@ -4,3 +4,6 @@ wheel
 flake8
 tox
 detox
+invoke
+coverage
+coveralls
