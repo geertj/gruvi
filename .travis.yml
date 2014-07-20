@@ -12,4 +12,4 @@ install:
   - pip install cffi tox
 script:
   - tox -e $TOX_ENV -- -v
-  - if [ $TOX_ENV = "coverage" ] then pip install coveralls; coveralls; fi
+  - if [ $TOX_ENV = "coverage" ]; then pip install coveralls; coveralls; fi
