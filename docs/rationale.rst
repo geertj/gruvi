@@ -61,9 +61,9 @@ Python: 3.x         YES (3.3+)          YES                 NO                  
 Python: PyPy        NO                  NO                  YES                 YES
 Platform: Linux     FAST                FAST                FAST                FAST
 Platform: Mac OSX   FAST                FAST                FAST                FAST
-Platform: Windows   FAST (proactor)     FAST (proactor)     SLOW (reactor)      SLOW (reactor)
+Platform: Windows   FAST (IOCP)         FAST (IOCP)         SLOW (select)       SLOW (select)
 SSL: Posix          FAST                FAST                FAST                FAST
-SSL: Windows        FAST (proactor)     SLOW (reactor)      SLOW (reactor)      SLOW (reactor)
+SSL: Windows        FAST (IOCP)         SLOW (select)       SLOW (select)       SLOW (select)
 SSL: Contexts       YES (also Py2.7)    YES (also Py2.6+)   NO                  NO
 HTTP                FAST (via           NO (external)       SLOW (stdlib)       SLOW (stdlib)
                     http-parser_)
