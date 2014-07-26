@@ -152,14 +152,14 @@ class TestLock(UnitTest, LockTests):
         self.assertFalse(lock.acquire(timeout=0.01))
         t1 = hub.loop.now()
         self.assertGreater(t1-t0, 10)
-        self.assertFalse(lock._waiters)
+        self.assertFalse(lock._callbacks)
 
     def test_non_blocking(self):
         # Ensure that the blocking argument to acquire() works.
         lock = gruvi.Lock()
         lock.acquire()
         self.assertFalse(lock.acquire(blocking=False))
-        self.assertFalse(lock._waiters)
+        self.assertFalse(lock._callbacks)
 
     def test_acquire_release_threads(self):
         # Ensure that a lock can be locked and unlocked in different threads.
@@ -243,7 +243,7 @@ class TestRLock(UnitTest, LockTests):
         self.assertGreaterEqual(t1-t0, 10)
         sync.release()
         fiber.join()
-        self.assertFalse(lock._waiters)
+        self.assertFalse(lock._callbacks)
 
     def test_non_blocking(self):
         # Ensure that the blocking argument to acquire() works.
@@ -261,7 +261,7 @@ class TestRLock(UnitTest, LockTests):
         self.assertFalse(lock.acquire(blocking=False))
         sync.release()
         fiber.join()
-        self.assertFalse(lock._waiters)
+        self.assertFalse(lock._callbacks)
 
 
 class TestEvent(UnitTest):
@@ -295,7 +295,7 @@ class TestEvent(UnitTest):
     def test_wait_timeout(self):
         event = gruvi.Event()
         self.assertRaises(gruvi.Timeout, event.wait, timeout=0.01)
-        self.assertFalse(event._waiters)
+        self.assertFalse(event._callbacks)
 
     def test_thread_safety(self):
         event = gruvi.Event()
@@ -434,7 +434,7 @@ class TestCondition(UnitTest):
         cond = gruvi.Condition()
         with cond:
             self.assertFalse(cond.wait(timeout=0.01))
-        self.assertFalse(cond._waiters)
+        self.assertFalse(cond._callbacks)
 
     def test_wait_for_timeout(self):
         # When a timeout occurs, wait_for() should return False

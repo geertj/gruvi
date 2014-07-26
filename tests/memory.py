@@ -10,6 +10,7 @@ from __future__ import absolute_import, print_function
 
 import gruvi
 from gruvi.logging import get_logger
+from gruvi import callbacks
 from support import MemoryTest, unittest, sizeof
 
 
@@ -52,6 +53,12 @@ class TestMemory(MemoryTest):
 
     def mem_logger(self):
         self.add_result(sizeof(get_logger(), exclude=('logger',)))
+
+    def mem_dllist(self):
+        self.add_result(sizeof(callbacks.dllist()))
+
+    def mem_dllist_node(self):
+        self.add_result(sizeof(callbacks.Node()))
 
 
 if __name__ == '__main__':

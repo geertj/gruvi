@@ -12,8 +12,9 @@ import fibers
 import threading
 import heapq
 
-from .hub import switchpoint, get_hub, switch_back
+from .hub import switchpoint, get_hub, switch_back, assert_no_switchpoints
 from .errors import Timeout
+from .callbacks import add_callback, remove_callback, pop_callback, walk_callbacks
 
 __all__ = ['Lock', 'RLock', 'Event', 'Condition', 'QueueEmpty', 'QueueFull',
            'Queue', 'LifoQueue', 'PriorityQueue']
@@ -25,7 +26,7 @@ __all__ = ['Lock', 'RLock', 'Event', 'Condition', 'QueueEmpty', 'QueueFull',
 class _Lock(object):
     """Base class for regular and reentrant locks."""
 
-    __slots__ = ('_reentrant', '_lock', '_locked', '_owner', '_waiters')
+    __slots__ = ('_reentrant', '_lock', '_locked', '_owner', '_callbacks')
 
     def __init__(self, reentrant):
         # Allocate a new lock
@@ -33,12 +34,7 @@ class _Lock(object):
         self._lock = threading.Lock()
         self._locked = 0
         self._owner = None
-        # The _waiters attribute is initialized with a list on first use. We
-        # use a list instead of a deque to save on memory, even if a list has
-        # worse asymptotic performance. A lock is a very fundamental data
-        # structure that should be fast and small. On my 64-bit system, an
-        # empty deque is 624 bytes vs just 72 for a list.
-        self._waiters = None
+        self._callbacks = None
 
     def locked(self):
         """Whether the lock is currently locked."""
@@ -71,9 +67,7 @@ class _Lock(object):
                         return True
                     elif not blocking:
                         return False
-                    if self._waiters is None:
-                        self._waiters = []
-                    self._waiters.append(switcher)
+                    handle = add_callback(self, switcher)
                 # It is safe to call hub.switch() outside the lock. Another
                 # thread could have called acquire()+release(), thereby firing
                 # the switchback. However the switchback only schedules the
@@ -87,12 +81,9 @@ class _Lock(object):
         except Exception as e:
             # Likely a Timeout but could also be e.g. Cancelled
             with self._lock:
-                # Search for switcher from the end which is where we're more
-                # likely to find it.
-                for i in reversed(range(len(self._waiters))):
-                    if self._waiters[i] is switcher:
-                        del self._waiters[i]
-                        break
+                # Clean up the callback. It might have been popped by
+                # _release() but that is OK.
+                remove_callback(self, handle)
                 # This fiber was passed the lock but before that an exception
                 # was already scheduled with run_callback() (likely through
                 # Fiber.throw())
@@ -108,11 +99,11 @@ class _Lock(object):
         if self._locked > 1:
             self._locked -= 1
             return
-        while self._waiters:
-            switcher = self._waiters.pop(0)
-            if switcher:
+        while self._callbacks:
+            switcher, _ = pop_callback(self)
+            if switcher.active:
                 self._owner = switcher.fiber
-                switcher.switch()  # no-lock variant of __call__()
+                switcher.switch()
                 return
         self._owner = None
         self._locked = 0
@@ -204,12 +195,12 @@ class Event(object):
     called again.
     """
 
-    __slots__ = ('_flag', '_lock', '_waiters')
+    __slots__ = ('_flag', '_lock', '_callbacks')
 
     def __init__(self):
         self._flag = False
         self._lock = threading.Lock()
-        self._waiters = None
+        self._callbacks = None
 
     def __nonzero__(self):
         return self._flag
@@ -223,11 +214,13 @@ class Event(object):
             if self._flag:
                 return
             self._flag = True
-            if not self._waiters:
-                return
-            for notify in self._waiters:
-                notify.switch()
-            del self._waiters[:]
+            def walker(callback, args):
+                if isinstance(callback, switch_back):
+                    callback.switch()
+                else:
+                    callback(*args)
+            with assert_no_switchpoints():
+                walk_callbacks(self, walker)
 
     def clear(self):
         """Clear the internal flag."""
@@ -238,26 +231,23 @@ class Event(object):
     def wait(self, timeout=None):
         """If the internal flag is set, return immediately. Otherwise block
         until the flag gets set by another fiber calling :meth:`set`."""
+        # Optimization for the case the Event is already set.
         if self._flag:
             return
         hub = get_hub()
         try:
             with switch_back(timeout, lock=self._lock) as switcher:
                 with self._lock:
+                    # Need to check the flag again, now under the lock.
                     if self._flag:
                         return
-                    if self._waiters is None:
-                        self._waiters = []
-                    self._waiters.append(switcher)
+                    handle = add_callback(self, switcher)
                 # See note in Lock.acquire() why we can call to hub.switch()
                 # outside the lock.
                 hub.switch()
         except Exception:
             with self._lock:
-                for i in reversed(range(len(self._waiters))):
-                    if self._waiters[i] is switcher:
-                        del self._waiters[i]
-                        break
+                remove_callback(self, handle)
             raise
 
 
@@ -321,7 +311,7 @@ class Condition(object):
     lock there would be a race condition between notification and waiting.
     """
 
-    __slots__ = ('_lock', '_waiters')
+    __slots__ = ('_lock', '_callbacks')
 
     def __init__(self, lock=None):
         """
@@ -330,7 +320,7 @@ class Condition(object):
         no lock is provided, a :class:`RLock` is allocated.
         """
         self._lock = lock or RLock()
-        self._waiters = []
+        self._callbacks = None
 
     acquire = lambda self, *args: self._lock.acquire(*args)
     release = lambda self: self._lock.release()
@@ -345,20 +335,15 @@ class Condition(object):
         """
         if not is_locked(self._lock):
             raise RuntimeError('lock is not locked')
-        if not self._waiters:
-            return
-        notified = 0
-        for i in range(min(n, len(self._waiters))):
-            notify, predicate = self._waiters[i-notified]
-            if not notify or callable(predicate) and not predicate():
-                continue
-            notify.switch()
-            del self._waiters[i-notified]
-            notified += 1
+        def walker(switcher, predicate):
+            if not switcher.active or predicate and not predicate():
+                return True
+            switcher.switch()
+        walk_callbacks(self, walker, n)
 
     def notify_all(self):
         """Raise the condition and wake up all fibers waiting on it."""
-        self.notify(len(self._waiters))
+        self.notify(-1)
 
     @switchpoint
     def wait(self, timeout=None):
@@ -385,7 +370,7 @@ class Condition(object):
         hub = get_hub()
         try:
             with switch_back(timeout, lock=thread_lock(self._lock)) as switcher:
-                self._waiters.append((switcher, predicate))
+                handle = add_callback(self, switcher, predicate)
                 # See the comment in Lock.acquire() why it is OK to release the
                 # lock here before calling hub.switch().
                 # Also if this is a reentrant lock make sure it is fully released.
@@ -393,10 +378,7 @@ class Condition(object):
                 hub.switch()
         except Exception as e:
             with self._lock:
-                for i in reversed(range(len(self._waiters))):
-                    if self._waiters[i][0] is switcher:
-                        del self._waiters[i]
-                        break
+                remove_callback(self, handle)
             if isinstance(e, Timeout):
                 return False
             raise
