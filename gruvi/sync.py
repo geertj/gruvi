@@ -250,6 +250,19 @@ class Event(object):
                 remove_callback(self, handle)
             raise
 
+    # Support for wait()
+
+    def add_done_callback(self, callback, *args):
+        with self._lock:
+            if self._flag:
+                callback(*args)
+                return
+            return add_callback(self, callback, args)
+
+    def remove_done_callback(self, handle):
+        with self._lock:
+            remove_callback(self, handle)
+
 
 # Utility functions for a condition to work with both Locks and RLocks.
 

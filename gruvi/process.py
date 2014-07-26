@@ -16,11 +16,12 @@ from io import TextIOWrapper
 import pyuv
 import gruvi
 
-from gruvi import fibers, compat
-from gruvi.hub import get_hub, switchpoint
-from gruvi.sync import Event
-from gruvi.stream import StreamProtocol
-from gruvi.endpoints import create_connection, Endpoint
+from . import fibers, compat
+from .hub import get_hub, switchpoint
+from .sync import Event
+from .stream import StreamProtocol
+from .endpoints import create_connection, Endpoint
+from .callbacks import add_callback, remove_callback, run_callbacks
 
 __all__ = ['Process', 'PIPE', 'DEVNULL']
 
@@ -75,6 +76,7 @@ class Process(Endpoint):
         self._exit_status = None
         self._term_signal = None
         self._child_exited.clear()
+        self._callbacks = None
 
     @property
     def stdin(self):
@@ -259,6 +261,7 @@ class Process(Endpoint):
             self._stderr[1].close()
         self._child_exited.set()
         self.child_exited(exit_status, term_signal)
+        run_callbacks(self)
 
     def child_exited(self, exit_status, term_signal):
         """Callback that is called when the child has exited."""
@@ -345,3 +348,14 @@ class Process(Endpoint):
         stdout_data = empty.join(output[0])
         stderr_data = empty.join(output[1])
         return (stdout_data, stderr_data)
+
+    # Support wait()
+
+    def add_done_callback(self, callback, *args):
+        if self._child_exited:
+            callback(*args)
+            return
+        return add_callback(self, callback, args)
+
+    def remove_done_callback(self, handle):
+        remove_callback(self, handle)

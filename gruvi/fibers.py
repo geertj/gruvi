@@ -15,6 +15,7 @@ from . import logging
 from .hub import get_hub
 from .sync import Event
 from .errors import Cancelled
+from .callbacks import add_callback, remove_callback, run_callbacks
 
 __all__ = ['current_fiber', 'Fiber', 'spawn']
 
@@ -41,7 +42,7 @@ class Fiber(fibers.Fiber):
     # Gruvi application that use the "raw" interface from the fibers package
     # are the root fiber and the Hub.
 
-    __slots__ = ('_name', 'context', '_target', '_log', '_thread', '_done')
+    __slots__ = ('_name', 'context', '_target', '_log', '_thread', '_done', '_callbacks')
 
     def __init__(self, target, args=(), kwargs={}, name=None, hub=None):
         """
@@ -68,6 +69,7 @@ class Fiber(fibers.Fiber):
         self._log = logging.get_logger()
         self._thread = threading.current_thread()
         self._done = Event()
+        self._callbacks = None
 
     @property
     def name(self):
@@ -125,6 +127,18 @@ class Fiber(fibers.Fiber):
         except Exception:
             self._log.exception('uncaught exception in fiber')
         self._done.set()
+        run_callbacks(self)
+
+    # Support wait()
+
+    def add_done_callback(self, callback, *args):
+        if self._done:
+            callback(*args)
+            return
+        return add_callback(self, callback, args)
+
+    def remove_done_callback(self, handle):
+        remove_callback(self, handle)
 
 
 def spawn(func, *args, **kwargs):

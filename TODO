@@ -22,6 +22,7 @@ TODO:
   should be Futures so that exceptions can be passed into the waiter.
 * gruvi.Event is not complying with the threading API. It raises a Timeout on
   timeout rather than returning _flag.
+* Futures should be thread safe, at least when used with a thread pool.
 
 Things that could be done if they are useful:
 

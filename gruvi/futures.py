@@ -1,32 +1,37 @@
+#
 # This file is part of Gruvi. Gruvi is free software available under the
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
 
 import pyuv
 import threading
+import time
 
 from . import fibers, compat
 from .hub import switchpoint, switch_back
 from .sync import Event, Queue
+from .errors import Timeout
+from .callbacks import add_callback, remove_callback, run_callbacks
 
 __all__ = ['Future', 'PoolBase', 'FiberPool', 'ThreadPool', 'get_io_pool',
-           'get_cpu_pool', 'blocking']
+           'get_cpu_pool', 'blocking', 'wait', 'as_completed']
 
 
 class Future(object):
     """The result of an asynchronous function call."""
 
-    __slots__ = ['_result', '_exception', '_done']
+    __slots__ = ('_result', '_exception', '_done', '_callbacks')
 
     def __init__(self):
         self._result = None
         self._exception = None
         self._done = Event()
+        self._callbacks = None
 
     def done(self):
         """Return whether this future is done."""
@@ -48,11 +53,40 @@ class Future(object):
         """Mark the future as done and set its result."""
         self._result = result
         self._done.set()
+        run_callbacks(self)
 
     def set_exception(self, exception):
         """Mark the future as done and set an exception."""
         self._exception = exception
         self._done.set()
+        run_callbacks(self)
+
+    def add_done_callback(self, callback, *args):
+        """Add a callback that gets called when the future completes.
+
+        The callback will be called in the context of the fiber that sets the
+        future's result. The callback is called with the future instance as
+        its single argument and it may not call into switchpoints.
+
+        The return value is an opaque handle that can be used with
+        :meth:`~gruvi.Future.remove_done_callback` to remove the callback.
+
+        If the future has already completed, then the callback is called
+        immediately from this method and the return value will be None.
+        """
+        if self._done:
+            callback(*args)
+            return
+        return add_callback(self, callback, args)
+
+    def remove_done_callback(self, handle):
+        """Remove a callback that was added by
+        :meth:`~gruvi.Future.add_done_callback`.
+
+        It is not an error to remove a callback that was never added or was
+        already removed.
+        """
+        remove_callback(self, handle)
 
 
 class PoolBase(object):
@@ -225,3 +259,95 @@ def blocking(func, *args, **kwargs):
     pool = get_io_pool()
     fut = pool.submit(func, *args, **kwargs)
     return fut.result()
+
+
+@switchpoint
+def _wait(pending, timeout):
+    # An iterator/generator that waits for objects in the list *pending*,
+    # yielding them as they become ready. The pending list is mutated.
+    done = []
+    notempty = Event()
+    def callback(i):
+        done.append(pending[i])
+        pending[i] = None
+        notempty.set()
+    handles = [pending[i].add_done_callback(callback, i) for i in range(len(pending))]
+    if timeout is not None:
+        end_time = time.time() + timeout
+    try:
+        while pending:
+            if timeout is not None:
+                timeout = max(0, end_time - time.time())
+            notempty.wait(timeout)
+            i = 0
+            while i < len(done):
+                yield done[i]
+                i += 1
+            del done[:]
+            notempty.clear()
+    finally:
+        for i in range(len(pending)):
+            if pending[i] is not None:
+                pending[i].remove_done_callback(handles[i])
+
+
+@switchpoint
+def as_completed(objects, count=None, timeout=None):
+    """Wait for one or more waitable objects, yielding them as they become
+    ready.
+
+    This is the iterator/generator version of :func:`wait`.
+    """
+    for obj in objects:
+        if not hasattr(obj, 'add_done_callback'):
+            raise TypeError('Expecting sequence of waitable objects')
+    if count is None:
+        count = len(objects)
+    if count < 0 or count > len(objects):
+        raise ValueError('count must be between 0 and len(objects)')
+    if count == 0:
+        return
+    pending = list(objects)
+    for obj in _wait(pending, timeout):
+        yield obj
+        count -= 1
+        if count == 0:
+            break
+
+
+@switchpoint
+def wait(objects, count=None, timeout=None):
+    """Wait for one or more waitable objects.
+
+    This method waits until *count* elements from the sequence of waitable
+    objects *objects* become ready. If *count* is ``None`` (the default), then
+    wait for all objects to become ready.
+
+    What "ready" is means depends on the object type. A waitable object is a
+    objects that implements the ``add_done_callback()`` and
+    ``remove_done_callback`` methods. This currently includes:
+
+      * :class:`~gruvi.Event` - an event is ready when its internal flag is set.
+      * :class:`~gruvi.Future` - a future is ready when its result is set.
+      * :class:`~gruvi.Fiber` - a fiber is ready when has terminated.
+      * :class:`~gruvi.Process` - a process is ready when the child has exited.
+    """
+    for obj in objects:
+        if not hasattr(obj, 'add_done_callback'):
+            raise TypeError('Expecting sequence of waitable objects')
+    if count is None:
+        count = len(objects)
+    if count < 0 or count > len(objects):
+        raise ValueError('count must be between 0 and len(objects)')
+    if count == 0:
+        return [], objects
+    pending = list(objects)
+    done = []
+    try:
+        for obj in _wait(pending, timeout):
+            done.append(obj)
+            if len(done) == count:
+                break
+    except Timeout:
+        pass
+    return done, list(filter(bool, pending))
