@@ -16,9 +16,11 @@ import signal
 import inspect
 import threading
 import weakref
+import unittest
+from unittest import SkipTest
 
 import gruvi
-from support import UnitTest, unittest, SkipTest
+from support import UnitTest
 
 
 class TestHub(UnitTest):

@@ -11,11 +11,15 @@ from __future__ import print_function, absolute_import
 import os
 import ssl
 import socket
+import unittest
 import pyuv
 
+from unittest import SkipTest
+
 from gruvi.ssl import SslPipe, SslTransport
-from support import UnitTest, unittest, SkipTest
+from support import UnitTest
 from test_transports import EventLoopTest, TransportTest
+
 
 if hasattr(ssl, 'SSLContext'):
     from ssl import SSLContext

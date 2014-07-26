@@ -9,9 +9,10 @@
 from __future__ import absolute_import, print_function
 
 import time
+import unittest
 
 from gruvi.callbacks import dllist, Node
-from support import PerformanceTest, unittest
+from support import PerformanceTest
 
 
 class PerfDllist(PerformanceTest):

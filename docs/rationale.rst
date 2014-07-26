@@ -55,7 +55,7 @@ IO abstraction      Transports /        Transports /        Green sockets       
 Threading           fibers_             ``yield from``      greenlet_           greenlet_
 Resolver            threadpool          threadpool          threadpool /        blocking /
                                                             c-ares_             dnspython_
-Python: 2.x         YES (2.6+)          YES (2.6+, via      YES                 YES
+Python: 2.x         YES (2.7)           YES (2.6+, via      YES                 YES
                                         Trollius_)
 Python: 3.x         YES (3.3+)          YES                 NO                  NO
 Python: PyPy        NO                  NO                  YES                 YES
@@ -64,7 +64,7 @@ Platform: Mac OSX   FAST                FAST                FAST                
 Platform: Windows   FAST (proactor)     FAST (proactor)     SLOW (reactor)      SLOW (reactor)
 SSL: Posix          FAST                FAST                FAST                FAST
 SSL: Windows        FAST (proactor)     SLOW (reactor)      SLOW (reactor)      SLOW (reactor)
-SSL: Contexts       YES (also Py2.6+)   YES (also Py2.6+)   NO                  NO
+SSL: Contexts       YES (also Py2.7)    YES (also Py2.6+)   NO                  NO
 HTTP                FAST (via           NO (external)       SLOW (stdlib)       SLOW (stdlib)
                     http-parser_)
 Monkey Patching     NO                  NO                  YES                 YES

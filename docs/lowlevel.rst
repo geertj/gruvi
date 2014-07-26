@@ -61,7 +61,6 @@ transport:
     The features that require the SSL backports module are
     
     * Setting or quering the compression of an SSL connection.
-    * Setting or querying the ciphers of an SSL connection (on Python 2.6).
     * Setting the anonymous Diffie Hellman parameters.
     * Querying the SSL channel bindings.
 

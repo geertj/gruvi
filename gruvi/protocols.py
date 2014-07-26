@@ -121,10 +121,10 @@ class MessageProtocol(Protocol):
             self._dispatcher = None
             return
         name = util.split_cap_words(type(self).__name__)[0]
-        key = 'gruvi:next_{0}_dispatcher'.format(name.lower())
+        key = 'gruvi:next_{}_dispatcher'.format(name.lower())
         seq = self._hub.data.setdefault(key, 1)
         self._hub.data[key] += 1
-        name = '{0}-{1}'.format(name, seq)
+        name = '{}-{}'.format(name, seq)
         self._dispatcher = Fiber(self._dispatch_loop, name=name)
         self._dispatcher.start()
 

@@ -56,7 +56,7 @@ def _af_unix_helper(handle, address, op):
         # Connecting to an AF_UNIX socket never gives EAGAIN on Linux.
         assert e.errno != errno.EAGAIN
         # Convert from Unix errno -> libuv errno via the symbolic error name
-        errname = 'UV_{0}'.format(errno.errocode.get(e.errno, 'UNKNOWN'))
+        errname = 'UV_{}'.format(errno.errocode.get(e.errno, 'UNKNOWN'))
         errnum = getattr(pyuv.errno, errname, pyuv.errno.UV_UNKNOWN)
         raise pyuv.error.PipeError(errnum, os.strerror(e.errno))
     finally:

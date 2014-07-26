@@ -9,8 +9,10 @@
 from __future__ import absolute_import, print_function
 
 import gc
+import unittest
+
 import gruvi
-from support import UnitTest, unittest
+from support import UnitTest
 
 
 class TestLocal(UnitTest):

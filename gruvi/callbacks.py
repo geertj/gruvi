@@ -22,22 +22,22 @@ from . import logging
 if __debug__:
 
     def fmtnode(node):
-        return '<Node(prev={0:#x}, next={1:#x}, value={2!r})>' \
+        return '<Node(prev={:#x}, next={:#x}, value={!r})>' \
                     .format(id(node._prev), id(node._next), node.value)
 
     def dump(dll):
-        print('== Dumping dllist {0!r}'.format(dll))
-        print('Size: {0}'.format(dll._size))
-        print('First: {0}'.format(fmtnode(dll.first) if dll.first else 'None'))
-        print('Last: {0}'.format(fmtnode(dll.last) if dll.last else 'None'))
+        print('== Dumping dllist {!r}'.format(dll))
+        print('Size: {}'.format(dll._size))
+        print('First: {}'.format(fmtnode(dll.first) if dll.first else 'None'))
+        print('Last: {}'.format(fmtnode(dll.last) if dll.last else 'None'))
         print('Nodes:')
         count = 0
         node = dll.first
         while node is not None:
-            print('- {0} [{1}]'.format(fmtnode(node), count))
+            print('- {} [{}]'.format(fmtnode(node), count))
             node = node._next
             count += 1
-        print('Total nodes: {0}'.format(count))
+        print('Total nodes: {}'.format(count))
 
     def check(dll):
         if dll.first is None:

@@ -21,7 +21,7 @@ Gruvi has the following features:
 * Small core and focus on low memory usage and fast performance. This makes
   Gruvi very suitable for mobile applications and embedded web servers.
 * Great support for SSL, also on Windows. Includes an SSL backports module
-  that makes certain 3.x features available on Python 2.x.
+  that makes certain 3.x features available on Python 2.7.
 * Built-in client/server support for HTTP, JSON-RPC and D-BUS.
 * PEP-3156 compatible transport/protocol interface.
 * Transparent concurrency support. Thanks to fibers, calling into a blocking
@@ -57,7 +57,7 @@ An simple echo server, using a StreamServer_::
 Requirements
 ------------
 
-You need Python 2.6, 2.7 or 3.3+.
+You need Python 2.7 or 3.3+.
 
 The following operating systems are currently tested:
 

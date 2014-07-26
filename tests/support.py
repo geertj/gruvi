@@ -16,22 +16,15 @@ import tempfile
 import logging
 import subprocess
 import pkg_resources
+import unittest
 import ssl
 import six
-
-if sys.version_info[:2] >= (2, 7):
-    import unittest
-else:
-    import unittest2 as unittest
-
-SkipTest = unittest.SkipTest
 
 import gruvi
 from gruvi.util import split_cap_words
 from gruvi.ssl import create_ssl_context
 
-__all__ = ['TestCase', 'UnitTest', 'PerformanceTest', 'MemoryTest', 'SkipTest',
-           'unittest', 'sizeof', 'MockTransport']
+__all__ = []
 
 
 def get_log_level():

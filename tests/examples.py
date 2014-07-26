@@ -11,8 +11,9 @@ from __future__ import absolute_import, print_function
 import os
 import sys
 import signal
+import unittest
 
-from support import TestCase, unittest
+from support import TestCase
 
 import gruvi
 from gruvi import Process, PIPE, StreamClient, HttpClient

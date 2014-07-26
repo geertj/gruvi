@@ -33,7 +33,7 @@ class TransportError(Error):
     @classmethod
     def from_errno(cls, errno):
         """Create a new instance from a :mod:`pyuv.errno` error code."""
-        message = '{0}: {1}'.format(pyuv.errno.errorcode.get(errno, errno),
+        message = '{}: {}'.format(pyuv.errno.errorcode.get(errno, errno),
                                     pyuv.errno.strerror(errno))
         return cls(message, errno)
 
@@ -166,7 +166,7 @@ class Transport(BaseTransport):
         (``'r'``), write-only (``'w'``) or read-write (``'rw'``).
         """
         if not isinstance(handle, pyuv.Stream):
-            raise TypeError("handle: expecting a 'pyuv.Stream' instance, got {0!r}"
+            raise TypeError("handle: expecting a 'pyuv.Stream' instance, got {!r}"
                                 .format(type(handle).__name__))
         super(Transport, self).__init__(handle, mode)
 
@@ -247,8 +247,8 @@ class Transport(BaseTransport):
 
     def write(self, data):
         """Write *data* to the transport."""
-        if not isinstance(data, compat.bytes_types):
-            raise TypeError("data: expecting a bytes-like instance, got {0!r}"
+        if not isinstance(data, (bytes, bytearray, memoryview)):
+            raise TypeError("data: expecting a bytes-like instance, got {!r}"
                                 .format(type(data).__name__))
         if not self._writable:
             raise TransportError('transport is not writable')
@@ -345,7 +345,7 @@ class DatagramTransport(BaseTransport):
         (``'r'``), write-only (``'w'``) or read-write (``'rw'``).
         """
         if not isinstance(handle, pyuv.UDP):
-            raise TypeError("handle: expecting a 'pyuv.UDP' instance, got {0!r}"
+            raise TypeError("handle: expecting a 'pyuv.UDP' instance, got {!r}"
                                 .format(type(handle).__name__))
         super(DatagramTransport, self).__init__(handle, mode)
 
@@ -391,7 +391,7 @@ class DatagramTransport(BaseTransport):
         default remote address.
         """
         if not isinstance(data, bytes):
-            raise TypeError("data: expecting a 'bytes' instance, got {0!r}"
+            raise TypeError("data: expecting a 'bytes' instance, got {!r}"
                                 .format(type(data).__name__))
         if not self._writable:
             raise TransportError('transport is not writable')

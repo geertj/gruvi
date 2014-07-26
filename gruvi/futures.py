@@ -206,7 +206,7 @@ class FiberPool(PoolBase):
         return fibers.current_fiber()
 
     def _spawn_worker(self):
-        name = '{0}-{1}'.format(self.name, len(self._workers)) if self.name else None
+        name = '{}-{}'.format(self.name, len(self._workers)) if self.name else None
         fiber = fibers.Fiber(self._worker_main, name=name)
         fiber.start()
         self._workers.add(fiber)
@@ -221,7 +221,7 @@ class ThreadPool(PoolBase):
         return threading.current_thread()
 
     def _spawn_worker(self):
-        name = '{0}-{1}'.format(self.name, len(self._workers)) if self.name else None
+        name = '{}-{}'.format(self.name, len(self._workers)) if self.name else None
         thread = threading.Thread(target=self._worker_main, name=name)
         # Don't block program exit if the user forgot to close() the pool,
         # especially because there's implicitly created pools.

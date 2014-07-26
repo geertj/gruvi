@@ -8,6 +8,7 @@
 
 from __future__ import absolute_import, print_function
 
+import unittest
 import six
 
 import gruvi
@@ -17,7 +18,7 @@ from gruvi.http import parse_option_header
 from gruvi.http_ffi import lib as _lib
 from gruvi.stream import StreamReader
 
-from support import UnitTest, unittest, MockTransport
+from support import UnitTest, MockTransport
 
 
 class TestSplitOptionHeader(UnitTest):

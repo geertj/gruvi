@@ -217,7 +217,7 @@ def get_field(headers, name, default=None):
 def create_chunk(buf):
     """Create a chunk for the HTTP "chunked" transfer encoding."""
     chunk = bytearray()
-    chunk.extend(_s2b('{0:X}\r\n'.format(len(buf))))
+    chunk.extend(_s2b('{:X}\r\n'.format(len(buf))))
     chunk.extend(_s2b(buf))
     chunk.extend(b'\r\n')
     return chunk
@@ -229,7 +229,7 @@ def create_chunked_body_end(trailers=None):
     ending.extend(b'0\r\n')
     if trailers:
         for name, value in trailers:
-            ending.extend(_s2b('{0}: {1}\r\n'.format(name, value)))
+            ending.extend(_s2b('{}: {}\r\n'.format(name, value)))
     ending.extend(b'\r\n')
     return ending
 
@@ -239,9 +239,9 @@ def create_request(version, method, url, headers):
     # According to my measurements using b''.join is faster that constructing a
     # bytearray.
     message = []
-    message.append(_s2b('{0} {1} HTTP/{2}\r\n'.format(method, url, version)))
+    message.append(_s2b('{} {} HTTP/{}\r\n'.format(method, url, version)))
     for name, value in headers:
-        message.append(_s2b('{0}: {1}\r\n'.format(name, value)))
+        message.append(_s2b('{}: {}\r\n'.format(name, value)))
     message.append(b'\r\n')
     return b''.join(message)
 
@@ -249,9 +249,9 @@ def create_request(version, method, url, headers):
 def create_response(version, status, headers):
     """Create a HTTP response header."""
     message = []
-    message.append(_s2b('HTTP/{0} {1}\r\n'.format(version, status)))
+    message.append(_s2b('HTTP/{} {}\r\n'.format(version, status)))
     for name, value in headers:
-        message.append(_s2b('{0}: {1}\r\n'.format(name, value)))
+        message.append(_s2b('{}: {}\r\n'.format(name, value)))
     message.append(b'\r\n')
     return b''.join(message)
 
@@ -337,7 +337,7 @@ class HttpRequest(object):
         for name, value in headers:
             name = name.lower()
             if name in hop_by_hop:
-                raise ValueError('header {0} is hop-by-hop'.format(name))
+                raise ValueError('header {} is hop-by-hop'.format(name))
             elif name == 'user-agent':
                 agent = value
             elif name == 'host':
@@ -396,7 +396,7 @@ class HttpRequest(object):
             buf = buf.encode(self._charset)
         self._bytes_written += len(buf)
         if self._content_length is not None and self._bytes_written > self._content_length:
-            raise RuntimeError('wrote too many bytes ({0} > {1})'
+            raise RuntimeError('wrote too many bytes ({} > {})'
                                     .format(self._bytes_written, self._content_length))
         if self._chunked:
             buf = create_chunk(buf)
@@ -547,7 +547,7 @@ class WsgiHandler(object):
             raise RuntimeError('response already started')
         for name, value in headers:
             if name.lower() in hop_by_hop:
-                raise ValueError('header {0} is hop-by-hop'.format(name))
+                raise ValueError('header {} is hop-by-hop'.format(name))
         self._status = status
         self._headers = headers
         return self.write
@@ -613,7 +613,7 @@ class WsgiHandler(object):
         if __debug__:
             ctype = get_field(self._headers, 'Content-Type', 'unknown')
             clen = get_field(self._headers, 'Content-Length', 'unknown')
-            self._log.debug('response: {0} ({1}; {2} bytes)'.format(self._status, ctype, clen))
+            self._log.debug('response: {} ({}; {} bytes)'.format(self._status, ctype, clen))
 
     def create_environ(self):
         # Initialize the environment with per connection variables.
@@ -700,7 +700,7 @@ class HttpProtocol(MessageProtocol):
         self._message_handler = WsgiHandler(application) if server_side else None
         self._server_name = server_name
         if version not in ('1.0', '1.1'):
-            raise ValueError('version: unsupported version {0!r}'.format(version))
+            raise ValueError('version: unsupported version {!r}'.format(version))
         self._version = version
         self._timeout = timeout
         self._create_parser()
@@ -831,14 +831,14 @@ class HttpProtocol(MessageProtocol):
         self._complete_header_value(b'')
         m = self._message
         m.message_type = lib.http_message_type(parser)
-        m.version = '{0}.{1}'.format(parser.http_major, parser.http_minor)
+        m.version = '{}.{}'.format(parser.http_major, parser.http_minor)
         if self._server_side:
             m.method = _http_methods.get(parser.method, '<unknown>')
             m.url = _ba2s(self._url)
             try:
                 m.parsed_url = urlsplit(m.url)
             except ValueError as e:
-                self._error = HttpError('urlsplit(): {0!s}'.format(e))
+                self._error = HttpError('urlsplit(): {!s}'.format(e))
                 return 2  # error
             m.is_upgrade = lib.http_is_upgrade(parser)
         else:
@@ -890,8 +890,8 @@ class HttpProtocol(MessageProtocol):
         nbytes = lib.http_parser_execute(self._parser, self._settings, data, len(data))
         if nbytes != len(data):
             msg = _cd2s(lib.http_errno_name(lib.http_errno(self._parser)))
-            self._log.debug('http_parser_execute(): {0}'.format(msg))
-            self._error = HttpError('parse error: {0}'.format(msg))
+            self._log.debug('http_parser_execute(): {}'.format(msg))
+            self._error = HttpError('parse error: {}'.format(msg))
             if self._message:
                 self._message.body.feed_error(self._error)
             self._queue.put_nowait(self._error)
@@ -904,9 +904,9 @@ class HttpProtocol(MessageProtocol):
         nbytes = lib.http_parser_execute(self._parser, self._settings, b'', 0)
         if nbytes != 0:
             msg = _cd2s(lib.http_errno_name(lib.http_errno(self._parser)))
-            self._log.debug('http_parser_execute(): {0}'.format(msg))
+            self._log.debug('http_parser_execute(): {}'.format(msg))
             if exc is None:
-                exc = HttpError('parse error: {0}'.format(msg))
+                exc = HttpError('parse error: {}'.format(msg))
             if self._message:
                 self._message.body.feed_error(self._error)
             self._queue.put_nowait(self._error)
@@ -1029,7 +1029,7 @@ class HttpClient(Client):
             default_port = (port == HTTP_PORT and 'ssl' not in kwargs) \
                                 or (port == HTTPS_PORT and 'ssl' in kwargs)
             if not default_port:
-                host = '{0}:{1}'.format(host, port)
+                host = '{}:{}'.format(host, port)
             self._server_name = host
         return super(HttpClient, self).connect(address, **kwargs)
 

@@ -8,8 +8,10 @@
 
 from __future__ import absolute_import, print_function
 
+import unittest
+
 import gruvi
-from support import UnitTest, unittest
+from support import UnitTest
 
 
 class TestFiber(UnitTest):

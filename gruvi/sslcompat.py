@@ -11,7 +11,7 @@ from __future__ import absolute_import, print_function
 import sys
 
 if sys.version_info[0] == 3:
-    raise ImportError('Only import this module in Python 2.6 or 2.7.')
+    raise ImportError('Only import this module in Python 2.7.')
 
 import _ssl
 import ssl
@@ -50,7 +50,7 @@ else:
 
 
 class SSLContext(object):
-    """Compatiblity SSLContext object for Python 2.6 and 2.7.
+    """Compatiblity SSLContext object for Python 2.7.
 
     This isn't a real SSLContext so it doesn't do things like session
     caching. The purpose is to store arguments to :func:`ssl.wrap_socket` in a
@@ -65,10 +65,9 @@ class SSLContext(object):
         Note that ``PROTOCOL_SSLv23`` is a bit of a misnomer as it includes any
         supported TLS version as well.
         """
-        # [server_side, keyfile, certfile, cert_reqs, ssl_version, ca_certs]
-        self._ssl_args = [False, None, None, ssl.CERT_NONE, protocol, None]
+        # [keyfile, certfile, cert_reqs, ssl_version, ca_certs, ciphers]
+        self._ssl_args = [None, None, ssl.CERT_NONE, protocol, None, DEFAULT_CIPHERS]
         # Implement the same defaults as the Python ssl module
-        self._ciphers = DEFAULT_CIPHERS
         self._options = OP_ALL & OP_NO_SSLv2
         self._dh_params = None
 
@@ -82,14 +81,12 @@ class SSLContext(object):
         if not _sslcompat:
             if server_hostname:
                 raise RuntimeError('server_hostname: _sslcompat not available')
-            return _ssl.sslwrap(sock, server_side, *self._ssl_args[1:])
-        sslobj = _ssl.sslwrap(sock, *self._ssl_args)
+            return _ssl.sslwrap(sock, server_side, *self._ssl_args)
+        sslobj = _ssl.sslwrap(sock, False, *self._ssl_args)
         if self._dh_params:
             _sslcompat.load_dh_params(sslobj, self._dh_params)
         if server_side:
             _sslcompat.set_accept_state(sslobj)
-        if self._ciphers:
-            _sslcompat.set_ciphers(sslobj, self._ciphers)
         _sslcompat.set_options(sslobj, self._options)
         if server_hostname:
             _sslcompat.set_tlsext_host_name(server_hostname)
@@ -97,15 +94,15 @@ class SSLContext(object):
 
     @property
     def protocol(self):
-        return self._ssl_args[4]
+        return self._ssl_args[3]
 
     @property
     def verify_mode(self):
-        return self._ssl_args[3]
+        return self._ssl_args[2]
 
     @verify_mode.setter
     def verify_mode(self, cert_reqs):
-        self._ssl_args[3] = cert_reqs
+        self._ssl_args[2] = cert_reqs
 
     @property
     def options(self):
@@ -118,16 +115,16 @@ class SSLContext(object):
         self._options = options
 
     def load_verify_locations(self, ca_certs):
-        self._ssl_args[5] = ca_certs
+        self._ssl_args[4] = ca_certs
 
     def load_cert_chain(self, certfile, keyfile):
+        self._ssl_args[0] = keyfile
         self._ssl_args[1] = certfile
-        self._ssl_args[2] = keyfile
 
     def set_ciphers(self, ciphers):
         if _sslcompat is None:
             raise RuntimeError('_sslcompat not availble')
-        self._ciphers = ciphers
+        self._ssl_args[5] = ciphers
 
     def load_dh_params(self, dh_params):
         if _sslcompat is None:

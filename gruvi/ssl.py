@@ -232,7 +232,7 @@ class SslPipe(object):
         if self._state == self.S_UNWRAPPED:
             # If unwrapped, pass plaintext data straight through.
             return ([], [data] if data else [])
-        view = compat.memoryview(data)
+        view = memoryview(data)
         offset = 0
         ssldata = []; appdata = []
         while True:
@@ -295,7 +295,7 @@ class SslPipe(object):
             # pass through data in unwrapped mode
             return ([data[offset:]] if offset < len(data) else [], len(data))
         ssldata = []
-        view = compat.memoryview(data)
+        view = memoryview(data)
         while True:
             self._need_ssldata = False
             try:
@@ -425,8 +425,8 @@ class SslTransport(Transport):
 
     def write(self, data):
         # Write *data* to the transport.
-        if not isinstance(data, (bytes, bytearray, compat.memoryview)):
-            raise TypeError("data: expecting a bytes-like instance, got {0!r}"
+        if not isinstance(data, (bytes, bytearray, memoryview)):
+            raise TypeError("data: expecting a bytes-like instance, got {!r}"
                                 .format(type(data).__name__))
         if self._error:
             raise compat.saved_exc(self._error)
@@ -608,13 +608,12 @@ def create_ssl_context(**sslargs):
     """Create a new SSL context in a way that is compatible with different
     Python versions.
 
-    On Python 2.6 and 2.7, this creates a emulated SSL context. The returned
-    object implements the most important parts the :class:`ssl.SSLContext`
-    interface and can be used to configure the SSL connection settings.  It is
-    not a real context however and does not support such things as a session
-    cache. This function works even if :attr:`gruvi.HAVE_SSL_BACKPORTS` is set
-    to `False` (but in this case none of the Python 3.x features can be used,
-    obviously).
+    On Python 2.7, this creates a emulated SSL context. The returned object
+    implements the most important parts the :class:`ssl.SSLContext` interface
+    and can be used to configure the SSL connection settings.  It is not a real
+    context however and does not support such things as a session cache. This
+    function works even if :attr:`gruvi.HAVE_SSL_BACKPORTS` is set to `False`
+    (but in this case none of the Python 3.x features can be used, obviously).
 
     On Python 3.3, this creates an new context by calling the
     :class:`ssl.SSLContext` constructor.
@@ -634,7 +633,7 @@ def create_ssl_context(**sslargs):
         # Python 3.3
         context = ssl.SSLContext(version or ssl.PROTOCOL_SSLv23)
     else:
-        # Python 2.6/2.7
+        # Python 2.7
         context = sslcompat.SSLContext(version or ssl.PROTOCOL_SSLv23)
     if sslargs.get('certfile'):
         context.load_cert_chain(sslargs['certfile'], sslargs.get('keyfile'))

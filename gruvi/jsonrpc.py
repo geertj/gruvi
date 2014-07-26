@@ -119,12 +119,12 @@ def check_message(message):
         raise ValueError('message must be an object')
     version = message.get('jsonrpc', '1.0')
     if version not in ('1.0', '2.0'):
-        raise ValueError('illegal version: {0!r}'.format(version))
+        raise ValueError('illegal version: {!r}'.format(version))
     method = message.get('method')
     if method is not None:
         # Request or notification
         if not isinstance(method, six.string_types):
-            raise ValueError('method must be str, got {0!r}'.format(type(method).__name__))
+            raise ValueError('method must be str, got {!r}'.format(type(method).__name__))
         params = message.get('params')
         # There's annoying differences between v1.0 and v2.0. v2.0 allows
         # params to be absent while v1.0 doesn't. Also v2.0 allows keyword
@@ -132,11 +132,11 @@ def check_message(message):
         # never allow keyword arguments in v1.0).
         if version == '1.0':
             if not isinstance(params, (list, tuple)) and params is not None:
-                raise ValueError('params must be list, got {0!r}'
+                raise ValueError('params must be list, got {!r}'
                                     .format(type(params).__name__))
         elif version == '2.0':
             if not isinstance(params, (dict, list, tuple)) and params is not None:
-                raise ValueError('params must be dict/list, got {0!r}'
+                raise ValueError('params must be dict/list, got {!r}'
                                     .format(type(params).__name__))
         allowed_keys = _request_keys
     else:
@@ -151,7 +151,7 @@ def check_message(message):
         allowed_keys = _response_keys
     extra = set(message) - allowed_keys
     if extra:
-        raise ValueError('extra keys: {0}', ', '.join(extra))
+        raise ValueError('extra keys: {}', ', '.join(extra))
     return version
 
 
@@ -186,7 +186,7 @@ _last_request_id = 0
 def _get_request_id():
     global _last_request_id
     _last_request_id += 1
-    reqid = 'gruvi.{0}'.format(_last_request_id)
+    reqid = 'gruvi.{}'.format(_last_request_id)
     return reqid
 
 
@@ -287,7 +287,7 @@ class JsonRpcProtocol(MessageProtocol):
         while offset != len(data):
             error = _lib.json_split(self._context)
             if error and error != _lib.INCOMPLETE:
-                self._error = JsonRpcError('json_split() error: {0}'.format(error))
+                self._error = JsonRpcError('json_split() error: {}'.format(error))
                 break
             size = len(self._buffer) + self._context.offset - offset
             if size > self._read_buffer_high or size == self._read_buffer_high \
@@ -307,10 +307,10 @@ class JsonRpcProtocol(MessageProtocol):
                 message = json.loads(chunk)
                 version = check_message(message)
             except UnicodeDecodeError as e:
-                self._error = JsonRpcError('UTF-8 decoding error: {0!s}'.format(e))
+                self._error = JsonRpcError('UTF-8 decoding error: {!s}'.format(e))
                 break
             except ValueError as e:
-                self._error = JsonRpcError('Illegal JSON-RPC message: {0!s}'.format(e))
+                self._error = JsonRpcError('Illegal JSON-RPC message: {!s}'.format(e))
                 break
             mtype = message_type(message)
             if self._tracefile:
@@ -406,7 +406,7 @@ class JsonRpcProtocol(MessageProtocol):
         assert response['id'] == msgid
         error = response.get('error')
         if error:
-            raise JsonRpcMethodCallError('error calling {0!r} method'.format(method), error)
+            raise JsonRpcMethodCallError('error calling {!r} method'.format(method), error)
         return response.get('result')
 
 

@@ -10,10 +10,11 @@ from __future__ import absolute_import, print_function, division
 
 import random
 import threading
+import unittest
 
 import gruvi
 from gruvi.hub import get_hub
-from support import UnitTest, unittest
+from support import UnitTest
 
 
 class LockTests(object):

@@ -36,7 +36,7 @@ def objref(obj):
     if ref is None:
         clsname = obj.__class__.__name__.split('.')[-1]
         seqno = _lastids.setdefault(clsname, 1)
-        ref = '{0}-{1}'.format(clsname, seqno)
+        ref = '{}-{}'.format(clsname, seqno)
         _objrefs[obj] = ref
         _lastids[clsname] += 1
     return ref

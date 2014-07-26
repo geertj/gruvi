@@ -15,7 +15,7 @@ import threading
 import fibers
 import six
 
-from . import util, compat
+from . import util
 
 __all__ = ['get_logger']
 
@@ -83,14 +83,14 @@ class ContextLogger(object):
             tid = 'Main'
         current = fibers.current()
         fid = getattr(current, 'name', util.objref(current)) if current.parent else 'Root'
-        return '{0}:{1}'.format(tid, fid)
+        return '{}:{}'.format(tid, fid)
 
     def context_info(self):
         log_context = self.context
         fiber_context = getattr(fibers.current(), 'context', '')
         if not fiber_context:
             return log_context
-        return '{0}:{1}'.format(log_context, fiber_context)
+        return '{}:{}'.format(log_context, fiber_context)
 
     def stack_info(self):
         if not self.logger.isEnabledFor(logging.DEBUG):
@@ -98,7 +98,7 @@ class ContextLogger(object):
         f = sys._getframe(3)
         fname = os.path.split(f.f_code.co_filename)[1]
         funcname = f.f_code.co_name
-        return '{0}:{1}!{2}()'.format(fname, f.f_lineno, funcname)
+        return '{}:{}!{}()'.format(fname, f.f_lineno, funcname)
 
     def log(self, level, exc, msg, *args, **kwargs):
         if not self.logger.isEnabledFor(level):
@@ -108,9 +108,8 @@ class ContextLogger(object):
             prefix.pop()
         prefix = '|'.join(prefix)
         if args or kwargs:
-            msg = compat.fixup_format_string(msg)
             msg = msg.format(*args, **kwargs)
-        msg = '[{0}] {1}'.format(prefix, msg)
+        msg = '[{}] {}'.format(prefix, msg)
         self.logger._log(level, msg, (), exc_info=exc)
 
     def debug(self, msg, *args, **kwargs):

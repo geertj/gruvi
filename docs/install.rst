@@ -10,9 +10,9 @@ following Python / OS combinations are supported:
 ==========  ==================  ===============================
 OS          Python versions     Notes
 ==========  ==================  ===============================
-Posix       2.6, 2.7, 3.3+      Only Linux is regularly tested
-Mac OSX     2.6, 2.7, 3.3+      PPC is not tested
-Windows     2.6, 2.7, 3.3+      No SSL backports on 2.x
+Posix       2.7, 3.3+           Only Linux is regularly tested
+Mac OSX     2.7, 3.3+           PPC is not tested
+Windows     2.7, 3.3+           No SSL backports on 2.7
 ==========  ==================  ===============================
 
 Gruvi and some of its dependencies contain C extensions. This means that you
@@ -46,8 +46,9 @@ environment::
 Linux Specific Notes
 ********************
 
-Most mainstream Linux versions have a supported version of Python installed.
-One exception would be RHEL/CentOS 5 which by default comes with Python 2.4.
+Most mainstream Linux versions have a supported version of Python installed by
+default, with the notable exception of RHEL/CentOS version 6. For this OS you
+can use `Software Collections`_ to install a supported Python version.
 
 To install the required dependencies on Debian/Ubuntu systems::
 
@@ -87,3 +88,4 @@ You can also use MinGW. In that case make sure you use either Python 2.7.6,
 .. _CFFI: https://pypi.python.org/pypi/cffi
 .. _issue12641: http://bugs.python.org/issue12641
 .. _`Visual C++ 2010 Express`: https://www.microsoft.com/visualstudio/eng/downloads#d-2010-express
+.. _`Software Collections`: http://softwarecollections.org/

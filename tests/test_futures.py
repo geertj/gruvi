@@ -9,11 +9,12 @@
 from __future__ import absolute_import, print_function
 
 import random
+import unittest
 
 import gruvi
 from gruvi import Fiber, Event, Process, Timeout
 from gruvi.futures import FiberPool, ThreadPool, Future
-from support import UnitTest, unittest
+from support import UnitTest
 
 
 class TestFuture(UnitTest):

@@ -9,10 +9,10 @@
 
 #include <Python.h>
 
-/* This module is only needed (and supported) on Python 2.6/2.7. */
+/* This module is only needed (and supported) on Python 2.7. */
 
 #if PY_MAJOR_VERSION >= 3
-#  error "This module is for Python 2.6/2.7 only."
+#  error "This module is for Python 2.7 only."
 #endif
 
 #include <stdio.h>
@@ -48,8 +48,8 @@ static PyObject *sslcompat_Error = NULL;
  * module. This allows us to compile this module separately from the Python
  * source tree.
  *
- * The format of PySSLObject has been kept consistent in Python 2.6 and 2.7.
- * And since both are in deep freeze now, we should be fine.
+ * Since Python 2.7 is in deep freeze now, this should be OK.
+ *
  */
 
 typedef struct
@@ -62,28 +62,6 @@ typedef struct
 
 
 /* sslcompat method below */
-
-static PyObject *
-sslcompat_set_ciphers(PyObject *self, PyObject *args)
-{
-    char *ciphers;
-    PyObject *Pret = NULL;
-    PySSLObject *sslob;
-
-    if (!PyArg_ParseTuple(args, "Os:set_ciphers", &sslob, &ciphers))
-        RETURN_ERROR(NULL);
-    if (strcmp(sslob->ob_type->tp_name, "ssl.SSLContext"))
-        RETURN_ERROR("expecting a SSLContext");
-
-    if (!SSL_set_cipher_list(sslob->ssl, ciphers))
-        RETURN_OPENSSL_ERROR;
-
-    Py_INCREF(Py_None); Pret = Py_None;
-
-error:
-    return Pret;
-}
-
 
 static PyObject *
 sslcompat_compression(PyObject *self, PyObject *args)
@@ -280,7 +258,6 @@ error:
 
 static PyMethodDef sslcompat_methods[] =
 {
-    { "set_ciphers", (PyCFunction) sslcompat_set_ciphers, METH_VARARGS },
     { "compression", (PyCFunction) sslcompat_compression, METH_VARARGS },
     { "get_options", (PyCFunction) sslcompat_get_options, METH_VARARGS },
     { "set_options", (PyCFunction) sslcompat_set_options, METH_VARARGS },

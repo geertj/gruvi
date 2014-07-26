@@ -9,6 +9,7 @@
 from __future__ import absolute_import, print_function
 
 import socket
+import unittest
 import six
 
 import gruvi
@@ -16,7 +17,7 @@ from gruvi.stream import StreamProtocol
 from gruvi.endpoints import create_server, create_connection, getaddrinfo
 from gruvi.transports import TransportError
 
-from support import UnitTest, unittest
+from support import UnitTest
 
 
 class TestCreateConnection(UnitTest):

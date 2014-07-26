@@ -11,13 +11,14 @@ from __future__ import absolute_import, print_function
 import os
 import six
 import hashlib
+import unittest
 from io import TextIOWrapper
 
 import gruvi
 from gruvi.stream import StreamReader, StreamProtocol, StreamClient, StreamServer
 from gruvi.errors import Timeout
 from gruvi.transports import TransportError
-from support import UnitTest, unittest, MockTransport
+from support import UnitTest, MockTransport
 
 
 class TestStreamReader(UnitTest):

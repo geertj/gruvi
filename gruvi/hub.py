@@ -61,7 +61,7 @@ def switchpoint(func, update_doc=True):
         indent = indent[0] if len(indent) == 1 else min(indent[1:] or [0])
         doc += '\n\n' + ' ' * indent + '*This method is a switchpoint.*\n'
         func.__doc__ = doc
-    globs = {'get_hub': get_hub, 'getcurrent': fibers.current, '_{0}'.format(name): func}
+    globs = {'get_hub': get_hub, 'getcurrent': fibers.current, '_{}'.format(name): func}
     wrapped = util.wrap(_switchpoint_template, func, globs, 2)
     wrapped.func = func
     wrapped.switchpoint = True

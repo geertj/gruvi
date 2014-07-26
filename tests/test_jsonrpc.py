@@ -10,6 +10,7 @@ from __future__ import absolute_import, print_function
 
 import os
 import json
+import unittest
 
 import gruvi
 from gruvi import jsonrpc
@@ -17,7 +18,7 @@ from gruvi.jsonrpc import JsonRpcError, JsonRpcMethodCallError
 from gruvi.jsonrpc import JsonRpcProtocol, JsonRpcClient, JsonRpcServer
 from gruvi.jsonrpc_ffi import ffi as _ffi, lib as _lib
 from gruvi.transports import TransportError
-from support import UnitTest, unittest, MockTransport
+from support import UnitTest, MockTransport
 
 
 _keepalive = None

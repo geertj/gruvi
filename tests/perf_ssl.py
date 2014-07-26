@@ -10,16 +10,12 @@ from __future__ import absolute_import, print_function, division
 
 import os
 import time
-import ssl
+import unittest
+from unittest import SkipTest
 
 from gruvi.ssl import SslPipe
-from support import PerformanceTest, unittest, SkipTest
+from support import PerformanceTest
 from test_ssl import communicate
-
-if hasattr(ssl, 'SSLContext'):
-    from ssl import SSLContext
-else:
-    from gruvi.sslcompat import SSLContext
 
 
 class PerfSsl(PerformanceTest):
@@ -28,8 +24,7 @@ class PerfSsl(PerformanceTest):
         if not os.access(self.certname, os.R_OK):
             raise SkipTest('no certificate available')
         super(PerfSsl, self).setUp()
-        context = SSLContext(ssl.PROTOCOL_SSLv23)
-        context.load_cert_chain(self.certname, self.certname)
+        context = self.get_ssl_context()
         self.client = SslPipe(context, False)
         self.server = SslPipe(context, True)
 

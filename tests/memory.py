@@ -8,10 +8,12 @@
 
 from __future__ import absolute_import, print_function
 
+import unittest
+
 import gruvi
 from gruvi.logging import get_logger
 from gruvi import callbacks
-from support import MemoryTest, unittest, sizeof
+from support import MemoryTest, sizeof
 
 
 class TestMemory(MemoryTest):

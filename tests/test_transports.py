@@ -8,10 +8,11 @@
 
 from __future__ import absolute_import, print_function
 
-import pyuv
 import socket
+import unittest
+import pyuv
 
-from support import UnitTest, unittest
+from support import UnitTest
 from gruvi.transports import TransportError, Transport, DatagramTransport
 
 

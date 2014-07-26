@@ -61,7 +61,7 @@ class Fiber(fibers.Fiber):
         super(Fiber, self).__init__(self.run, args, kwargs, self._hub)
         if name is None:
             fid = self._hub.data.setdefault('gruvi:next_fiber', 1)
-            name = 'Fiber-{0}'.format(fid)
+            name = 'Fiber-{}'.format(fid)
             self._hub.data['gruvi:next_fiber'] += 1
         self._name = name
         self.context = ''  # for logging

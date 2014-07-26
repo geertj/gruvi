@@ -29,9 +29,9 @@ def saddr(address):
     elif isinstance(address, six.string_types):
         return address
     elif isinstance(address, tuple) and ':' in address[0]:
-        return '[{0}]:{1}'.format(address[0], address[1])
+        return '[{}]:{}'.format(address[0], address[1])
     elif isinstance(address, tuple):
-        return '{0}:{1}'.format(*address)
+        return '{}:{}'.format(*address)
     else:
         raise TypeError('illegal address type: {!s}'.format(type(address)))
 

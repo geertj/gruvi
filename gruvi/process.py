@@ -128,8 +128,8 @@ class Process(Endpoint):
         elif isinstance(handle, pyuv.Stream):
             stdio = pyuv.StdIO(stream=handle, flags=CREATE_PIPE)
         else:
-            raise TypeError('{0}: must be PIPE, an fd, a Stream, or a file-like object'
-                            ' (got {1!r})'.format(name, type(handle).__name__))
+            raise TypeError('{}: must be PIPE, an fd, a Stream, or a file-like object'
+                            ' (got {!r})'.format(name, type(handle).__name__))
         return stdio
 
     def _get_stdio_handles(self, loop, stdin, stdout, stderr, extra_handles):
@@ -140,9 +140,9 @@ class Process(Endpoint):
         handles.append(self._create_stdio('stderr', loop, stderr, 2))
         if extra_handles:
             for ix, handle in enumerate(extra_handles):
-                name = 'handles[{0}]'.format(ix)
+                name = 'handles[{}]'.format(ix)
                 if handle is None or handle == PIPE:
-                    raise TypeError('{0}: cannot be None or PIPE'.format(name))
+                    raise TypeError('{}: cannot be None or PIPE'.format(name))
                 handles.append(self._create_stdio(name, loop, handle, None))
         return handles
 

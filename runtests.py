@@ -12,11 +12,7 @@ import os
 import sys
 
 from argparse import ArgumentParser
-
-if sys.version_info[:2] >= (2,7):
-    from unittest import TestLoader, TextTestRunner, TestSuite
-else:
-    from unittest2 import TestLoader, TextTestRunner, TestSuite
+from unittest import TestLoader, TextTestRunner, TestSuite
 
 
 parser = ArgumentParser()
@@ -42,7 +38,7 @@ if os.environ.get('TOX') == 'yes':
 else:
     sys.path.insert(0, testdir)
 
-from support import *
+from support import TestCase, MemoryTest, PerformanceTest
 
 suite = TestSuite()
 

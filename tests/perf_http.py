@@ -9,9 +9,10 @@
 from __future__ import absolute_import, print_function, division
 
 import time
+import unittest
 
 from gruvi.http import HttpProtocol
-from support import PerformanceTest, unittest, MockTransport
+from support import PerformanceTest, MockTransport
 
 
 class PerfHttp(PerformanceTest):

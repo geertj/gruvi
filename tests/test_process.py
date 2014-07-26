@@ -13,6 +13,7 @@ import sys
 import time
 import signal
 import locale
+import unittest
 import pyuv
 
 import gruvi
@@ -21,7 +22,7 @@ from gruvi.errors import Timeout
 from gruvi.process import Process, PIPE, DEVNULL
 from gruvi.stream import StreamClient
 
-from support import UnitTest, unittest
+from support import UnitTest
 
 
 def python_script(args):

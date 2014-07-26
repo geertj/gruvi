@@ -10,7 +10,9 @@ from __future__ import absolute_import, print_function
 
 import os
 import sphinx
-from support import TestCase, unittest
+import unittest
+
+from support import TestCase
 
 
 class TestDocumentation(TestCase):

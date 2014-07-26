@@ -11,6 +11,8 @@ from __future__ import absolute_import, print_function
 import os
 import six
 import socket
+import unittest
+from unittest import SkipTest
 
 import gruvi
 from gruvi import txdbus
@@ -19,7 +21,7 @@ from gruvi.dbus import DbusProtocol, DbusClient, DbusServer
 from gruvi.dbus import parse_dbus_header, TxdbusAuthenticator
 from gruvi.transports import TransportError
 
-from support import UnitTest, unittest, SkipTest, MockTransport
+from support import UnitTest, MockTransport
 
 
 class TestParseDbusHeader(UnitTest):

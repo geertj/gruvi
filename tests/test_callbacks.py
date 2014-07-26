@@ -8,12 +8,13 @@
 from __future__ import absolute_import, print_function
 
 import random
+import unittest
 
 from gruvi.callbacks import dllist, Node
 from gruvi.callbacks import check as check_dllist
 from gruvi.callbacks import add_callback, remove_callback, pop_callback
 from gruvi.callbacks import walk_callbacks, run_callbacks
-from support import UnitTest, unittest
+from support import UnitTest
 
 
 def get_callbacks(obj):

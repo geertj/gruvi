@@ -9,11 +9,12 @@
 from __future__ import absolute_import, print_function, division
 
 import time
+import unittest
 
 from gruvi.jsonrpc import JsonRpcClient, JsonRpcServer
 from gruvi import jsonrpc_ffi
 
-from support import PerformanceTest, unittest
+from support import PerformanceTest
 from test_jsonrpc import set_buffer, echo_app
 
 

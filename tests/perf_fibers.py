@@ -9,10 +9,11 @@
 from __future__ import absolute_import, print_function
 
 import time
+import unittest
 
 import gruvi
 from gruvi.fibers import Fiber
-from support import PerformanceTest, unittest
+from support import PerformanceTest
 
 
 class PerfFiber(PerformanceTest):

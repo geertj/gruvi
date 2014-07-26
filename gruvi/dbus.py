@@ -45,7 +45,7 @@ Usage example::
   result = client.call_method('org.freedesktop.DBus', '/org/freedesktop/DBus',
                               'org.freedesktop.DBus', 'ListNames')
   for name in result[0]:
-      print('Name: {0}'.format(name))
+      print('Name: {}'.format(name))
 """
 
 from __future__ import absolute_import, print_function
@@ -77,7 +77,7 @@ class DbusMethodCallError(DbusError):
     method call."""
 
     def __init__(self, method, reply):
-        message = 'error calling {0!r} method ({1})'.format(method, reply.error_name)
+        message = 'error calling {!r} method ({})'.format(method, reply.error_name)
         super(DbusMethodCallError, self).__init__(message)
         self._error = reply.error_name
         self._args = tuple(reply.body) if reply.body else ()
@@ -104,7 +104,7 @@ def parse_dbus_address(address):
     for addr in address.split(';'):
         p1 = addr.find(':')
         if p1 == -1:
-            raise ValueError('illegal address string: {0}'.format(addr))
+            raise ValueError('illegal address string: {}'.format(addr))
         kind = addr[:p1]
         args = dict((kv.split('=') for kv in addr[p1+1:].split(',')))
         if kind == 'unix':
@@ -119,7 +119,7 @@ def parse_dbus_address(address):
                 raise ValueError('require "host" and "port" for tcp')
             addr = (args['host'], int(args['port']))
         else:
-            raise ValueError('unknown transport: {0}'.format(kind))
+            raise ValueError('unknown transport: {}'.format(kind))
         addresses.append(addr)
     return addresses
 
@@ -228,7 +228,7 @@ class DbusProtocol(MessageProtocol):
         self._authenticator = None
         if self._server_side:
             self._server_guid = server_guid or new_server_guid()
-            self._unique_name = ':{0}'.format(self._next_unique_name)
+            self._unique_name = ':{}'.format(self._next_unique_name)
             type(self)._next_unique_name += 1
         else:
             self._server_guid = None
@@ -279,7 +279,7 @@ class DbusProtocol(MessageProtocol):
 
     def on_partial_auth_line(self, line):
         if len(line) > self.max_line_size:
-            self._error = DbusError('auth line too long ({0} bytes)'.format(len(line)))
+            self._error = DbusError('auth line too long ({} bytes)'.format(len(line)))
             return False
         return True
 
@@ -297,7 +297,7 @@ class DbusProtocol(MessageProtocol):
         try:
             self._authenticator.handleAuthMessage(line)
         except txdbus.DBusAuthenticationFailed as e:
-            self._error = DbusError('authentication failed: {0!s}'.format(e))
+            self._error = DbusError('authentication failed: {!s}'.format(e))
             return False
         if self._authenticator.authenticationSucceeded():
             if not self._server_side:
@@ -320,7 +320,7 @@ class DbusProtocol(MessageProtocol):
             self._error = DbusError('invalid message header')
             return False
         if size > self._read_buffer_high:
-            self._error = DbusError('message too large ({0} bytes)'.format(size))
+            self._error = DbusError('message too large ({} bytes)'.format(size))
             return False
         self._message_size = size
         self._state = self.S_MESSAGE
@@ -330,7 +330,7 @@ class DbusProtocol(MessageProtocol):
         try:
             parsed = txdbus.parseMessage(message)
         except (txdbus.MarshallingError, struct.error) as e:
-            self._error = DbusError('parseMessage() error: {0!s}'.format(e))
+            self._error = DbusError('parseMessage() error: {!s}'.format(e))
             return False
         if self._server_side and not self._name_acquired:
             if isinstance(parsed, txdbus.MethodCallMessage) \
@@ -353,7 +353,7 @@ class DbusProtocol(MessageProtocol):
             self._queue.put_nowait(parsed, len(message))
         else:
             mtype = type(parsed).__name__[:-7].lower()
-            info = ' {0!r}'.format(getattr(parsed, 'member', getattr(parsed, 'error_name', '')))
+            info = ' {!r}'.format(getattr(parsed, 'member', getattr(parsed, 'error_name', '')))
             self._log.warning('no handler, ignoring inbound {}{}', mtype, info)
         self._state = self.S_MESSAGE_HEADER
         return True
@@ -363,10 +363,10 @@ class DbusProtocol(MessageProtocol):
             self._buffer.extend(buf)
             buf = self._buffer
             self._buffer = bytearray()
-        return compat.memoryview(buf)
+        return memoryview(buf)
 
     def data_received(self, data):
-        view = compat.memoryview(data)
+        view = memoryview(data)
         offset = 0
         while offset != len(data):
             if self._state == self.S_CREDS_BYTE:
@@ -425,7 +425,7 @@ class DbusProtocol(MessageProtocol):
         The *message* argument must be ``gruvi.txdbus.DbusMessage`` instance.
         """
         if not isinstance(message, txdbus.DbusMessage):
-            raise TypeError('message: expecting DbusMessage instance (got {0!r})',
+            raise TypeError('message: expecting DbusMessage instance (got {!r})',
                                 type(message).__name__)
         self._name_acquired.wait()
         self._may_write.wait()
