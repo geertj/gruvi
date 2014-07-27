@@ -9,7 +9,6 @@
 from __future__ import absolute_import, print_function
 
 import fibers
-import threading
 
 from . import logging
 from .hub import get_hub
@@ -42,7 +41,7 @@ class Fiber(fibers.Fiber):
     # Gruvi application that use the "raw" interface from the fibers package
     # are the root fiber and the Hub.
 
-    __slots__ = ('_name', 'context', '_target', '_log', '_thread', '_done', '_callbacks')
+    __slots__ = ('_name', 'context', '_target', '_log', '_done', '_callbacks')
 
     def __init__(self, target, args=(), kwargs={}, name=None, hub=None):
         """
@@ -67,7 +66,6 @@ class Fiber(fibers.Fiber):
         self.context = ''  # for logging
         self._target = target
         self._log = logging.get_logger()
-        self._thread = threading.current_thread()
         self._done = Event()
         self._callbacks = None
 
@@ -92,8 +90,6 @@ class Fiber(fibers.Fiber):
         # Only the hub may call this.
         if self.current() is not self._hub:
             raise RuntimeError('only the Hub may switch() to a fiber')
-        if threading.current_thread() is not self._thread:
-            raise RuntimeError('cannot switch from different thread')
         if not self.is_alive():
             self._log.warning('attempt to switch to a dead Fiber')
             return
