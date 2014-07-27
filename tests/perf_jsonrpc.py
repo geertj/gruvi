@@ -26,7 +26,7 @@ class PerfJsonRpc(PerformanceTest):
         ctx = jsonrpc_ffi.ffi.new('struct split_context *')
         nbytes = 0
         t0 = t1 = time.time()
-        while t1 - t0 < 1:
+        while t1 - t0 < 0.2:
             set_buffer(ctx, buf)
             while ctx.offset != len(buf):
                 error = jsonrpc_ffi.lib.json_split(ctx)
@@ -44,7 +44,7 @@ class PerfJsonRpc(PerformanceTest):
         client.connect(addr)
         nrequests = 0
         t0 = t1 = time.time()
-        while t1 - t0 < 1:
+        while t1 - t0 < 0.2:
             result = client.call_method('echo', 'foo')
             self.assertEqual(result, ['foo'])
             nrequests += 1

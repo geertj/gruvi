@@ -26,7 +26,7 @@ class PerfHttp(PerformanceTest):
         reqs = 4 * r
         nbytes = 0
         t0 = t1 = time.time()
-        while t1 - t0 < 1:
+        while t1 - t0 < 0.2:
             protocol.data_received(reqs)
             protocol._queue.clear()
             nbytes += len(reqs)

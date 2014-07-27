@@ -27,7 +27,7 @@ class PerfDBus(PerformanceTest):
         client.connect(addr)
         nmessages = 0
         t0 = t1 = time.time()
-        while t1 - t0 < 1:
+        while t1 - t0 < 0.2:
             client.call_method('bus.name', '/path', 'my.iface', 'Echo')
             t1 = time.time()
             nmessages += 1
@@ -45,7 +45,7 @@ class PerfDBus(PerformanceTest):
         client.connect(server.addresses[0])
         nmessages = 0
         t0 = t1 = time.time()
-        while t1 - t0 < 1:
+        while t1 - t0 < 0.2:
             client.call_method('bus.name', '/path', 'my.iface', 'Echo')
             t1 = time.time()
             nmessages += 1

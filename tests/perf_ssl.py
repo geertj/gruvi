@@ -35,7 +35,7 @@ class PerfSsl(PerformanceTest):
         clientssl = client.do_handshake()
         server.do_handshake()
         t0 = t1 = time.time()
-        while t1 - t0 < 1:
+        while t1 - t0 < 0.2:
             received = communicate(buf, client, server, clientssl, [])
             if clientssl:
                 clientssl = []

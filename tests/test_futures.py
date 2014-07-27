@@ -113,7 +113,7 @@ class PoolTest(object):
 
     def test_map_timeout(self):
         # Ensure that the "timeout" argument to map() works.
-        result = self.pool.map(gruvi.sleep, (0.5,), timeout=0.1)
+        result = self.pool.map(gruvi.sleep, (0.2,), timeout=0.1)
         self.assertRaises(gruvi.Timeout, list, result)
 
     def test_pool_close(self):
@@ -186,7 +186,7 @@ class TestWait(UnitTest):
 
     def test_partial_fibers(self):
         # Have a lot of fibers wait on a small subet of a lot of futures.
-        futures = [Future() for i in range(1000)]
+        futures = [Future() for i in range(100)]
         def waiter():
             gruvi.wait(futures, count=2)
         fibers = [Fiber(waiter) for i in range(100)]
@@ -197,7 +197,7 @@ class TestWait(UnitTest):
         gruvi.sleep(0)
         for fib in fibers:
             self.assertTrue(fib.alive)
-        futures[500].set_result(None)
+        futures[len(futures)//2].set_result(None)
         gruvi.sleep(0)
         for fib in fibers:
             self.assertFalse(fib.alive)
@@ -282,7 +282,7 @@ class TestWait(UnitTest):
 class TestAsCompleted(UnitTest):
 
     def test_order(self):
-        futures = [Future() for i in range(1000)]
+        futures = [Future() for i in range(100)]
         order = list(range(len(futures)))
         random.shuffle(order)
         futures[order[0]].set_result(None)
@@ -297,7 +297,7 @@ class TestAsCompleted(UnitTest):
             self.assertIsNone(fut._callbacks)
 
     def test_partial(self):
-        futures = [Future() for i in range(1000)]
+        futures = [Future() for i in range(100)]
         futures[0].set_result(None)
         count = 0
         for fut in gruvi.as_completed(futures, 10):
@@ -309,7 +309,7 @@ class TestAsCompleted(UnitTest):
             self.assertIsNone(fut._callbacks)
 
     def test_partial_fibers(self):
-        futures = [Future() for i in range(1000)]
+        futures = [Future() for i in range(100)]
         result = []
         def waiter():
             for fut in gruvi.as_completed(futures, count=2):
@@ -321,7 +321,7 @@ class TestAsCompleted(UnitTest):
         futures[0].set_result(None)
         for fib in fibers:
             self.assertTrue(fib.alive)
-        futures[500].set_result(None)
+        futures[len(futures)//2].set_result(None)
         gruvi.sleep(0)
         for fib in fibers:
             self.assertFalse(fib.alive)

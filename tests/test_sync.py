@@ -21,6 +21,8 @@ class LockTests(object):
     # Shared tests for Lock and RLock
 
     Lock = None
+    nfibers = None
+    nthreads = None
 
     def test_basic(self):
         # Lock and unlock the rlock once.
@@ -46,7 +48,7 @@ class LockTests(object):
             order.append(ix)
             lock.release()
         fibers = []
-        for i in range(5):
+        for i in range(self.nfibers):
             fibers.append(gruvi.spawn(run_test, i))
         lock.acquire()
         gruvi.sleep(0)
@@ -64,7 +66,7 @@ class LockTests(object):
         def run_test():
             failed[0] += self.lock_unlock(lock, 20)
         fibers = []
-        for i in range(20):
+        for i in range(self.nfibers):
             fiber = gruvi.Fiber(run_test)
             fiber.start()
             fibers.append(fiber)
@@ -81,7 +83,7 @@ class LockTests(object):
             order.append(ix)
             lock.release()
         fibers = []
-        for i in range(5):
+        for i in range(self.nfibers):
             fibers.append(gruvi.spawn(run_test, i))
         # There's 5 elements in lock._waiter now. Kill the first one, and
         # schedule a cancel for the second one. Both conditions should be
@@ -109,14 +111,14 @@ class LockTests(object):
             failed.append(self.lock_unlock(lock, 10))
         def run_thread():
             fibers = []
-            for i in range(5):
+            for i in range(self.nfibers):
                 fiber = gruvi.Fiber(run_test)
                 fiber.start()
                 fibers.append(fiber)
             for fib in fibers:
                 fib.join()
         threads = []
-        for i in range(5):
+        for i in range(self.nthreads):
             thread = threading.Thread(target=run_thread)
             thread.start()
             threads.append(thread)
@@ -128,6 +130,8 @@ class LockTests(object):
 class TestLock(UnitTest, LockTests):
 
     Lock = gruvi.Lock
+    nfibers = 10
+    nthreads = 2
 
     def lock_unlock(self, lock, count):
         failed = 0
@@ -187,6 +191,8 @@ class TestLock(UnitTest, LockTests):
 class TestRLock(UnitTest, LockTests):
 
     Lock = gruvi.RLock
+    nfibers = 5
+    nthreads = 2
 
     def lock_unlock(self, lock, count):
         failed = 0
@@ -267,6 +273,9 @@ class TestRLock(UnitTest, LockTests):
 
 class TestEvent(UnitTest):
 
+    nthreads = 10
+    nfibers = 100
+
     def test_basic(self):
         # Ensure that an event can be set and cleared
         event = gruvi.Event()
@@ -296,37 +305,37 @@ class TestEvent(UnitTest):
 
     def test_thread_safety(self):
         event = gruvi.Event()
-        notified = []
-        timeouts = []
-        nthreads = 10; nfibers = 100
+        result = []
         def run_test():
-            try:
-                event.wait(timeout=0.12)
-                notified.append(1)
-            except gruvi.Timeout:
-                timeouts.append(1)
+            timeout = random.choice((None, 0.1))
+            result.append(event.wait(timeout=timeout))
         def run_thread():
             fibers = []
-            for i in range(nfibers):
+            for i in range(self.nfibers):
                 fibers.append(gruvi.spawn(run_test))
             for fib in fibers:
                 fib.join()
         threads = []
-        for i in range(nthreads):
+        for i in range(self.nthreads):
             thread = threading.Thread(target=run_thread)
             thread.start()
             threads.append(thread)
-        # Try to "hit" the window where the timeouts are happening.
-        gruvi.sleep(0.1)
+        gruvi.sleep(0.2)
         event.set()
         for thread in threads:
             thread.join()
-        if not 0 < sum(timeouts) < nthreads*nfibers:
-            self.warn('did not test combination of timeouts and notifies')
-        self.assertEqual(sum(notified) + sum(timeouts), nthreads*nfibers)
+        timeouts = result.count(False)
+        notified = result.count(True)
+        self.assertEqual(timeouts + notified, self.nthreads*self.nfibers)
+        self.assertGreater(timeouts, 0)
+        self.assertGreater(notified, 0)
+        self.assertIsNone(event._callbacks)
 
 
 class TestCondition(UnitTest):
+
+    nthreads = 5
+    nfibers = 100
 
     def test_basic(self):
         # Ensure that a basic wait/notify works.
@@ -450,36 +459,37 @@ class TestCondition(UnitTest):
 
     def test_thread_safety(self):
         cond = gruvi.Condition()
-        notified = []
-        timeouts = []
-        nfibers = 100
-        nthreads = 10
+        ready = []
+        result = []
         def run_test():
             with cond:
-                if cond.wait(timeout=0.12):
-                    notified.append(1)
-                else:
-                    timeouts.append(1)
+                ready.append(gruvi.current_fiber())
+                timeout = random.choice((None, 0.1))
+                result.append(cond.wait(timeout=timeout))
         def run_thread():
             fibers = []
-            for i in range(nfibers):
+            for i in range(self.nfibers):
                 fibers.append(gruvi.spawn(run_test))
             for fib in fibers:
                 fib.join()
         threads = []
-        for i in range(nthreads):
+        for i in range(self.nthreads):
             thread = threading.Thread(target=run_thread)
             thread.start()
             threads.append(thread)
-        # Try to "hit" the window where the timeouts are happening.
-        gruvi.sleep(0.1)
+        gruvi.sleep(0.2)
+        while len(ready) != self.nthreads*self.nfibers:
+            gruvi.sleep(0.1)
         with cond:
             cond.notify_all()
         for thread in threads:
             thread.join()
-        if not 0 < sum(timeouts) < nthreads*nfibers:
-            self.warn('did not test combination of timeouts and notifies')
-        self.assertEqual(sum(notified) + sum(timeouts), nthreads*nfibers)
+        timeouts = result.count(False)
+        notified = result.count(True)
+        self.assertEqual(timeouts + notified, self.nthreads*self.nfibers)
+        self.assertGreater(timeouts, 0)
+        self.assertGreater(notified, 0)
+        self.assertIsNone(cond._callbacks)
 
 
 class TestQueue(UnitTest):

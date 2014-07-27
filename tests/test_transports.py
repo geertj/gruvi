@@ -208,7 +208,7 @@ class TestUdpTransport(EventLoopTest):
             ctrans.sendto(b'foo', saddr)
         for i in range(5):
             strans.sendto(b'bar', caddr)
-        self.run_loop(0.5)
+        self.run_loop(0.1)
         sevents = sproto.get_events('datagram_received')
         self.assertGreater(len(sevents), 0)
         for event in sevents:
