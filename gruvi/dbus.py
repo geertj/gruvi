@@ -415,7 +415,7 @@ class DbusProtocol(MessageProtocol):
         if self._error:
             raise compat.saved_exc(self._error)
         elif self._transport is None:
-            raise RuntimeError('not connected')
+            raise DbusError('not connected')
         return self._unique_name
 
     @switchpoint
@@ -432,7 +432,7 @@ class DbusProtocol(MessageProtocol):
         if self._error:
             raise compat.saved_exc(self._error)
         elif self._transport is None:
-            raise RuntimeError('not connected')
+            raise DbusError('not connected')
         self._writer.write(message.rawMessage)
 
     @switchpoint

@@ -353,8 +353,11 @@ class JsonRpcProtocol(MessageProtocol):
         The *message* argument must be a dictionary, and must be a valid
         JSON-RPC message.
         """
+        self._may_write.wait()
         if self._error:
             raise compat.saved_exc(self._error)
+        elif self._transport is None:
+            raise JsonRpcError('not connected')
         version = check_message(message)
         serialized = json.dumps(message, indent=2)
         if self._tracefile:
@@ -365,7 +368,6 @@ class JsonRpcProtocol(MessageProtocol):
             self._tracefile.write(serialized)
             self._tracefile.write('\n')
             self._tracefile.flush()
-        self._may_write.wait()
         self._writer.write(serialized.encode('utf-8'))
 
     @switchpoint
@@ -374,8 +376,6 @@ class JsonRpcProtocol(MessageProtocol):
 
         The notification *method* is sent with positional arguments *args*.
         """
-        if self._error:
-            raise compat.saved_exc(self._error)
         message = create_notification(method, args, version=self._version)
         self.send_message(message)
 
@@ -390,8 +390,6 @@ class JsonRpcProtocol(MessageProtocol):
         This method also takes a an optional *timeout* keyword argument that
         overrides the default timeout passed to the constructor.
         """
-        if self._error:
-            raise compat.saved_exc(self._error)
         timeout = kwargs.get('timeout', self._timeout)
         message = create_request(method, args, version=self._version)
         msgid = message['id']

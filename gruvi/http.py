@@ -702,7 +702,6 @@ class HttpProtocol(MessageProtocol):
         if version not in ('1.0', '1.1'):
             raise ValueError('version: unsupported version {!r}'.format(version))
         self._version = version
-        self._timeout = timeout
         self._create_parser()
         self._requests = []
         self._header_size = 0
