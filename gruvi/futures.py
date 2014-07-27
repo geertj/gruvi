@@ -35,7 +35,7 @@ class Future(object):
 
     def done(self):
         """Return whether this future is done."""
-        return bool(self._done)
+        return self._done.is_set()
 
     def result(self):
         """The result of the async function, if available."""
@@ -74,7 +74,7 @@ class Future(object):
         If the future has already completed, then the callback is called
         immediately from this method and the return value will be None.
         """
-        if self._done:
+        if self._done.is_set():
             callback(*args)
             return
         return add_callback(self, callback, args)
@@ -266,11 +266,11 @@ def _wait(pending, timeout):
     # An iterator/generator that waits for objects in the list *pending*,
     # yielding them as they become ready. The pending list is mutated.
     done = []
-    notempty = Event()
+    have_items = Event()
     def callback(i):
         done.append(pending[i])
         pending[i] = None
-        notempty.set()
+        have_items.set()
     handles = [pending[i].add_done_callback(callback, i) for i in range(len(pending))]
     if timeout is not None:
         end_time = time.time() + timeout
@@ -278,13 +278,14 @@ def _wait(pending, timeout):
         while pending:
             if timeout is not None:
                 timeout = max(0, end_time - time.time())
-            notempty.wait(timeout)
+            if not have_items.wait(timeout):
+                raise Timeout('timeout waiting for objects')
             i = 0
             while i < len(done):
                 yield done[i]
                 i += 1
             del done[:]
-            notempty.clear()
+            have_items.clear()
     finally:
         for i in range(len(pending)):
             if pending[i] is not None:

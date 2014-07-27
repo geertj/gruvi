@@ -19,6 +19,7 @@ import gruvi
 from . import fibers, compat
 from .hub import get_hub, switchpoint
 from .sync import Event
+from .errors import Timeout
 from .stream import StreamProtocol
 from .endpoints import create_connection, Endpoint
 from .callbacks import add_callback, remove_callback, run_callbacks
@@ -308,7 +309,8 @@ class Process(Endpoint):
             return
         if timeout == -1:
             timeout = self._timeout
-        self._child_exited.wait(timeout)
+        if not self._child_exited.wait(timeout):
+            raise Timeout('timeout waiting for child to exit')
         return self.returncode
 
     @switchpoint
@@ -352,7 +354,7 @@ class Process(Endpoint):
     # Support wait()
 
     def add_done_callback(self, callback, *args):
-        if self._child_exited:
+        if self._child_exited.is_set():
             callback(*args)
             return
         return add_callback(self, callback, args)

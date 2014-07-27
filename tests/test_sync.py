@@ -270,22 +270,18 @@ class TestEvent(UnitTest):
     def test_basic(self):
         # Ensure that an event can be set and cleared
         event = gruvi.Event()
-        self.assertFalse(event)
-        self.assertFalse(event._flag)
+        self.assertFalse(event.is_set())
         event.set()
-        self.assertTrue(event)
-        self.assertTrue(event._flag)
+        self.assertTrue(event.is_set())
         event.clear()
-        self.assertFalse(event)
-        self.assertFalse(event._flag)
+        self.assertFalse(event.is_set())
 
     def test_wait(self):
         event = gruvi.Event()
         done = []
         def waiter():
             done.append(False)
-            event.wait()
-            done.append(True)
+            done.append(event.wait())
         gruvi.spawn(waiter)
         gruvi.sleep(0)
         self.assertEqual(done, [False])
@@ -295,8 +291,8 @@ class TestEvent(UnitTest):
 
     def test_wait_timeout(self):
         event = gruvi.Event()
-        self.assertRaises(gruvi.Timeout, event.wait, timeout=0.01)
-        self.assertFalse(event._callbacks)
+        self.assertFalse(event.wait(timeout=0.01))
+        self.assertIsNone(event._callbacks)
 
     def test_thread_safety(self):
         event = gruvi.Event()

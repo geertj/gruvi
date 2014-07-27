@@ -13,7 +13,6 @@ import threading
 import heapq
 
 from .hub import switchpoint, get_hub, switch_back, assert_no_switchpoints
-from .errors import Timeout
 from .callbacks import add_callback, remove_callback, pop_callback, walk_callbacks
 
 __all__ = ['Lock', 'RLock', 'Event', 'Condition', 'QueueEmpty', 'QueueFull',
@@ -89,7 +88,7 @@ class _Lock(object):
                 # Fiber.throw())
                 if self._owner is fibers.current():
                     self._release()
-            if isinstance(e, Timeout):
+            if e is switcher.timeout:
                 return False
             raise
         return True
@@ -202,11 +201,8 @@ class Event(object):
         self._lock = threading.Lock()
         self._callbacks = None
 
-    def __nonzero__(self):
+    def is_set(self):
         return self._flag
-
-    __bool__ = __nonzero__
-    is_set = __nonzero__
 
     def set(self):
         """Set the internal flag, and wake up any fibers blocked on :meth:`wait`."""
@@ -233,22 +229,25 @@ class Event(object):
         until the flag gets set by another fiber calling :meth:`set`."""
         # Optimization for the case the Event is already set.
         if self._flag:
-            return
+            return True
         hub = get_hub()
         try:
             with switch_back(timeout, lock=self._lock) as switcher:
                 with self._lock:
                     # Need to check the flag again, now under the lock.
                     if self._flag:
-                        return
+                        return True
                     handle = add_callback(self, switcher)
                 # See note in Lock.acquire() why we can call to hub.switch()
                 # outside the lock.
                 hub.switch()
-        except Exception:
+        except Exception as e:
             with self._lock:
                 remove_callback(self, handle)
+            if e is switcher.timeout:
+                return False
             raise
+        return True
 
     # Support for wait()
 
@@ -392,7 +391,7 @@ class Condition(object):
         except Exception as e:
             with self._lock:
                 remove_callback(self, handle)
-            if isinstance(e, Timeout):
+            if e is switcher.timeout:
                 return False
             raise
         finally:

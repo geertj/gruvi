@@ -13,7 +13,7 @@ from io import BufferedIOBase
 
 from . import compat
 from .sync import Event
-from .errors import Cancelled
+from .errors import Cancelled, Timeout
 from .fibers import spawn
 from .protocols import Protocol, ProtocolError
 from .endpoints import Client, Server, add_method
@@ -82,8 +82,8 @@ class StreamReader(BufferedIOBase):
         # Get a single chunk of data. The chunk will be at most *size* bytes.
         # If *delim* is provided, then return a partial chunk if it contains
         # the delimiter.
-        if size != 0:
-            self._can_read.wait(self._timeout)
+        if size != 0 and not self._can_read.wait(self._timeout):
+            raise Timeout('timeout waiting for data')
         if not self._buffers:
             return b''  # EOF or error
         # Clamp the current buffer to *size* bytes.

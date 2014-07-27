@@ -274,7 +274,7 @@ class TestDbusProtocol(UnitTest):
             # some entries because it is larger.
             self.assertTrue(protocol._reading)
             self.assertGreater(protocol._queue.qsize(), 0)
-            self.assertFalse(protocol._may_write)
+            self.assertFalse(protocol._may_write.is_set())
             # Drain write buffer and resume writing
             transport.buffer.seek(0)
             transport.buffer.truncate()

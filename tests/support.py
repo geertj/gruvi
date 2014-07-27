@@ -206,12 +206,6 @@ class TestCase(unittest.TestCase):
             prefix = '\x00' if sys.platform.startswith('linux') and abstract else ''
             return prefix + self.tempname(name)
 
-    def warn(self, message, *args, **kwargs):
-        if args or kwargs:
-            message = message.format(*args, **kwargs)
-        f = sys._getframe(1)
-        print('WARNING ({0}): {1}'.format(f.f_code.co_name, message))
-
     def get_ssl_context(self):
         context = create_ssl_context(certfile=self.certname, keyfile=self.certname)
         if hasattr(context, 'check_hostname'):

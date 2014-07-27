@@ -332,7 +332,7 @@ class DbusProtocol(MessageProtocol):
         except (txdbus.MarshallingError, struct.error) as e:
             self._error = DbusError('parseMessage() error: {!s}'.format(e))
             return False
-        if self._server_side and not self._name_acquired:
+        if self._server_side and not self._name_acquired.is_set():
             if isinstance(parsed, txdbus.MethodCallMessage) \
                         and parsed.member == 'Hello' \
                         and parsed.path == '/org/freedesktop/DBus' \

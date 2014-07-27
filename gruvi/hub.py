@@ -147,7 +147,8 @@ class switch_back(object):
 
     @property
     def timeout(self):
-        """The timeout, or None if there is no timeout."""
+        """The :class:`~gruvi.Timeout` exception if a timeout has occurred.
+        Otherwise the *timeout* parameter provided to the constructor."""
         return self._timeout
 
     @property
@@ -163,7 +164,7 @@ class switch_back(object):
         self._hub.run_callback(self._fiber.switch, value)
         self._hub = self._fiber = None  # switch back at most once!
 
-    def throw(self, exc):
+    def throw(self, *exc_info):
         """Throw an exception into the origin fiber. The exception is thrown
         the next time the event loop runs."""
         # The might seem redundant with self._fiber.cancel(exc), but it isn't
@@ -171,7 +172,7 @@ class switch_back(object):
         # cancel() method.
         if self._hub is None or not self._fiber.is_alive():
             return
-        self._hub.run_callback(self._fiber.throw, exc)
+        self._hub.run_callback(self._fiber.throw, *exc_info)
         self._hub = self._fiber = None  # switch back at most once!
 
     def add_cleanup(self, callback, *args):
@@ -208,7 +209,8 @@ class switch_back(object):
             self._lock.acquire()
         try:
             if self._timeout is not None and args == (self._timer,):
-                self.throw(Timeout('Timeout in switch_back() block'))
+                self._timeout = Timeout('timeout in switch_back() block')
+                self.throw(Timeout, self._timeout)
             else:
                 self.switch((args, kwargs))
         finally:
@@ -385,7 +387,7 @@ class Hub(fibers.Fiber):
             try:
                 callback(*args)
             except Exception:
-                self._log.exception('Uncaught exception in callback.')
+                self._log.exception('Ignoring exception in callback:')
 
     def run_callback(self, callback, *args):
         """Queue a callback.

@@ -14,7 +14,7 @@ import threading
 from . import logging
 from .hub import get_hub
 from .sync import Event
-from .errors import Cancelled
+from .errors import Cancelled, Timeout
 from .callbacks import add_callback, remove_callback, run_callbacks
 
 __all__ = ['current_fiber', 'Fiber', 'spawn']
@@ -99,22 +99,30 @@ class Fiber(fibers.Fiber):
             return
         return super(Fiber, self).switch(value)
 
-    def cancel(self, exc=None):
+    def throw(self, *exc_info):
+        # Only the hub may call this.
+        if self.current() is not self._hub:
+            raise RuntimeError('only the Hub may throw() into a fiber')
+        return super(Fiber, self).throw(*exc_info)
+
+    def cancel(self, message=None):
         """Schedule the fiber to be cancelled in the next iteration of the
         event loop.
 
-        The exception *exc* will be thrown in the fiber. If *exc* is not
-        specified, a :exc:`Cancelled` exception is used.
+        Cancellation works by throwing a :class:`~gruvi.Cancelled` exception
+        into the fiber. If *message* is provided, it will be set as the value
+        of the exception.
         """
         if not self.is_alive():
             return
-        if exc is None:
-            exc = Cancelled('cancelled by Fiber.cancel()')
-        self._hub.run_callback(super(Fiber, self).throw, exc)
+        if message is None:
+            message = 'Fiber.cancel()'
+        self._hub.run_callback(self.throw, Cancelled, Cancelled(message))
 
     def join(self, timeout=None):
         """Wait until the fiber completes."""
-        self._done.wait(timeout)
+        if not self._done.wait(timeout):
+            raise Timeout('timeout waiting for fiber to exit')
 
     def run(self, *args, **kwargs):
         # Target of the first :meth:`switch()` call.
@@ -123,7 +131,7 @@ class Fiber(fibers.Fiber):
         try:
             self._target(*args, **kwargs)
         except Cancelled as e:
-            self._log.debug(str(e))
+            self._log.debug('fiber was cancelled ({!s})', e)
         except Exception:
             self._log.exception('uncaught exception in fiber')
         self._done.set()
@@ -132,7 +140,7 @@ class Fiber(fibers.Fiber):
     # Support wait()
 
     def add_done_callback(self, callback, *args):
-        if self._done:
+        if self._done.is_set():
             callback(*args)
             return
         return add_callback(self, callback, args)

@@ -997,8 +997,8 @@ class HttpProtocol(MessageProtocol):
         """
         if self._error:
             raise compat.saved_exc(self._error)
-        elif self._closed:
-            raise HttpError('protocol is closed')
+        elif self._transport is None:
+            raise HttpError('not connected')
         if not self._requests and not self._queue.qsize():
             raise RuntimeError('there are no outstanding requests')
         if timeout < 0:
