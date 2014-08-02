@@ -128,4 +128,5 @@ class ContextLogger(object):
         self.log(logging.CRITICAL, msg, *args, **kwargs)
 
     def exception(self, msg, *args, **kwargs):
+        kwargs['exc_info'] = True
         self.log(logging.ERROR, msg, *args, **kwargs)
