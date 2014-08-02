@@ -116,7 +116,7 @@ class Future(object):
 
         If the function did not raise an exception this returns ``None``.
         """
-        if not self._done.wait():
+        if not self._done.wait(timeout):
             raise Timeout('timeout waiting for future')
         if self._state == self.S_EXCEPTION:
             return self._result
