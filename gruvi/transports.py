@@ -93,18 +93,6 @@ class BaseTransport(object):
         elif name == 'fd':
             fd = self._handle._fileno()
             return fd if fd >= 0 else None
-        elif name == 'winsize':
-            if not isinstance(self._handle, pyuv.TTY):
-                return default
-            return self._handle.get_winsize()
-        elif name == 'unix_creds':
-            if not isinstance(self._handle, pyuv.Pipe) or not hasattr(socket, 'SO_PEERCRED'):
-                return default
-            fd = self._handle._fileno()
-            sock = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_DGRAM)  # will dup()
-            creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i'))
-            sock.close()
-            return struct.unpack('3i', creds)
         else:
             return default
 
