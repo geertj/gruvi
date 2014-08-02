@@ -514,12 +514,6 @@ class Queue(object):
         # See note in put_nowait()
         return self.get.func(self, False)
 
-    def clear(self):
-        """Remove all elements from the queue."""
-        with self._lock:
-            del self._heap[:]
-            self._notfull.notify()
-
     def task_done(self):
         """Mark a task as done."""
         with self._lock:

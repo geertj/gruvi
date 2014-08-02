@@ -28,7 +28,7 @@ class PerfHttp(PerformanceTest):
         t0 = t1 = time.time()
         while t1 - t0 < 0.2:
             protocol.data_received(reqs)
-            protocol._queue.clear()
+            del protocol._queue._heap[:]
             nbytes += len(reqs)
             t1 = time.time()
         speed = nbytes / (t1 - t0) / (1024 * 1024)
