@@ -17,6 +17,14 @@ from support import UnitTest
 
 class TestLocal(UnitTest):
 
+    def test_basic(self):
+        local = gruvi.local()
+        local.foo = 'bar'
+        self.assertEqual(local.foo, 'bar')
+        del local.foo
+        self.assertRaises(AttributeError, local.__getattr__, 'foo')
+        self.assertRaises(AttributeError, local.__delattr__, 'foo')
+
     def test_isolation(self):
         local = gruvi.local()
         interleaved = []

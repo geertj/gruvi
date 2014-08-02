@@ -592,6 +592,33 @@ class TestQueue(UnitTest):
         queue.put('foo')
         self.assertTrue(queue.full())
 
+    def test_task_done(self):
+        # Ensure that task_done properly updates the unifished_tasks property.
+        queue = gruvi.Queue()
+        self.assertEqual(queue.unfinished_tasks, 0)
+        queue.put('foo')
+        self.assertEqual(queue.unfinished_tasks, 1)
+        self.assertEqual(queue.get(), 'foo')
+        self.assertEqual(queue.unfinished_tasks, 1)
+        queue.task_done()
+        self.assertEqual(queue.unfinished_tasks, 0)
+        self.assertRaises(RuntimeError, queue.task_done)
+        self.assertEqual(queue.unfinished_tasks, 0)
+
+    def test_join_wait(self):
+        # Ensure that join() waits until all unfished tasks are done.
+        queue = gruvi.Queue()
+        self.assertEqual(queue.unfinished_tasks, 0)
+        queue.put('foo')
+        def consumer():
+            queue.get()
+            gruvi.sleep(0.01)
+            queue.task_done()
+        gruvi.spawn(consumer)
+        self.assertEqual(queue.unfinished_tasks, 1)
+        queue.join()
+        self.assertEqual(queue.unfinished_tasks, 0)
+
     def test_produce_consume(self):
         # Ensure that there's no deadlocks when pushing a large number of items
         # through a queue with a fixed size.

@@ -41,6 +41,29 @@ class TestFuture(UnitTest):
         fib.start()
         self.assertEqual(fut.result(), 'foo')
 
+    def test_wait_result_timeout(self):
+        fut = Future()
+        self.assertRaises(gruvi.Timeout, fut.result, 0.01)
+
+    def test_wait_exception(self):
+        fut = Future()
+        def set_result():
+            gruvi.sleep(0.1)
+            fut.set_exception(RuntimeError)
+        fib = gruvi.Fiber(set_result)
+        fib.start()
+        self.assertEqual(fut.exception(), RuntimeError)
+
+    def test_wait_exception_timeout(self):
+        fut = Future()
+        self.assertRaises(gruvi.Timeout, fut.exception, 0.01)
+
+    def test_set_running(self):
+        fut = Future()
+        self.assertFalse(fut.running())
+        fut.set_running()
+        self.assertTrue(fut.running())
+
     def test_cancel(self):
         fut = Future()
         self.assertFalse(fut.cancelled())
@@ -62,6 +85,27 @@ class TestFuture(UnitTest):
         self.assertTrue(fut.running())
         self.assertFalse(fut.cancel())
         self.assertFalse(fut.cancelled())
+
+    def test_set_result_twice(self):
+        fut = Future()
+        fut.set_result('foo')
+        self.assertEqual(fut.result(), 'foo')
+        fut.set_result('bar')
+        self.assertEqual(fut.result(), 'foo')
+
+    def test_set_exception_twice(self):
+        fut = Future()
+        fut.set_exception(RuntimeError)
+        self.assertEqual(fut.exception(), RuntimeError)
+        fut.set_exception(ValueError)
+        self.assertEqual(fut.exception(), RuntimeError)
+
+    def test_set_running_twice(self):
+        fut = Future()
+        fut.set_running(False)
+        state = fut._state
+        fut.set_running(True)
+        self.assertEqual(state, fut._state)
 
     def test_callbacks(self):
         cbargs = []

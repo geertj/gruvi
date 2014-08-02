@@ -11,7 +11,6 @@ TODO:
   function would be to use the parsing infrastructure from bluepass.parsing and
   then do a proper tokenization + parsing.
 * gruvi.http needs better test coverage
-* Add tests for JoinableQueue API
 * Rename jsonrpc_ffi to json_ffi. Make json_splitter.c move analogous to
   http_parser.c using callbacks.
 * util.py -> utils.py
