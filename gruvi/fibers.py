@@ -112,7 +112,7 @@ class Fiber(fibers.Fiber):
         if not self.is_alive():
             return
         if message is None:
-            message = 'Fiber.cancel()'
+            message = 'cancelled by Fiber.cancel()'
         self._hub.run_callback(self.throw, Cancelled, Cancelled(message))
 
     def join(self, timeout=None):
