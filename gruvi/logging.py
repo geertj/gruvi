@@ -100,32 +100,32 @@ class ContextLogger(object):
         funcname = f.f_code.co_name
         return '{}:{}!{}()'.format(fname, f.f_lineno, funcname)
 
-    def log(self, level, exc, msg, *args, **kwargs):
+    def log(self, level, msg, *args, **kwargs):
         if not self.logger.isEnabledFor(level):
             return
         prefix = [self.thread_info(), self.context_info(), self.stack_info()]
         while not prefix[-1]:
             prefix.pop()
         prefix = '|'.join(prefix)
-        if args or kwargs:
-            msg = msg.format(*args, **kwargs)
+        if args:
+            msg = msg.format(*args)
         msg = '[{}] {}'.format(prefix, msg)
-        self.logger._log(level, msg, (), exc_info=exc)
+        self.logger._log(level, msg, (), **kwargs)
 
     def debug(self, msg, *args, **kwargs):
-        self.log(logging.DEBUG, False, msg, *args, **kwargs)
+        self.log(logging.DEBUG, msg, *args, **kwargs)
 
     def info(self, msg, *args, **kwargs):
-        self.log(logging.INFO, False, msg, *args, **kwargs)
+        self.log(logging.INFO, msg, *args, **kwargs)
 
     def warning(self, msg, *args, **kwargs):
-        self.log(logging.WARNING, False, msg, *args, **kwargs)
+        self.log(logging.WARNING, msg, *args, **kwargs)
 
     def error(self, msg, *args, **kwargs):
-        self.log(logging.ERROR, False, msg, *args, **kwargs)
+        self.log(logging.ERROR, msg, *args, **kwargs)
 
     def critical(self, msg, *args, **kwargs):
-        self.log(logging.CRITICAL, False, msg, *args, **kwargs)
+        self.log(logging.CRITICAL, msg, *args, **kwargs)
 
     def exception(self, msg, *args, **kwargs):
-        self.log(logging.ERROR, True, msg, *args, **kwargs)
+        self.log(logging.ERROR, msg, *args, **kwargs)
