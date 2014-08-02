@@ -41,11 +41,52 @@ class TestFuture(UnitTest):
         fib.start()
         self.assertEqual(fut.result(), 'foo')
 
+    def test_cancel(self):
+        fut = Future()
+        self.assertFalse(fut.cancelled())
+        self.assertTrue(fut.cancel())
+        self.assertTrue(fut.cancelled())
+
+    def test_cancel_running(self):
+        fut = Future()
+        self.assertFalse(fut.cancelled())
+        fut.set_running(True)
+        self.assertTrue(fut.running())
+        self.assertTrue(fut.cancel())
+        self.assertTrue(fut.cancelled())
+
+    def test_cancel_running_nocancel(self):
+        fut = Future()
+        self.assertFalse(fut.cancelled())
+        fut.set_running(False)
+        self.assertTrue(fut.running())
+        self.assertFalse(fut.cancel())
+        self.assertFalse(fut.cancelled())
+
+    def test_callbacks(self):
+        cbargs = []
+        def callback(*args):
+            cbargs.append(args)
+        fut = Future()
+        fut.add_done_callback(callback)
+        fut.add_done_callback(callback, 'foo')
+        fut.add_done_callback(callback, 'foo', 'bar')
+        fut.add_done_callback(callback, fut)
+        handle = fut.add_done_callback(callback, 'baz')
+        self.assertIsNotNone(handle)
+        fut.remove_done_callback(handle)
+        fut.set_result('quz')
+        self.assertEqual(len(cbargs), 4)
+        self.assertEqual(cbargs[0], ())
+        self.assertEqual(cbargs[1], ('foo',))
+        self.assertEqual(cbargs[2], ('foo', 'bar'))
+        self.assertEqual(cbargs[3], (fut,))
+
 
 class PoolTest(object):
 
     def setUp(self):
-        self.pool = self.Pool()
+        self.pool = self.Pool(self.maxsize)
 
     def tearDown(self):
         self.pool.close()
@@ -130,17 +171,20 @@ class PoolTest(object):
         pool.close()
         self.assertEqual(len(pool._workers), 0)
         self.assertRaises(RuntimeError, pool.submit, func, i)
+        self.assertRaises(RuntimeError, list, pool.map(func, [i]))
 
 
 class TestFiberPool(PoolTest, UnitTest):
 
-    count = 500
+    maxsize = 50
+    count = 100
     Pool = FiberPool
 
 
 class TestThreadPool(PoolTest, UnitTest):
 
-    count = 5
+    maxsize = 5
+    count = 100
     Pool = ThreadPool
 
 

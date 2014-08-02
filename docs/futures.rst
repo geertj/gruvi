@@ -2,6 +2,13 @@
 Asynchronous function calls
 ***************************
 
+Gruvi provides functionality to execute functions asynchronously outside the
+current flow of control. The API is a *futures* based interface, modeled after
+the :mod:`concurrent.futures` and :mod:`asyncio` packages in the Python
+standard library.
+
+.. currentmodule:: gruvi
+
 .. autoclass:: gruvi.Future
     :members:
 
@@ -9,11 +16,9 @@ Asynchronous function calls
     :members:
 
 .. autoclass:: gruvi.FiberPool
-    :members:
     :show-inheritance:
 
 .. autoclass:: gruvi.ThreadPool
-    :members:
     :show-inheritance:
 
 .. autofunction:: gruvi.get_io_pool
@@ -21,3 +26,7 @@ Asynchronous function calls
 .. autofunction:: gruvi.get_cpu_pool
 
 .. autofunction:: gruvi.blocking
+
+.. autofunction:: gruvi.wait
+
+.. autofunction:: gruvi.as_completed

@@ -2,8 +2,6 @@ TODO:
 
 * Should we expose a Protocol.transport? If so the message handler signature
   can be simplied to handler(protocol, message) or handler(message, protocol)
-* Fibers in the Fiber pool should be single shot.
-* Futures should have a .cancel() method.
 * Threads that exit without calling Hub.close() are not garbage collected. Not
   sure how this can be implemented. I think it is not possible without this
   Python RFE: http://bugs.python.org/issue14073
@@ -17,14 +15,11 @@ TODO:
 * Rename jsonrpc_ffi to json_ffi. Make json_splitter.c move analogous to
   http_parser.c using callbacks.
 * util.py -> utils.py
-* Implement Future.add_done_callback() and futures.wait()
 * The Events returned by Protocol.connection_made() and Transport.start()
   should be Futures so that exceptions can be passed into the waiter.
-* gruvi.Event is not complying with the threading API. It raises a Timeout on
-  timeout rather than returning _flag.
-* Futures should be thread safe, at least when used with a thread pool.
 
 Things that could be done if they are useful:
 
 * Graceful shutdown in Server: drain a protocol's queue.
 * Missing synchronization primitives from asyncio: Semaphore, BoundedSemaphore.
+* Future.cancel() could remove itself from a Pool's queue if not yet started.
