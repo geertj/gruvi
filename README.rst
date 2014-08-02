@@ -1,6 +1,15 @@
 Welcome to Gruvi
 ================
 
+.. image:: https://secure.travis-ci.org/geertj/gruvi.png
+    :target: http://travis-ci.org/geertj/gruvi
+
+.. image:: https://coveralls.io/repos/geertj/gruvi/badge.png?branch=master
+    :target: https://coveralls.io/r/geertj/gruvi?branch=master 
+
+.. image:: https://badge.fury.io/py/gruvi.png
+    :target: http://badge.fury.io/py/gruvi
+
 Gruvi is an IO library for Python. It uses libuv_ (via pyuv_) as the underlying
 high-performance event-based I/O layer, and coroutines based on fibers_ to
 create a traditional sequential programming model on top of the libuv_
@@ -28,12 +37,6 @@ Gruvi has the following features:
   function is just like calling into a regular function.
 * Thread synchronization primitives including locks, conditions and queues.
 * Thread and fiber pools with a ``concurrent.futures`` interface.
-
-CI Status
----------
-
-.. image:: https://secure.travis-ci.org/geertj/gruvi.png
-    :target: http://travis-ci.org/geertj/gruvi
 
 Example
 -------
