@@ -101,7 +101,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
     module does not define an SSL context object and you can use
     :func:`create_ssl_context` instead which works across all supported Python
     versions. The *ssl_args* argument may be used to pass keyword arguments to
-    :meth:`ssl.SSLContext.wrap_socket`.
+    :class:`SslTransport`.
 
     If an SSL connection was selected, the resulting transport will be a
     :class:`SslTransport` instance, otherwise it will be a :class:`Transport`
@@ -166,7 +166,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
         handle.bind(*local_address)
     protocol = protocol_factory()
     if ssl:
-        context = ssl if hasattr(ssl, '_wrap_socket') else create_ssl_context()
+        context = ssl if hasattr(ssl, 'set_ciphers') else create_ssl_context()
         transport = SslTransport(handle, context, False, **ssl_args)
     else:
         transport = Transport(handle, mode)
@@ -313,7 +313,7 @@ class Server(Endpoint):
             client.close()
             return
         if ssl:
-            context = ssl if hasattr(ssl, '_wrap_socket') else create_ssl_context()
+            context = ssl if hasattr(ssl, 'set_ciphers') else create_ssl_context()
             transport = SslTransport(client, context, True, **ssl_args)
         else:
             transport = Transport(client)

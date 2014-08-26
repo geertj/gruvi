@@ -37,8 +37,6 @@ if cffi_ver < (0, 8):
     sys.exit(1)
 
 
-PY2 = sys.version_info[0] == 2
-
 version_info = {
     'name': 'gruvi',
     'version': '0.10.2.dev',
@@ -111,19 +109,15 @@ def main():
         time.sleep(1)
         import http_ffi
         import jsonrpc_ffi
+    sys.path.pop()
     ext_modules = [http_ffi.ffi.verifier.get_extension(),
                    jsonrpc_ffi.ffi.verifier.get_extension()]
-    # On Windows, don't compile _sslcompat by default. Windows doesn't have a
-    # system provided OpenSSL, and the official Python builds for Windows use a
-    # static version of OpenSSL that is built duing the Python build process.
-    # No shared library or headers are provided for it, so it's alsmost
-    # impossible to match it. If you really want _sslcompat on Python 2.x on
-    # Windows, your best bet is to compile Python from source, keep the OpenSSL
-    # temporary build, and link against that.
-    if PY2 and not sys.platform.startswith('win'):
+    # Note that on Windows it's more involved to compile _sslcompat because
+    # there's no system provided OpenSSL and you need to match the version that
+    # was used to compile your Python.
+    if sys.version_info[:2] < (3, 5):
         ext_modules.append(Extension('_sslcompat', ['gruvi/_sslcompat.c'],
                                      libraries=['ssl', 'crypto']))
-    sys.path.pop()
     setup(
         packages=['gruvi', 'gruvi.txdbus'],
         install_requires=['cffi', 'fibers', 'pyuv', 'six'],
