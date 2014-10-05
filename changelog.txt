@@ -1,3 +1,26 @@
+Changes in version 0.10.2:
+
+* Use Memory BIO for faster and more compatible SSL implementation.
+* Add support for Python 3.5.
+* Move to new pyuv upstream (1.0.0-dev, using libuv 1.0.0-rc1).
+* Improve test coverage.
+* Remove non-standard method Queue.clear().
+* Drop support for Python 2.6.
+* Make futures thread-safe and add .cancel() method.
+* Make Event() follow threading API for timeouts.
+* New functions: wait(), as_completed()
+* Store callbacks in a linked list for fast removal.
+* Fix threading issues with timeouts for sync primitves.
+* Add test coverage via coveralls.
+* Add .alive property to Fiber.
+* http: communicate connection_lost() to waiters.
+* create_connection(): raise on callback error.
+* Workaround for Windows build failure (link error 1104).
+
+Changes in version 0.10.1:
+
+* Re-release of 0.10.0 with correct README file.
+
 Changes in version 0.10.0:
 
 * PEP-3156 style transports and protocols.
