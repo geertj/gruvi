@@ -122,12 +122,12 @@ class Process(Endpoint):
             stdio = pyuv.StdIO(stream=pyuv.Pipe(loop), flags=CREATE_PIPE)
         elif handle == DEVNULL:
             stdio = pyuv.StdIO(flags=pyuv.UV_IGNORE)
+        elif isinstance(handle, pyuv.Stream):
+            stdio = pyuv.StdIO(stream=handle, flags=CREATE_PIPE)
         elif isinstance(handle, int) and handle >= 0:
             stdio = pyuv.StdIO(fd=handle, flags=pyuv.UV_INHERIT_FD)
         elif hasattr(handle, 'fileno'):
             stdio = pyuv.StdIO(fd=handle.fileno(), flags=CREATE_PIPE)
-        elif isinstance(handle, pyuv.Stream):
-            stdio = pyuv.StdIO(stream=handle, flags=CREATE_PIPE)
         else:
             raise TypeError('{}: must be PIPE, an fd, a Stream, or a file-like object'
                             ' (got {!r})'.format(name, type(handle).__name__))
@@ -237,8 +237,8 @@ class Process(Endpoint):
         kwargs['flags'] = flags
         stdio = self._get_stdio_handles(hub.loop, stdin, stdout, stderr, extra_handles)
         kwargs['stdio'] = stdio
-        process = pyuv.Process(hub.loop)
-        process.spawn(args, executable, exit_callback=self._on_child_exit, **kwargs)
+        process = pyuv.Process.spawn(hub.loop, args, executable,
+                                     exit_callback=self._on_child_exit, **kwargs)
         # Create stdin/stdout/stderr transports/protocols.
         if stdio[0].stream:
             self._stdin = self._connect_stdio(stdio[0])

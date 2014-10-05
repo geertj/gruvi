@@ -91,7 +91,7 @@ class BaseTransport(object):
                 return default
             return self._handle.getpeername()
         elif name == 'fd':
-            fd = self._handle._fileno()
+            fd = self._handle.fileno()
             return fd if fd >= 0 else None
         else:
             return default
@@ -312,7 +312,7 @@ class Transport(BaseTransport):
         elif name == 'unix_creds':
             if not isinstance(self._handle, pyuv.Pipe) or not hasattr(socket, 'SO_PEERCRED'):
                 return default
-            fd = self._handle._fileno()
+            fd = self._handle.fileno()
             sock = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_DGRAM)  # will dup()
             creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i'))
             sock.close()
