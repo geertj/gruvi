@@ -17,14 +17,9 @@ import pyuv
 from unittest import SkipTest
 
 from gruvi.ssl import SslPipe, SslTransport
+from gruvi.sslcompat import SSLContext
 from support import UnitTest
 from test_transports import EventLoopTest, TransportTest
-
-
-if hasattr(ssl, 'SSLContext'):
-    from ssl import SSLContext
-else:
-    from gruvi.sslcompat import SSLContext
 
 
 def communicate(buf, client, server, clientssl, serverssl):
@@ -85,10 +80,9 @@ class TestSslPipe(UnitTest):
         serverssl = server.do_handshake()
         self.assertEqual(len(serverssl), 0)
         received = communicate(buf, client, server, clientssl, serverssl)
+        self.assertTrue(client.wrapped)
+        self.assertTrue(server.wrapped)
         self.assertEqual(received, buf)
-        # This is an unclean shutdown.
-        client.close()
-        server.close()
 
     def test_echo(self):
         # Send a chunk from client to server and echo it back.
@@ -100,8 +94,6 @@ class TestSslPipe(UnitTest):
         self.assertEqual(received, buf)
         received = communicate(buf, server, client, [], [])
         self.assertEqual(received, buf)
-        client.close()
-        server.close()
 
     def test_shutdown(self):
         # Test a clean shutdown of the SSL protocol.
@@ -125,14 +117,12 @@ class TestSslPipe(UnitTest):
         self.assertEqual(len(serverssl), 1)
         self.assertGreater(len(serverssl[0]), 0)  # the s->c close_notify
         self.assertEqual(appdata, [b''])
-        self.assertIsNone(server.sslsocket)
+        self.assertFalse(server.wrapped)
         # Send back the server response to the client.
         clientssl, appdata = client.feed_ssldata(serverssl[0])
         self.assertEqual(clientssl, [])
-        self.assertEqual(appdata, [])
-        self.assertIsNone(client.sslsocket)
-        client.close()
-        server.close()
+        self.assertEqual(appdata, [b''])
+        self.assertFalse(client.wrapped)
 
     def test_unwrapped(self):
         # Send data over an unencrypted channel.
@@ -140,8 +130,6 @@ class TestSslPipe(UnitTest):
         buf = b'x' * 1000
         received = communicate(buf, client, server, [], [])
         self.assertEqual(received, buf)
-        client.close()
-        server.close()
 
     def test_unwrapped_after_wrapped(self):
         # Send data over SSL, then unwrap, and send data in the clear.
@@ -154,6 +142,8 @@ class TestSslPipe(UnitTest):
         clientssl = client.do_handshake()
         server.do_handshake()
         received = communicate(buf, client, server, clientssl, [])
+        self.assertTrue(client.wrapped)
+        self.assertTrue(server.wrapped)
         self.assertEqual(received, buf)
         # Move back to clear again.
         clientssl = client.shutdown()
@@ -161,14 +151,16 @@ class TestSslPipe(UnitTest):
         self.assertEqual(received, b'')
         serverssl = server.shutdown()
         received = communicate(buf, client, server, [], serverssl)
+        self.assertFalse(client.wrapped)
+        self.assertFalse(server.wrapped)
         self.assertEqual(received, buf)
         # And back to encrypted again..
         clientssl = client.do_handshake()
         server.do_handshake()
         received = communicate(buf, client, server, clientssl, [])
+        self.assertTrue(client.wrapped)
+        self.assertTrue(server.wrapped)
         self.assertEqual(received, buf)
-        client.close()
-        server.close()
 
     def test_simultaneous_shutdown(self):
         # Test a simultaenous shutdown.
@@ -183,11 +175,9 @@ class TestSslPipe(UnitTest):
         clientssl = client.shutdown()
         serverssl = server.shutdown()
         received = communicate(buf, client, server, clientssl, serverssl)
-        self.assertIsNone(client.sslsocket)
-        self.assertIsNone(server.sslsocket)
+        self.assertFalse(client.wrapped)
+        self.assertFalse(server.wrapped)
         self.assertEqual(received, buf)  # this was sent in the clear
-        client.close()
-        server.close()
 
 
 class SslTransportTest(TransportTest):

@@ -7,7 +7,6 @@
 # complete list.
 
 from __future__ import absolute_import, print_function
-del absolute_import, print_function  # clean up module namespace
 
 # Suppress warnings about 'import *' here. The submodules are designed to
 # export their symbols to a global package namespace like this.
@@ -16,6 +15,12 @@ del absolute_import, print_function  # clean up module namespace
 # should not use "from gruvi import *"
 __all__ = []
 
+import sys
+if sys.version_info[0] == 2 and sys.version_info[1] < 7 \
+        or sys.version_info[0] == 3 and sys.version_info[1] < 3:
+    raise ImportError('Gruvi requires Python 2.7 or 3.3+')
+
+# import all the subpackages into the "gruvi" namespace
 from .errors import *
 from .hub import *
 from .fibers import *
@@ -34,3 +39,7 @@ from .jsonrpc import *
 from .dbus import *
 
 from ._version import version_info
+__version__ = version_info['version']
+
+# clean up module namespace
+del sys, absolute_import, print_function

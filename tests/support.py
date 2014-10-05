@@ -12,6 +12,7 @@ import os
 import sys
 import shutil
 import socket
+import errno
 import tempfile
 import logging
 import subprocess
@@ -129,6 +130,30 @@ def sizeof(obj, exclude=None):
                 # print('{}.{}: {}'.format(type(obj).__name__, key, s))
                 size += s
     return size
+
+
+def socketpair(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
+    """Emulate the Unix socketpair() syscall by connecting an AF_INET socket."""
+    # This is useful on platforms like Windows that don't have one.
+    # We create a connected TCP socket. Note the trick with setblocking(0)
+    # that prevents us from having to create a thread.
+    lsock = socket.socket(family, type, proto)
+    lsock.bind(('localhost', 0))
+    lsock.listen(1)
+    addr, port = lsock.getsockname()
+    csock = socket.socket(family, type, proto)
+    csock.setblocking(False)
+    try:
+        csock.connect((addr, port))
+    except socket.error as e:
+        if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EINPROGRESS):
+            lsock.close()
+            csock.close()
+            raise
+    ssock, _ = lsock.accept()
+    csock.setblocking(True)
+    lsock.close()
+    return (ssock, csock)
 
 
 class TestCase(unittest.TestCase):

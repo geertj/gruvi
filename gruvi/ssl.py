@@ -8,79 +8,16 @@
 
 from __future__ import absolute_import, print_function
 
-import errno
-import socket
-import io
 import pyuv
 import ssl
-import six
 
 from . import compat
 from .transports import Transport, TransportError
 from .sync import Event
 
-if hasattr(socket, 'socketpair'):
-    socketpair = socket.socketpair
-else:
-    from .socketpair import socketpair
+from .sslcompat import SSLContext, MemoryBIO, get_reason, wrap_bio
 
-if six.PY2:
-    from . import sslcompat
-    HAVE_SSL_BACKPORTS = sslcompat._sslcompat is not None
-else:
-    HAVE_SSL_BACKPORTS = False
-
-__all__ = ['SslTransport', 'create_ssl_context', 'HAVE_SSL_BACKPORTS']
-
-
-def write_to_socket(sock, data):
-    """Write as much of *data* to the socket as possible, retrying short writes
-    due to EINTR only."""
-    offset = 0
-    while offset != len(data):
-        try:
-            nbytes = sock.send(data[offset:])
-        except (io.BlockingIOError, socket.error) as e:
-            if e.errno == errno.EINTR:
-                continue
-            elif e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
-                break
-            raise
-        offset += nbytes
-    return offset
-
-def read_from_socket(sock, bufsize):
-    """Read as much data as possible from *sock*, using *bufsize* sized
-    chunks. The result is returned as a list of buffers."""
-    chunks = []
-    while True:
-        try:
-            chunk = sock.recv(bufsize)
-        except (io.BlockingIOError, socket.error) as e:
-            if e.errno == errno.EINTR:
-                continue
-            elif e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
-                break
-            raise
-        chunks.append(chunk)
-    return chunks
-
-
-def get_reason(exc):
-    """Return the reason code from an SSLError exception."""
-    # On Python 3.x the reason is available via exc.reason.
-    if hasattr(exc, 'reason'):
-        return exc.reason
-    # .. but on 2.x we have to parse the error string (fortunately it is there)
-    message = exc.args[1]
-    p0 = message.find('error:')
-    if p0 == -1:
-        return
-    p0 += 6
-    p1 = message.find(':', p0)
-    assert p1 != -1
-    code = int(message[p0:p1], 16) & 0xfff
-    return sslcompat.errorcode.get(code)
+__all__ = ['SslTransport', 'create_ssl_context']
 
 
 class SslPipe(object):
@@ -103,21 +40,21 @@ class SslPipe(object):
 
     bufsize = 65536
 
-    # This class uses a socket pair to communicate with the SSL protocol
-    # instance. A "Memory BIO" would hav been more efficient, however the _ssl
-    # module doesn't support that (as of March 2014 / Python 3.4). See alo:
-    # http://mail.python.org/pipermail/python-ideas/2012-November/017686.html
+    # This previously used a socketpair to communicate with the SSL protocol
+    # instance but since October 2014 we're using a Memory BIO! This is
+    # cleaner, and more reliable on Windows. See for example issue #12 for more
+    # details.
 
     S_UNWRAPPED, S_DO_HANDSHAKE, S_WRAPPED, S_SHUTDOWN = range(4)
 
     def __init__(self, context, server_side, server_hostname=None):
         """
         The *context* argument specifies the :class:`ssl.SSLContext` to use.
-        In Python 2.x this class isn't available and you can use
-        :class:`sslcompat.SSLContext` instead.
+        It is recommended to use :func:`~gruvi.ssl.create_ssl_context` so that
+        it will work on all supported Python versions.
 
         The *server_side* argument indicates whether this is a server side or
-        client side socket.
+        client side transport.
 
         The optional *server_hostname* argument can be used to specify the
         hostname you are connecting to. You may only specify this parameter if
@@ -127,28 +64,30 @@ class SslPipe(object):
         self._server_side = server_side
         self._server_hostname = server_hostname
         self._state = self.S_UNWRAPPED
-        self._sockets = socketpair()
-        for sock in self._sockets:
-            sock.setblocking(False)
+        self._bios = (MemoryBIO(), MemoryBIO())
         self._sslobj = None
-        self._sslinfo = None
         self._need_ssldata = False
 
     @property
-    def sslsocket(self):
-        """The raw ``_ssl._SSLSocket`` instance."""
-        return self._sslobj
+    def context(self):
+        """The SSL context passed to the constructor."""
+        return self._context
 
     @property
-    def sslcontext(self):
-        """The raw ``_ssl._SSLContext`` instance."""
-        return self._context
+    def ssl(self):
+        """The internal :class:`ssl.SSLObject` instance."""
+        return self._sslobj
 
     @property
     def need_ssldata(self):
         """Whether more record level data is needed to complete a handshake
         that is currently in progress."""
         return self._need_ssldata
+
+    @property
+    def wrapped(self):
+        """Whether a security layer is currently in effect."""
+        return self._state == self.S_WRAPPED
 
     def do_handshake(self, callback=None):
         """Start the SSL handshake. Return a list of ssldata.
@@ -157,12 +96,10 @@ class SslPipe(object):
         will be called when the handshake is complete. The callback will be
         called without arguments.
         """
-        if self._sockets is None:
-            raise RuntimeError('pipe was closed')
-        if self._sslobj:
+        if self._state != self.S_UNWRAPPED:
             raise RuntimeError('handshake in progress or completed')
-        self._sslobj = self._context._wrap_socket(self._sockets[1], self._server_side,
-                                                  self._server_hostname)
+        wrapargs = (self._bios[0], self._bios[1], self._server_side, self._server_hostname)
+        self._sslobj = wrap_bio(self._context, *wrapargs)
         self._state = self.S_DO_HANDSHAKE
         self._on_handshake_complete = callback
         ssldata, appdata = self.feed_ssldata(b'')
@@ -176,14 +113,12 @@ class SslPipe(object):
         will be called when the shutdown is complete. The callback will be
         called without arguments.
         """
-        if self._sockets is None:
-            raise RuntimeError('pipe was closed')
-        if self._sslobj is None:
+        if self._state == self.S_UNWRAPPED:
             raise RuntimeError('no security layer present')
         self._state = self.S_SHUTDOWN
         self._on_handshake_complete = callback
         ssldata, appdata = self.feed_ssldata(b'')
-        assert len(appdata) == 0
+        assert appdata == [] or appdata == [b'']
         return ssldata
 
     def feed_eof(self):
@@ -192,25 +127,9 @@ class SslPipe(object):
         This method will raise an SSL_ERROR_EOF exception if the EOF is
         unexpected.
         """
-        if self._sockets is None:
-            raise RuntimeError('pipe was closed')
-        try:
-            self._sockets[0].shutdown(socket.SHUT_WR)
-            ssldata, appdata = self.feed_ssldata(b'')
-        finally:
-            self.close()
-        assert len(ssldata) == 0
-        assert appdata == []
-
-    def close(self):
-        """Close the SSL pipe."""
-        if self._sockets is None:
-            return
-        self._sslobj = None
-        self._sslinfo = None
-        for sock in self._sockets:
-            sock.close()
-        self._sockets = None
+        self._bios[0].write_eof()
+        ssldata, appdata = self.feed_ssldata(b'')
+        assert appdata == [] or appdata == [b'']
 
     def feed_ssldata(self, data):
         """Feed SSL record level data into the pipe.
@@ -227,53 +146,46 @@ class SslPipe(object):
         an empty buffer indicating an SSL "close_notify" alert. This alert must
         be acknowledged by calling :meth:`shutdown`.
         """
-        if self._sockets is None:
-            raise RuntimeError('pipe was closed')
         if self._state == self.S_UNWRAPPED:
             # If unwrapped, pass plaintext data straight through.
             return ([], [data] if data else [])
-        view = memoryview(data)
-        offset = 0
         ssldata = []; appdata = []
-        while True:
-            self._need_ssldata = False
-            offset += write_to_socket(self._sockets[0], view[offset:])
-            try:
-                if self._state == self.S_DO_HANDSHAKE:
-                    # Call do_handshake() until it doesn't raise anymore.
-                    self._sslobj.do_handshake()
-                    self._state = self.S_WRAPPED
-                    if self._on_handshake_complete:
-                        self._on_handshake_complete()
-                if self._state == self.S_WRAPPED:
-                    # Main state: read data from SSL until close_notify
-                    while True:
-                        chunk = self._sslobj.read(self.bufsize)
-                        appdata.append(chunk)
-                        if not chunk:  # close_notify
-                            break
-                if self._state == self.S_SHUTDOWN:
-                    # Call shutdown() until it doesn't raise anymore.
-                    self._sslobj.shutdown()
-                    self._sslobj = None
-                    self._state = self.S_UNWRAPPED
-                    if self._on_handshake_complete:
-                        self._on_handshake_complete()
-                if self._state == self.S_UNWRAPPED:
-                    # Drain possible plaintext data after close_notify.
-                    chunks = read_from_socket(self._sockets[1], self.bufsize)
-                    appdata.extend(chunks)
-            except ssl.SSLError as e:
-                if e.errno not in (ssl.SSL_ERROR_WANT_READ, ssl.SSL_ERROR_WANT_WRITE):
-                    raise
-                self._need_ssldata = e.errno == ssl.SSL_ERROR_WANT_READ
-            # Check for record level data that needs to be sent back.
-            # Happens for the initial handshake and renegotiations.
-            chunks = read_from_socket(self._sockets[0], self.bufsize)
-            ssldata.extend(chunks)
-            # We are done if we wrote all data.
-            if offset == len(view):
-                break
+        self._need_ssldata = False
+        if data:
+            self._bios[0].write(data)
+        try:
+            if self._state == self.S_DO_HANDSHAKE:
+                # Call do_handshake() until it doesn't raise anymore.
+                self._sslobj.do_handshake()
+                self._state = self.S_WRAPPED
+                if self._on_handshake_complete:
+                    self._on_handshake_complete()
+            if self._state == self.S_WRAPPED:
+                # Main state: read data from SSL until close_notify
+                while True:
+                    chunk = self._sslobj.read(self.bufsize)
+                    appdata.append(chunk)
+                    if not chunk:  # close_notify
+                        break
+            if self._state == self.S_SHUTDOWN:
+                # Call shutdown() until it doesn't raise anymore.
+                self._sslobj.unwrap()
+                self._sslobj = None
+                self._state = self.S_UNWRAPPED
+                if self._on_handshake_complete:
+                    self._on_handshake_complete()
+            if self._state == self.S_UNWRAPPED:
+                # Drain possible plaintext data after close_notify.
+                appdata.append(self._bios[0].read())
+        except ssl.SSLError as e:
+            if e.errno not in (ssl.SSL_ERROR_WANT_READ, ssl.SSL_ERROR_WANT_WRITE,
+                               ssl.SSL_ERROR_SYSCALL):
+                raise
+            self._need_ssldata = e.errno == ssl.SSL_ERROR_WANT_READ
+        # Check for record level data that needs to be sent back.
+        # Happens for the initial handshake and renegotiations.
+        if self._bios[1].pending:
+            ssldata.append(self._bios[1].read())
         return (ssldata, appdata)
 
     def feed_appdata(self, data, offset=0):
@@ -307,13 +219,14 @@ class SslPipe(object):
                 # caller as a short write.
                 if get_reason(e) == 'PROTOCOL_IS_SHUTDOWN':
                     e.errno = ssl.SSL_ERROR_WANT_READ
-                if e.errno not in (ssl.SSL_ERROR_WANT_READ, ssl.SSL_ERROR_WANT_WRITE):
+                if e.errno not in (ssl.SSL_ERROR_WANT_READ, ssl.SSL_ERROR_WANT_WRITE,
+                                   ssl.SSL_ERROR_SYSCALL):
                     raise
                 self._need_ssldata = e.errno == ssl.SSL_ERROR_WANT_READ
             # See if there's any record level data back for us.
-            chunks = read_from_socket(self._sockets[0], self.bufsize)
-            ssldata.extend(chunks)
-            if offset >= len(view) or self._need_ssldata:
+            if self._bios[1].pending:
+                ssldata.append(self._bios[1].read())
+            if offset == len(view) or self._need_ssldata:
                 break
         return (ssldata, offset)
 
@@ -371,57 +284,18 @@ class SslTransport(Transport):
         ======================  ===============================================
         Name                    Description
         ======================  ===============================================
-        ``'compression'``       The compression algorithm being used, or `None`
-                                if the connection is not compressed. See
-                                :meth:`ssl.SSLSocket.compression`.
-        ``'cipher'``            A 3-tuple ``(name, version, bits)`` describing
-                                the cipher currently in use, or `None` if no
-                                cipher is currently in effect. See
-                                :meth:`ssl.SSLSocket.cipher`.
-        ``'peercert'``          The peer certificate. See
-                                :meth:`.ssl.SSLSocket.getpeercert`.
-        ``'tls_unique_cb'``     The tls-unique channel bindings, or None if no
-                                channel bindings are available.
-        ``'sslsocket'``         The internal ``_ssl._SSLSocket`` instance
-                                used by this transport.
-        ``'sslcontext'``        The internal ``_ssl._SSLContext`` instance
-                                used by this transport.
+        ``'ssl'``               The internal ``ssl.SSLObject`` instance used by
+                                this transport.
+        ``'sslctx'``            The ``ssl.SSLContext`` instance used to create
+                                the SSL object.
         ======================  ===============================================
         """
-        sslsock = self._sslpipe.sslsocket
-        sslctx = self._sslpipe.sslcontext
-        if sslsock is None:
-            return super(SslTransport, self).get_extra_info(name, default)
-        if name == 'compression':
-            if hasattr(sslsock, 'compression'):
-                return sslsock.compression()
-            elif HAVE_SSL_BACKPORTS:
-                return sslcompat.compression(sslsock)
-            else:
-                return default
-        elif name == 'cipher':
-            return sslsock.cipher()
-        elif name == 'peercert':
-            return sslsock.peer_certificate(False)
-        elif name == 'tls_unique_cb':
-            if hasattr(sslsock, 'tls_unique_cb'):
-                return sslsock.tls_unique_cb()
-            elif HAVE_SSL_BACKPORTS:
-                return sslcompat.tls_unique_cb(sslsock)
-            else:
-                return default
-        elif name == 'sslsocket':
-            return sslsock
-        elif name == 'sslcontext':
-            return sslctx
+        if name == 'ssl':
+            return self._sslpipe.ssl
+        elif name == 'sslctx':
+            return self._sslpipe.context
         else:
             return super(SslTransport, self).get_extra_info(name, default)
-
-    def _on_close_complete(self, handle):
-        # Callback used with handle.close() in BaseTransport
-        super(SslTransport, self)._on_close_complete(handle)
-        self._sslpipe.close()
-        self._sslpipe = None
 
     def write(self, data):
         # Write *data* to the transport.
@@ -503,7 +377,9 @@ class SslTransport(Transport):
                     elif not chunk and self._close_on_unwrap:
                         self.close()
         except ssl.SSLError as e:
-            self._log.warning('SSL error {} (reason {})', e.errno, e.reason)
+            self._log.warning('SSL error {} (reason {})', e.errno,
+                              getattr(e, 'reason', 'unknown'))
+            print(repr(e))
             self._error = e
             self.abort()
         # Process write backlog. A read could have unblocked a write.
@@ -595,7 +471,7 @@ class SslTransport(Transport):
         return False
 
     def close(self):
-        """Cleanly shut down the SSL protocol and close the socket."""
+        """Cleanly shut down the SSL protocol and close the transport."""
         if self._closing or self._handle.closed:
             return
         self._closing = True
@@ -606,35 +482,8 @@ class SslTransport(Transport):
 
 def create_ssl_context(**sslargs):
     """Create a new SSL context in a way that is compatible with different
-    Python versions.
-
-    On Python 2.7, this creates a emulated SSL context. The returned object
-    implements the most important parts the :class:`ssl.SSLContext` interface
-    and can be used to configure the SSL connection settings.  It is not a real
-    context however and does not support such things as a session cache. This
-    function works even if :attr:`gruvi.HAVE_SSL_BACKPORTS` is set to `False`
-    (but in this case none of the Python 3.x features can be used, obviously).
-
-    On Python 3.3, this creates an new context by calling the
-    :class:`ssl.SSLContext` constructor.
-
-    On Python 3.4+, this method creates a new context using
-    :func:`ssl.create_default_context`.
-
-    The *sslargs* keyword arguments can be used to set the *certfile*,
-    *ca_certs*, *cert_reqs* and *ciphers* context options as described for
-    :func:`ssl.wrap_socket`.
-    """
-    version = sslargs.get('ssl_version')
-    if hasattr(ssl, 'create_default_context') and version is None:
-        # Python 3.4+
-        context = ssl.create_default_context()
-    elif hasattr(ssl, 'SSLContext'):
-        # Python 3.3
-        context = ssl.SSLContext(version or ssl.PROTOCOL_SSLv23)
-    else:
-        # Python 2.7
-        context = sslcompat.SSLContext(version or ssl.PROTOCOL_SSLv23)
+    Python versions."""
+    context = SSLContext(ssl.PROTOCOL_SSLv23)
     if sslargs.get('certfile'):
         context.load_cert_chain(sslargs['certfile'], sslargs.get('keyfile'))
     if sslargs.get('ca_certs'):
