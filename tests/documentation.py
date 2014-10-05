@@ -21,7 +21,12 @@ class TestDocumentation(TestCase):
         docdir = os.path.join(self.topdir, 'docs')
         os.chdir(docdir)
         htmldir = self.tempdir
-        ret = sphinx.main(['sphinx', '-b', 'html', '-nW', '.', htmldir])
+        # sphinx.main() changed behavior in version 1.2.3 and it now calls
+        # exit() with the return code rather than returning it.
+        try:
+            ret = sphinx.main(['sphinx', '-b', 'html', '-nW', '.', htmldir])
+        except SystemExit as e:
+            ret = e.code
         self.assertEquals(ret, 0)
 
 
