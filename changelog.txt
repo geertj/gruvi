@@ -1,8 +1,10 @@
 Changes in version 0.10.2:
 
+* Add Process.close() to explicitly close the process and stdio handles.
+* Remove redundant Process.kill() and Process.poll()
 * Use Memory BIO for faster and more compatible SSL implementation.
 * Add support for Python 3.5.
-* Move to new pyuv upstream (1.0.0-dev, using libuv 1.0.0-rc1).
+* Move to new pyuv upstream (1.0.0-dev1, using libuv 1.0.0-rc2).
 * Improve test coverage.
 * Remove non-standard method Queue.clear().
 * Drop support for Python 2.6.

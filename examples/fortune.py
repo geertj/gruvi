@@ -2,13 +2,15 @@
 
 import locale
 import gruvi
+import contextlib
 
 def fortune_app(environ, start_response):
     print('New connection from {0}'.format(environ['REMOTE_ADDR']))
     proc = gruvi.Process(encoding=locale.getpreferredencoding())
     proc.spawn('fortune', stdout=gruvi.PIPE)
-    fortune = proc.stdout.read()
-    proc.wait()
+    with contextlib.closing(proc):
+        fortune = proc.stdout.read()
+        proc.wait()
     start_response('200 OK', [('Content-Type', 'text/plain; charset=utf-8')])
     return [fortune.encode('utf-8')]
 

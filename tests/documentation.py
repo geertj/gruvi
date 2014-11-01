@@ -27,7 +27,7 @@ class TestDocumentation(TestCase):
             ret = sphinx.main(['sphinx', '-b', 'html', '-nW', '.', htmldir])
         except SystemExit as e:
             ret = e.code
-        self.assertEquals(ret, 0)
+        self.assertEqual(ret, 0)
 
 
 if __name__ == '__main__':

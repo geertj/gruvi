@@ -365,6 +365,8 @@ class TestWait(UnitTest):
         self.assertEqual(objects[7].returncode, 0)
         for obj in objects:
             self.assertIsNone(obj._callbacks)
+        objects[6].close()
+        objects[7].close()
 
 
 class TestAsCompleted(UnitTest):

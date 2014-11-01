@@ -231,6 +231,9 @@ class Endpoint(object):
     def timeout(self):
         return self._timeout
 
+    def close(self):
+        self._log.debug('endpoint closed')
+
 
 class Client(Endpoint):
     """A client endpoint."""

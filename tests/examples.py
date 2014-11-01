@@ -34,6 +34,7 @@ class TestExamples(TestCase):
         stdout, stderr = proc.communicate(timeout=30)
         self.assertEqual(proc.returncode, 0)
         self.assertTrue('<html' in stdout)
+        proc.close()
 
     def test_curl_ssl(self):
         proc = Process(encoding='utf-8')
@@ -41,6 +42,7 @@ class TestExamples(TestCase):
         stdout, stderr = proc.communicate(timeout=30)
         self.assertEqual(proc.returncode, 0)
         self.assertTrue('<html' in stdout)
+        proc.close()
 
     def test_echoserver1(self):
         proc = Process(encoding='ascii')
@@ -59,6 +61,7 @@ class TestExamples(TestCase):
         proc.send_signal(signal.SIGINT)
         proc.wait(timeout=2)
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_echoserver2(self):
         proc = Process(encoding='ascii')
@@ -76,6 +79,7 @@ class TestExamples(TestCase):
         proc.send_signal(signal.SIGINT)
         proc.wait(timeout=1)
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_fortune(self):
         proc = Process(encoding='ascii')
@@ -93,6 +97,7 @@ class TestExamples(TestCase):
         proc.send_signal(signal.SIGINT)
         proc.wait(timeout=1)
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_netcat(self):
         proc = Process()
@@ -102,6 +107,7 @@ class TestExamples(TestCase):
         self.assertTrue(b'<html' in result)
         proc.wait(timeout=1)
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_netcat_ssl(self):
         proc = Process()
@@ -112,6 +118,7 @@ class TestExamples(TestCase):
         self.assertTrue(b'<html' in result)
         proc.wait(timeout=1)
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
 
 if __name__ == '__main__':

@@ -48,6 +48,7 @@ class TestProcess(UnitTest):
         self.assertIsInstance(proc.pid, int)
         proc.wait()
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_respawn(self):
         # Ensure that calling spawn() again after the child has exited works.
@@ -55,9 +56,11 @@ class TestProcess(UnitTest):
         proc.spawn('true')
         proc.wait()
         self.assertEqual(proc.returncode, 0)
+        proc.close()
         proc.spawn('false')
         proc.wait()
         self.assertEqual(proc.returncode, 1)
+        proc.close()
 
     def test_spawn_shell(self):
         # Ensure spawning a child with shell=True works.
@@ -65,9 +68,11 @@ class TestProcess(UnitTest):
         proc.spawn('true', shell=True)
         proc.wait()
         self.assertEqual(proc.returncode, 0)
+        proc.close()
         proc.spawn('false', shell=True)
         proc.wait()
         self.assertEqual(proc.returncode, 1)
+        proc.close()
 
     def test_spawn_args(self):
         # Ensure that passing arguments to our child works.
@@ -75,6 +80,7 @@ class TestProcess(UnitTest):
         proc.spawn(['exitn', '1', '2', '3'])
         proc.wait()
         self.assertEqual(proc.returncode, 6)
+        proc.close()
 
     def test_spawn_shell_args(self):
         # Ensure that passing arguments to our child works with shell=True.
@@ -82,6 +88,7 @@ class TestProcess(UnitTest):
         proc.spawn('exitn 1 2 3', shell=True)
         proc.wait()
         self.assertEqual(proc.returncode, 6)
+        proc.close()
 
     def test_spawn_executable(self):
         # Ensure that spawn honors the executable argument.
@@ -89,6 +96,7 @@ class TestProcess(UnitTest):
         proc.spawn(['exit', '1'], executable='true')
         proc.wait()
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_spawn_shell_executable(self):
         # Ensure that spawn honors the executable argument with shell=True.
@@ -100,6 +108,7 @@ class TestProcess(UnitTest):
         self.assertEqual(output[0], b'-c' if hasattr(os, 'fork') else b'/c')
         self.assertEqual(output[1], b'exit')
         self.assertEqual(output[2], b'1')
+        proc.close()
 
     def test_exit(self):
         # Ensure that the child's exist status is correctly reported.
@@ -107,6 +116,7 @@ class TestProcess(UnitTest):
         proc.spawn(['exitn', '5'])
         proc.wait()
         self.assertEqual(proc.returncode, 5)
+        proc.close()
 
     def test_spawn_cwd(self):
         # Ensure that the "cwd" argument to spawn is effective.
@@ -120,11 +130,14 @@ class TestProcess(UnitTest):
         proc.wait()
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(childdir, curdir)
+        proc.close()
+        proc = Process()
         proc.spawn('pwd', stdout=PIPE, cwd=tempdir)
         childdir = proc.stdout.readline().rstrip().decode(encoding)
         proc.wait()
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(childdir, tempdir)
+        proc.close()
 
     def test_spawn_env(self):
         # Ensure that the "env" argument to spawn is effective.
@@ -138,19 +151,21 @@ class TestProcess(UnitTest):
         proc.wait()
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(value, env['FOO'])
+        proc.close()
 
-    def test_poll(self):
-        # Ensure that poll() checks if the child is still alive.
+    def test_returncode(self):
+        # Ensure that the returncode attribute gets set when the child exits.
         proc = Process()
         proc.spawn(['sleep', '0.2'])
         tries = 0
         while True:
-            if proc.poll() is not None:
+            if proc.returncode is not None:
                 break
             tries += 1
             gruvi.sleep(0.02)
         self.assertEqual(proc.returncode, 0)
         self.assertGreater(tries, 5)
+        proc.close()
 
     def test_wait(self):
         # Ensure that wait() waits for the child to exit.
@@ -161,6 +176,7 @@ class TestProcess(UnitTest):
         t1 = time.time()
         self.assertGreater(t1-t0, 0.2)
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_stdout(self):
         # Ensure that it's possible to capure stdout using stdout=PIPE
@@ -172,6 +188,7 @@ class TestProcess(UnitTest):
         self.assertEqual(proc.stdout.readline(), b'')
         proc.wait()
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_stderr(self):
         # Ensure that it's possible to capure stderr using stderr=PIPE
@@ -184,6 +201,7 @@ class TestProcess(UnitTest):
         self.assertEqual(proc.stdout.readline(), b'')
         proc.wait()
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_devnull(self):
         # Ensure that using stdout=DEVNULL doesn't produce any output.
@@ -194,6 +212,7 @@ class TestProcess(UnitTest):
         self.assertIsNone(proc.stdout)
         proc.wait()
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_stdio_encoding(self):
         # Ensure that passing encoding=xxx to the constructor works.
@@ -204,6 +223,7 @@ class TestProcess(UnitTest):
         proc.stdin.close()
         self.assertEqual(proc.stdout.readline(), u'20 \u20ac\n')
         self.assertEqual(proc.wait(), 0)
+        proc.close()
 
     def test_spawn_unicode_args(self):
         # Ensure that it's possible to spawn a child with unicode arguments.
@@ -216,6 +236,7 @@ class TestProcess(UnitTest):
         line = proc.stdout.readline().rstrip()
         self.assertEqual(line, u'foo \u20ac'.encode('utf-8'))
         proc.wait()
+        proc.close()
 
     def test_spawn_unicode_env(self):
         # Ensure that it's possible to spawn a child with a unicode environment.
@@ -227,6 +248,7 @@ class TestProcess(UnitTest):
         line = proc.stdout.readline().rstrip()
         self.assertEqual(line, u'foo \u20ac'.encode('utf-8'))
         proc.wait()
+        proc.close()
 
     def test_timeout(self):
         # Ensure that the timeout=xxx constructor argument works.
@@ -237,6 +259,7 @@ class TestProcess(UnitTest):
         self.assertEqual(proc.stdout.readline(), b'foo\n')
         proc.stdin.close()
         self.assertEqual(proc.wait(), 0)
+        proc.close()
 
     def test_inherit_handle(self):
         # Ensure that it's possible to pass a handle to the child.
@@ -254,6 +277,7 @@ class TestProcess(UnitTest):
         stream.close()
         proc.wait()
         self.assertEqual(proc.returncode, 0)
+        proc.close()
 
     def test_send_signal(self):
         # Ensure we can send a signal to our child using send_signal(0
@@ -262,6 +286,7 @@ class TestProcess(UnitTest):
         proc.send_signal(signal.SIGINT)
         proc.wait()
         self.assertEqual(proc.returncode, -signal.SIGINT)
+        proc.close()
 
     def test_terminate(self):
         # Ensure that terminate() kills our child.
@@ -270,15 +295,7 @@ class TestProcess(UnitTest):
         proc.terminate()
         proc.wait()
         self.assertEqual(proc.returncode, -signal.SIGTERM)
-
-    def test_kill(self):
-        # Ensure that kill() kills our child.
-        proc = Process()
-        proc.spawn(['sleep', '1'])
-        proc.kill()
-        proc.wait()
-        # Windows does not have signal.SIGKILL
-        self.assertEqual(proc.returncode, -9)
+        proc.close()
 
     def test_child_exited(self):
         # Ensure that the child_exited callback gets called.
@@ -292,6 +309,7 @@ class TestProcess(UnitTest):
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(cbargs[0], 0)
         self.assertEqual(cbargs[1], 0)
+        proc.close()
 
     def test_send_data(self):
         # Test that sending a lot of data works.
@@ -314,11 +332,12 @@ class TestProcess(UnitTest):
                     break
                 result[1] += read
         gruvi.spawn(writer)
-        gruvi.spawn(reader)
+        gruvi.spawn(reader).join()
         proc.wait()
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(result[0], nbytes)
         self.assertEqual(result[1], nbytes)
+        proc.close()
 
 
 if __name__ == '__main__':

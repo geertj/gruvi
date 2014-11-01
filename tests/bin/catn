@@ -17,6 +17,8 @@ while True:
     buf = os.read(fd, 4096)
     if not buf:
         break
-    os.write(fdout, buf)
+    nbytes = 0
+    while nbytes < len(buf):
+        nbytes += os.write(fdout, buf[nbytes:])
 
 sys.exit(0)

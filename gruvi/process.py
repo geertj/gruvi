@@ -11,12 +11,12 @@ from __future__ import absolute_import, print_function
 import os
 import signal
 import six
+import warnings
 from io import TextIOWrapper
 
 import pyuv
-import gruvi
 
-from . import fibers, compat
+from . import fibers, compat, futures
 from .hub import get_hub, switchpoint
 from .sync import Event
 from .errors import Timeout
@@ -63,21 +63,33 @@ class Process(Endpoint):
                 textio_args['write_through'] = True
         self._process = None
         self._child_exited = Event()
-        self._reinit()
+        self._closed = Event()
+        self._stdin = self._stdout = self._stderr = None
+        self._exit_status = None
+        self._term_signal = None
+        self._callbacks = None
+
+    def __del__(self):
+        # Try to clean up in case Process.close() was not called.
+        if self._process is None:
+            return
+        warnings.warn('Process.close() not called for {!r}'.format(self), ResourceWarning)
+        # Don't call self.close() because that waits for the handles to be
+        # freed which we don't want to do in a destructor.
+        if not self._process.closed:
+            self._process.close()
+        if self._stdin:
+            self._stdin[1].close()
+        if self._stdout:
+            self._stdout[1].close()
+        if self._stderr:
+            self._stderr[1].close()
+        self._process = None
+        self._stdin = self._stdout = self._stderr = None
 
     def _create_protocol(self):
         # Protocol for stdin/stdout/stderr
         return StreamProtocol(timeout=self._timeout)
-
-    def _reinit(self):
-        # Re-initialize for a new spawn()
-        self._stdin = None
-        self._stdout = None
-        self._stderr = None
-        self._exit_status = None
-        self._term_signal = None
-        self._child_exited.clear()
-        self._callbacks = None
 
     @property
     def stdin(self):
@@ -149,7 +161,7 @@ class Process(Endpoint):
 
     def _connect_stdio(self, stdio):
         # Connect a StdIO container to a StreamProtocol. Return the (possibly
-        # wrapped) Stream
+        # textio wrapped) Stream
         transport, protocol = create_connection(self._protocol_factory, stdio.stream)
         if self._encoding:
             stream = TextIOWrapper(protocol.stream, self._encoding, **self._textio_args)
@@ -209,7 +221,12 @@ class Process(Endpoint):
         ``pyuv.UV_PROCESS_DETACHED`` and ``pyuv.UV_PROCESS_WINDOWS_HIDE``. Both
         are Windows specific and are silently ignored on Unix.
         """
-        self._reinit()
+        if self._process:
+            raise RuntimeError('child process already spawned')
+        self._child_exited.clear()
+        self._closed.clear()
+        self._exit_status = None
+        self._term_signal = None
         hub = get_hub()
         if isinstance(args, str):
             args = [args]
@@ -252,20 +269,45 @@ class Process(Endpoint):
         # Callback used as the exit_callback with pyuv.Process
         self._exit_status = exit_status
         self._term_signal = term_signal
-        self._process.close()
-        self._process = None
-        if self._stdin:
-            self._stdin[1].close()
-        if self._stdout:
-            self._stdout[1].close()
-        if self._stderr:
-            self._stderr[1].close()
         self._child_exited.set()
         self.child_exited(exit_status, term_signal)
         run_callbacks(self)
 
     def child_exited(self, exit_status, term_signal):
         """Callback that is called when the child has exited."""
+
+    def _on_close_complete(self, handle):
+        # Callback used as the callback with Process.close()
+        self._closed.set()
+
+    @switchpoint
+    def close(self):
+        """Close the process and frees its associated resources.
+
+        This waits for the resources to be freed by the libuv event loop. If
+        the *daemon* argument was set in the construtor, this also terminates
+        the child process and waits for it to exit.
+        """
+        if self._process is None:
+            return
+        waitfor = []
+        if not self._process.closed:
+            self._process.close(self._on_close_complete)
+            waitfor.append(self._closed)
+        # For each of stdin/stdout/stderr, close the transport. This schedules
+        # an on-close callback that will close the protocol, which we wait for.
+        if self._stdin:
+            self._stdin[1].close()
+            waitfor.append(self._stdin[2]._closed)
+        if self._stdout:
+            self._stdout[1].close()
+            waitfor.append(self._stdout[2]._closed)
+        if self._stderr:
+            self._stderr[1].close()
+            waitfor.append(self._stderr[2]._closed)
+        futures.wait(waitfor)
+        self._process = None
+        self._stdin = self._stdout = self._stderr = None
 
     def send_signal(self, signum):
         """Send the signal *signum* to the child.
@@ -274,29 +316,20 @@ class Process(Endpoint):
         TerminateProcess(). This will cause the child to exit unconditionally
         with status 1. No other signals can be sent on Windows.
         """
-        if not self._process:
-            return
+        if self._process is None:
+            raise RuntimeError('no child process')
         self._process.kill(signum)
 
     def terminate(self):
-        """Send a SIGTERM to the child."""
-        self.send_signal(signal.SIGTERM)
+        """Terminate the child process.
 
-    def kill(self):
-        """Send a SIGKILL to the child."""
-        # On Windows the signal module doesn't define SIGKILL
-        sigkill = getattr(signal, 'SIGKILL', 9)
-        self.send_signal(sigkill)
-
-    @switchpoint
-    def poll(self):
-        """Check if the child has exited.
-
-        This will run the event loop once to check if the child has exited.
-        After that, return the value of the :attr:`returncode` attribute.
+        It is not an error to call this method when the child has already exited.
         """
-        gruvi.sleep(0)
-        return self.returncode
+        try:
+            self.send_signal(signal.SIGTERM)
+        except pyuv.error.ProcessError as e:
+            if e.args[0] != pyuv.errno.UV_ESRCH:
+                raise
 
     @switchpoint
     def wait(self, timeout=-1):
@@ -305,8 +338,8 @@ class Process(Endpoint):
         Wait for at most *timeout* seconds, or indefinitely if *timeout* is
         None. Return the value of the :attr:`returncode` attribute.
         """
-        if not self._process:
-            return
+        if self._process is None:
+            raise RuntimeError('no child process')
         if timeout == -1:
             timeout = self._timeout
         if not self._child_exited.wait(timeout):
@@ -324,6 +357,8 @@ class Process(Endpoint):
         The return value is a tuple ``(stdout_data, stderr_data)`` containing
         the data read from standard output and standard error.
         """
+        if self._process is None:
+            raise RuntimeError('no child process')
         if timeout == -1:
             timeout = self._timeout
         output = [[], []]
