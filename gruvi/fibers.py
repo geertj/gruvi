@@ -11,7 +11,7 @@ from __future__ import absolute_import, print_function
 import fibers
 
 from . import logging
-from .hub import get_hub
+from .hub import get_hub, switchpoint
 from .sync import Event
 from .errors import Cancelled, Timeout
 from .callbacks import add_callback, remove_callback, run_callbacks
@@ -115,6 +115,7 @@ class Fiber(fibers.Fiber):
             message = 'cancelled by Fiber.cancel()'
         self._hub.run_callback(self.throw, Cancelled, Cancelled(message))
 
+    @switchpoint
     def join(self, timeout=None):
         """Wait until the fiber completes."""
         if not self._done.wait(timeout):
