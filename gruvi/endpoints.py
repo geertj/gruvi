@@ -40,7 +40,7 @@ def _af_unix_helper(handle, address, op):
     """Connect or bind a :class:`pyuv.Pipe` to an AF_UNIX socket.
 
     We use this on Linux to work around the limitation in the libuv API that
-    socket names cannot have null bytes in them (requires for abstract
+    socket names cannot have null bytes in them (required for abstract
     sockets on Linux).
     """
     # Note that on Linux, connect() to an abstract socket never returns EAGAIN.
