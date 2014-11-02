@@ -26,11 +26,6 @@ if sys.version_info[:2] < (3, 5):
             globals()[key] = value
     errorcode = _sslcompat.errorcode
 
-if hasattr(ssl, '_DEFAULT_CIPHERS'):
-    DEFAULT_CIPHERS = ssl._DEFAULT_CIPHERS
-else:
-    DEFAULT_CIPHERS = 'DEFAULT:!aNULL:!eNULL:!LOW:!EXPORT:!SSLv2'
-
 if hasattr(ssl, 'CHANNEL_BINDING_TYPES'):
     CHANNEL_BINDING_TYPES = ssl.CHANNEL_BINDING_TYPES
 elif _sslcompat.HAS_TLS_UNIQUE:
@@ -62,7 +57,7 @@ else:
 
         def __init__(self, protocol):
             # [keyfile, certfile, cert_reqs, ssl_version, ca_certs, ciphers]
-            self._ssl_args = [None, None, ssl.CERT_NONE, protocol, None, DEFAULT_CIPHERS]
+            self._ssl_args = [None, None, ssl.CERT_NONE, protocol, None, ssl._DEFAULT_CIPHERS]
             # Implement the same defaults as the Python ssl module
             self._options = _sslcompat.OP_ALL & _sslcompat.OP_NO_SSLv2
             self._dh_params = None
