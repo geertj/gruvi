@@ -23,6 +23,15 @@ __all__ = ['get_logger']
 _logger_name = 'gruvi'
 _logger_dict = {}
 
+# Method used by patch_logger() to runtime patch our logger
+if six.PY2:
+    def _dummy_find_caller(*ignored):
+        return ('(unknown file)', 0, '(unknown function)')
+else:
+    def _dummy_find_caller(*ignored):
+        return ('(unknown file)', 0, '(unknown function)', None)
+
+
 def get_logger(context='', name=None):
     """Return a logger for *context*.
 
@@ -39,26 +48,18 @@ def get_logger(context='', name=None):
     elif not isinstance(context, six.string_types):
         context = util.objref(context)
     logger = logging.getLogger(name)
-    patch_logger(logger)
+    # The Logger.findCaller() is used by the various logging methods to find
+    # out the function name and line number of our caller.
+    # Since our logging adapter has a way to print out caller information *if
+    # and only if* debugging is enabled, we don't need this information, and
+    # therefore we patch out this funtion with an no-op.
+    # The benefit is that if and when we support PyPy, we don't have the
+    # slowdown.
+    logger.findCaller = _dummy_find_caller
     logger = ContextLogger(logger, context)
     if not context:
         _logger_dict[name] = logger
     return logger
-
-
-def patch_logger(logger):
-    """Replace the ``findCaller()`` method of *logger* with a nop.
-
-    This method uses :func:`sys._getframe` to look up the name and line number
-    of its caller, causing a huge slowdown on PyPy.
-
-    This function is used when debugging is not enabled.
-    """
-    if logger.findCaller is not logging.Logger.findCaller:
-        return
-    def findCaller(self, stack_info=False):
-        return ('(unknown file)', 0, '(unknown function)', None)
-    logger.findCaller = findCaller
 
 
 class ContextLogger(object):
