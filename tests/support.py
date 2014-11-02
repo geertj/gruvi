@@ -47,7 +47,10 @@ def setup_logging():
     if logger.handlers:
         return
     logger.setLevel(get_log_level())
-    handler = logging.StreamHandler(sys.stdout)
+    if int(os.environ.get('LOG_DEVNULL', '0')):
+        handler = logging.StreamHandler(open(os.devnull, 'w'))
+    else:
+        handler = logging.StreamHandler(sys.stdout)
     template = '%(levelname)s %(message)s'
     handler.setFormatter(logging.Formatter(template))
     logger.addHandler(handler)
