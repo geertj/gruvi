@@ -89,3 +89,36 @@ The setup metadata used during the build process is captured and exposed as:
 .. attribute:: gruvi.version_info
 
     A dictionary with version information from ``setup.py``.
+
+Reference Counting
+==================
+
+Memory management and the freeing of unused resources in Gruvi requires a
+little cooperation from the programmer. In summary, if a object has a
+``close()`` method, you should call it before you are done with the object.
+You should never expect it to be called automatically for you by a destructor.
+If you do not call a ``close()`` method, then the memory associated with the
+object will likely not be fully reclaimed.
+
+The reason for this behavior is as follows. Gruvi, as an event-based IO
+library, uses a central event loop. The event loop contains a reference to all
+objects for which Gruvi interested in getting events. These events are
+registered as callbacks back into Gruvi objects. The event loop is provided by
+libuv, through the pyuv bindings. The libuv framework calls these objects
+"handles".
+
+Gruvi provides many objects that wrap a pyuv handle. For example, there are
+objects for a TCP socket or a process. These objects contain a reference to a
+pyuv handle, and while the handle is active, it has a callback back into the
+Gruvi object itself. This forms a cyclic reference in which destructors are not
+called. This means destructors cannot be used to call ``close()`` methods
+automatically.
+
+Some magic could be done by using weak references. However, the fact remains
+that a libuv handle will not be released until it is deactivated (and there's
+`good reasons`_ for that behavior). So even with weak references, you would
+still be required to call ``close()``, making the whole point of them moot.
+Don't be too concerned though, you will see that in practice it is not a big
+deal.
+
+.. _`good reasons`: https://github.com/saghul/pyuv/issues/63
