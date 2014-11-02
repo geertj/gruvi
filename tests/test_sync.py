@@ -320,7 +320,7 @@ class TestEvent(UnitTest):
             thread = threading.Thread(target=run_thread)
             thread.start()
             threads.append(thread)
-        gruvi.sleep(0.2)
+        gruvi.sleep(0.5)
         event.set()
         for thread in threads:
             thread.join()
