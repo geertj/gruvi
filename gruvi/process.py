@@ -11,7 +11,6 @@ from __future__ import absolute_import, print_function
 import os
 import signal
 import six
-import warnings
 from io import TextIOWrapper
 
 import pyuv
@@ -68,24 +67,6 @@ class Process(Endpoint):
         self._exit_status = None
         self._term_signal = None
         self._callbacks = None
-
-    def __del__(self):
-        # Try to clean up in case Process.close() was not called.
-        if self._process is None:
-            return
-        warnings.warn('Process.close() not called for {!r}'.format(self), ResourceWarning)
-        # Don't call self.close() because that waits for the handles to be
-        # freed which we don't want to do in a destructor.
-        if not self._process.closed:
-            self._process.close()
-        if self._stdin:
-            self._stdin[1].close()
-        if self._stdout:
-            self._stdout[1].close()
-        if self._stderr:
-            self._stderr[1].close()
-        self._process = None
-        self._stdin = self._stdout = self._stderr = None
 
     def _create_protocol(self):
         # Protocol for stdin/stdout/stderr
@@ -284,9 +265,7 @@ class Process(Endpoint):
     def close(self):
         """Close the process and frees its associated resources.
 
-        This waits for the resources to be freed by the libuv event loop. If
-        the *daemon* argument was set in the construtor, this also terminates
-        the child process and waits for it to exit.
+        This method waits for the resources to be freed by the event loop.
         """
         if self._process is None:
             return
@@ -365,12 +344,16 @@ class Process(Endpoint):
         def writer(stream, data):
             offset = 0
             while offset < len(data):
-                offset += stream.write(data[offset:])
+                buf = data[offset:offset+4096]
+                stream.write(buf)
+                offset += len(buf)
             stream.close()
         def reader(stream, data):
-            readfrom = (lambda s: s.read(4096)) if self._encoding else (lambda s: s.read1())
             while True:
-                buf = readfrom(stream)
+                if self._encoding:
+                    buf = stream.read(4096)
+                else:
+                    buf = stream.read1()
                 if not buf:
                     break
                 data.append(buf)

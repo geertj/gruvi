@@ -14,8 +14,8 @@ import time
 import signal
 import locale
 import unittest
-import pyuv
 
+import pyuv
 import gruvi
 from gruvi.hub import get_hub
 from gruvi.errors import Timeout
@@ -56,6 +56,7 @@ class TestProcess(UnitTest):
         proc.spawn('true')
         proc.wait()
         self.assertEqual(proc.returncode, 0)
+        self.assertRaises(RuntimeError, proc.spawn, 'true')
         proc.close()
         proc.spawn('false')
         proc.wait()
@@ -178,6 +179,15 @@ class TestProcess(UnitTest):
         self.assertEqual(proc.returncode, 0)
         proc.close()
 
+    def test_wait_timeout(self):
+        # Ensure that wait() honors its "timeout" argument.
+        proc = Process()
+        proc.spawn(['sleep', '10'])
+        self.assertRaises(Timeout, proc.wait, 0.1)
+        proc.terminate()
+        proc.wait()
+        proc.close()
+
     def test_stdout(self):
         # Ensure that it's possible to capure stdout using stdout=PIPE
         proc = Process()
@@ -295,6 +305,7 @@ class TestProcess(UnitTest):
         proc.terminate()
         proc.wait()
         self.assertEqual(proc.returncode, -signal.SIGTERM)
+        proc.terminate()  # should not error
         proc.close()
 
     def test_child_exited(self):
@@ -337,6 +348,48 @@ class TestProcess(UnitTest):
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(result[0], nbytes)
         self.assertEqual(result[1], nbytes)
+        proc.close()
+
+    def test_communicate(self):
+        # Test that communicate() works
+        proc = Process()
+        proc.spawn('catn', stdin=PIPE, stdout=PIPE)
+        buf = b'x' * 1024
+        stdout, stderr = proc.communicate(buf)
+        self.assertEqual(stdout, buf)
+        self.assertEqual(len(stderr), 0)
+        self.assertEqual(proc.returncode, 0)
+        proc.close()
+
+    def test_communicate_stderr(self):
+        # Test that communicate() works with stderr
+        proc = Process()
+        proc.spawn(['catn', '0', '2'], stdin=PIPE, stderr=PIPE)
+        buf = b'x' * 1024
+        stdout, stderr = proc.communicate(buf)
+        self.assertEqual(len(stdout), 0)
+        self.assertEqual(stderr, buf)
+        self.assertEqual(proc.returncode, 0)
+        proc.close()
+
+    def test_communicate_timeout(self):
+        # Test that communicate() honors its "timeout" argument
+        proc = Process()
+        proc.spawn(['sleep', '10'], stdin=PIPE, stdout=PIPE)
+        buf = b'x' * 1024
+        self.assertRaises(Timeout, proc.communicate, buf, timeout=0.1)
+        proc.terminate()
+        proc.wait()
+        proc.close()
+
+    def test_no_child(self):
+        # Test method behavior when there is no child.
+        proc = Process()
+        self.assertIsNone(proc.pid)
+        self.assertRaises(RuntimeError, proc.send_signal, signal.SIGTERM)
+        self.assertRaises(RuntimeError, proc.terminate)
+        self.assertRaises(RuntimeError, proc.wait)
+        self.assertRaises(RuntimeError, proc.communicate)
         proc.close()
 
 
