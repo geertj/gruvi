@@ -1,4 +1,4 @@
 cffi >= 0.8
 fibers >= 0.4
-git+https://github.com/saghul/pyuv.git@pyuv-1.0.0.dev1#egg=pyuv
+pyuv >= 1.0
 six

@@ -72,8 +72,8 @@ def getaddrinfo(node, service=0, family=0, socktype=0, protocol=0, flags=0, time
     """
     hub = get_hub()
     with switch_back(timeout) as switcher:
-        request = pyuv.util.getaddrinfo(hub.loop, switcher, node, service, family,
-                                        socktype, protocol, flags)
+        request = pyuv.dns.getaddrinfo(hub.loop, switcher, node, service, family,
+                                       socktype, protocol, flags)
         switcher.add_cleanup(request.cancel)
         result = hub.switch()
     result, error = result[0]
@@ -94,7 +94,7 @@ def getnameinfo(sockaddr, flags=0, timeout=30):
     """
     hub = get_hub()
     with switch_back(timeout) as switcher:
-        request = pyuv.util.getnameinfo(hub.loop, switcher, sockaddr, flags)
+        request = pyuv.dns.getnameinfo(hub.loop, switcher, sockaddr, flags)
         switcher.add_cleanup(request.cancel)
         result = hub.switch()
     result, error = result[0]
