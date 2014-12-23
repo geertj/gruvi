@@ -130,19 +130,17 @@ typedef struct
 } PySSLObject;
 
 
-#if PY_MAJOR_VERSION == 3
-#  define CHECK_SSL_OBJ(obj) \
-    do { \
-        if (strcmp(Py_TYPE(obj)->tp_name, "_ssl._SSLSocket")) \
-            RETURN_ERROR("expecting a _ssl._SSLSocket instance"); \
-    } while (0)
-#elif PY_MAJOR_VERSION == 2
-#  define CHECK_SSL_OBJ(obj) \
-    do { \
-        if (strcmp(Py_TYPE(obj)->tp_name, "ssl.SSLContext")) \
-            RETURN_ERROR("expecting a ssl.SSLContext instance"); \
-    } while (0)
+#if PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION == 7 && PY_MICRO_VERSION < 9
+#  define SSL_OBJ_NAME "ssl.SSLContext"
+#else
+#  define SSL_OBJ_NAME "_ssl._SSLSocket"
 #endif
+
+#define CHECK_SSL_OBJ(obj) \
+    do { \
+        if (strcmp(Py_TYPE(obj)->tp_name, SSL_OBJ_NAME)) \
+            RETURN_ERROR("expecting a " SSL_OBJ_NAME " instance"); \
+    } while (0)
 
 
 /* MemoryBIO type */
