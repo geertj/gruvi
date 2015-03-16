@@ -21,6 +21,7 @@ import fibers
 from . import logging, compat, util
 from .errors import Timeout
 from .callbacks import add_callback, run_callbacks
+from .poll import Poller
 
 __all__ = ['switchpoint', 'assert_no_switchpoints', 'switch_back', 'get_hub',
            'Hub', 'sleep']
@@ -272,6 +273,7 @@ class Hub(fibers.Fiber):
         self._log.debug('new Hub for {.name}', threading.current_thread())
         self._closing = False
         self._error = None
+        self._poll = Poller(self)
 
     @property
     def loop(self):
@@ -285,6 +287,12 @@ class Hub(fibers.Fiber):
 
         Keys starting with ``'gruvi:'`` are reserved for internal use."""
         return self._data
+
+    @property
+    def poll(self):
+        """A centrally managed poller that can be used install callbacks for
+        file descriptor readiness events."""
+        return self._poll
 
     def _on_sigint(self, h, signo):
         # SIGINT handler. Terminate the hub and switch back to the root, where
@@ -321,6 +329,7 @@ class Hub(fibers.Fiber):
         if self._loop is None:
             return
         self._closing = True
+        self._poll.close()
         self._stop_loop()
 
     def run(self):

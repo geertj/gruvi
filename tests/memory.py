@@ -28,7 +28,7 @@ class TestMemory(MemoryTest):
         self.add_result(sizeof(gruvi.assert_no_switchpoints(), exclude=('_hub',)))
 
     def mem_hub(self):
-        self.add_result(sizeof(gruvi.Hub(), exclude=('_log', '_thread')))
+        self.add_result(sizeof(gruvi.Hub(), exclude=('_log', '_thread', '_poll')))
 
     def mem_lock(self):
         self.add_result(sizeof(gruvi.Lock()))
