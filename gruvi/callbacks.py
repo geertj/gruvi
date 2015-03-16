@@ -14,8 +14,8 @@ from . import logging
 # a few utility functions to do this in an efficient way.
 #
 # Callbacks are stored in a linked list. This allows to iterate over them in
-# insertion order and removal from the middle if the node that is holding the
-# callback is kept.
+# insertion order and also allows removal from the middle assuming the node
+# handle is kept by the caller.
 
 # Linked list implementation:
 
@@ -45,10 +45,12 @@ if __debug__:
             assert dll._size == 0
             return
         node = dll.first
+        assert node._list is dll
         assert node._prev is None
         nnode = node._next
         count = 1
         while nnode is not None:
+            assert nnode._list is dll
             assert nnode._prev is node
             node, nnode = nnode, nnode._next
             count += 1
@@ -59,11 +61,12 @@ if __debug__:
 class Node(object):
     """A node in a doubly linked list."""
 
-    __slots__ = ('_prev', '_next', 'callback', 'args')
+    __slots__ = ('_prev', '_next', '_list', 'callback', 'args')
 
     def __init__(self, callback=None, args=None):
         self._prev = None
         self._next = None
+        self._list = None
         self.callback = callback
         self.args = args
 
@@ -91,10 +94,20 @@ class dllist(object):
     def __len__(self):
         return self._size
 
+    def __contains__(self, node):
+        """Return whether *node* is contained in the list."""
+        if not isinstance(node, Node):
+            raise TypeError('expecting Node instance')
+        return node._list is self
+
     def remove(self, node):
         """Remove a node from the list."""
-        if node is None or node._prev == -1:
+        if not isinstance(node, Node):
+            raise TypeError('expecting Node instance')
+        if node._list is None:
             return
+        if node._list is not self:
+            raise RuntimeError('node is not contained in list')
         if node._next is None:
             self._last = node._prev  # last node
         else:
@@ -103,11 +116,16 @@ class dllist(object):
             self._first = node._next  # first node
         else:
             node._prev._next = node._next
-        node._prev = node._next = -1
+        node._list = node._prev = node._next = None
         self._size -= 1
 
     def insert(self, node, before=None):
-        """Create a new node with *value* and insert it before *before*."""
+        """Insert a new node in the list.
+
+        If *before* is specified, the new node is inserted before this node.
+        Otherwise, the node is inserted at the end of the list.
+        """
+        node._list = self
         if self._first is None:
             self._first = self._last = node  # first node in list
             self._size += 1
@@ -138,6 +156,15 @@ class dllist(object):
             next_node = node._next
             yield node
             node = next_node
+
+    def clear(self):
+        """Remove all nodes from the list."""
+        node = self._first
+        while node is not None:
+            next_node = node._next
+            node._list = node._prev = node._next = None
+            node = next_node
+        self._size = 0
 
 
 # Callback utilities. These utilities add some more optimizations.
@@ -177,6 +204,17 @@ def remove_callback(obj, handle):
             obj._callbacks = None
 
 
+def has_callback(obj, handle):
+    """Return whether a callback is currently registered for an object."""
+    callbacks = obj._callbacks
+    if not callbacks:
+        return False
+    if isinstance(callbacks, Node):
+        return handle is callbacks
+    else:
+        return handle in callbacks
+
+
 def pop_callback(obj):
     """Pop a single callback."""
     callbacks = obj._callbacks
@@ -193,7 +231,16 @@ def pop_callback(obj):
     return node.callback, node.args
 
 
-def walk_callbacks(obj, func, n=-1, log=None, keep=False):
+def clear_callbacks(obj):
+    """Remove all callbacks from an object."""
+    callbacks = obj._callbacks
+    if isinstance(callbacks, dllist):
+        # Help the garbage collector by clearing all links.
+        callbacks.clear()
+    obj._callbacks = None
+
+
+def walk_callbacks(obj, func, n=-1, log=None):
     """Call func(callback, args) for all callbacks and keep only those
     callbacks for which the function returns True."""
     callbacks = obj._callbacks
@@ -224,13 +271,13 @@ def walk_callbacks(obj, func, n=-1, log=None, keep=False):
                 if log is None:
                     log = logging.get_logger()
                 log.exception('uncaught exception in callback')
-        if not keep and not callbacks:
+        if not callbacks:
             obj._callbacks = None
     return count
 
 
-def run_callbacks(obj, n=-1, log=None, keep=False):
+def run_callbacks(obj, n=-1, log=None):
     """Run callbacks."""
     def run_callback(callback, args):
         callback(*args)
-    return walk_callbacks(obj, run_callback, n, log, keep)
+    return walk_callbacks(obj, run_callback, n, log)

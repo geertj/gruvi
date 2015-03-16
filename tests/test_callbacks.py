@@ -14,6 +14,7 @@ from gruvi.callbacks import dllist, Node
 from gruvi.callbacks import check as check_dllist
 from gruvi.callbacks import add_callback, remove_callback, pop_callback
 from gruvi.callbacks import walk_callbacks, run_callbacks
+from gruvi.callbacks import has_callback, clear_callbacks
 from support import UnitTest
 
 
@@ -41,6 +42,7 @@ class TestDllist(UnitTest):
         self.assertIs(dll.first, n1)
         self.assertIs(dll.last, n1)
         self.assertEqual(len(dll), 1)
+        self.assertIn(n1, dll)
         check_dllist(dll)
         # insert second at end
         n2 = Node('bar')
@@ -48,6 +50,7 @@ class TestDllist(UnitTest):
         self.assertIs(dll.first, n1)
         self.assertIs(dll.last, n2)
         self.assertEqual(len(dll), 2)
+        self.assertIn(n2, dll)
         check_dllist(dll)
         # insert in middle
         n3 = Node('baz')
@@ -55,24 +58,28 @@ class TestDllist(UnitTest):
         self.assertIs(dll.first, n1)
         self.assertIs(dll.last, n2)
         self.assertEqual(len(dll), 3)
+        self.assertIn(n3, dll)
         check_dllist(dll)
         # remove middle
         dll.remove(n3)
         self.assertIs(dll.first, n1)
         self.assertIs(dll.last, n2)
         self.assertEqual(len(dll), 2)
+        self.assertNotIn(n3, dll)
         check_dllist(dll)
         # remove first
         dll.remove(n1)
         self.assertIs(dll.first, n2)
         self.assertIs(dll.last, n2)
         self.assertEqual(len(dll), 1)
+        self.assertNotIn(n1, dll)
         check_dllist(dll)
         # remove remaining element
         dll.remove(n2)
         self.assertIsNone(dll.first)
         self.assertIsNone(dll.last)
         self.assertEqual(len(dll), 0)
+        self.assertNotIn(n2, dll)
         check_dllist(dll)
 
     def test_iter(self):
@@ -86,6 +93,32 @@ class TestDllist(UnitTest):
             self.assertEqual(node.callback, value)
             value += 1
         check_dllist(dll)
+
+    def test_args(self):
+        dll = dllist()
+        def callback():
+            pass
+        n1 = Node(callback)
+        self.assertEqual(n1.callback, callback)
+        self.assertIsNone(n1.args)
+        dll.insert(n1)
+        n2 = Node(callback, 'foo')
+        self.assertIs(n2.callback, callback)
+        self.assertEqual(n2.args, 'foo')
+        dll.insert(n2)
+        nodes = list(dll)
+        self.assertEqual(nodes[0].callback, callback)
+        self.assertIsNone(nodes[0].args)
+        self.assertEqual(nodes[1].callback, callback)
+        self.assertEqual(nodes[1].args, 'foo')
+
+    def test_clear(self):
+        dll = dllist()
+        for i in range(10):
+            dll.insert(Node(i))
+        self.assertEqual(len(dll), 10)
+        dll.clear()
+        self.assertEqual(len(dll), 0)
 
     def test_many_nodes(self):
         nodes = []
@@ -182,6 +215,29 @@ class TestCallbacks(UnitTest):
         for i in range(5):
             self.assertEqual(len(obj._callbacks), 5-i)
             remove_callback(obj, handles[i])
+        self.assertIsNone(obj._callbacks)
+
+    def test_has_callback(self):
+        obj = Object()
+        def callback():
+            pass
+        n1 = add_callback(obj, callback)
+        self.assertTrue(has_callback(obj, n1))
+        n2 = add_callback(obj, callback)
+        self.assertTrue(has_callback(obj, n2))
+        remove_callback(obj, n2)
+        self.assertFalse(has_callback(obj, n2))
+        remove_callback(obj, n1)
+        self.assertFalse(has_callback(obj, n1))
+
+    def test_clear_callbacks(self):
+        obj = Object()
+        def callback():
+            pass
+        for i in range(10):
+            add_callback(obj, callback)
+        self.assertEqual(len(obj._callbacks), 10)
+        clear_callbacks(obj)
         self.assertIsNone(obj._callbacks)
 
     def test_run_one(self):
