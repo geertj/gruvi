@@ -345,7 +345,7 @@ class SslTransport(Transport):
                 del self._write_backlog[0]
                 self._write_buffer_size -= offset
         except ssl.SSLError as e:
-            self._log.warning('SSL error {} (reason {})', e.errno, e.reason)
+            self._log.warning('SSL error {} (reason {})', e.errno, e.reason, exc_info=True)
             self._error = e
             self.abort()
 
@@ -378,8 +378,7 @@ class SslTransport(Transport):
                         self.close()
         except ssl.SSLError as e:
             self._log.warning('SSL error {} (reason {})', e.errno,
-                              getattr(e, 'reason', 'unknown'))
-            print(repr(e))
+                              getattr(e, 'reason', 'unknown'), exc_info=True)
             self._error = e
             self.abort()
         # Process write backlog. A read could have unblocked a write.
