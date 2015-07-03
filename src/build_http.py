@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2015 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -11,10 +11,22 @@ from __future__ import absolute_import, print_function
 import os.path
 from cffi import FFI
 
-__all__ = []
+parent, _ = os.path.split(os.path.abspath(__file__))
+topdir, _ = os.path.split(parent)
 
 
 ffi = FFI()
+
+ffi.set_source('http_ffi', """
+    #include <stdlib.h>
+    #include "src/http_parser.h"
+    #include "src/http_parser.c"
+
+    unsigned char http_message_type(http_parser *p) { return p->type; }
+    unsigned char http_errno(http_parser *p) { return p->http_errno; }
+    unsigned char http_is_upgrade(http_parser *p) { return p->upgrade; }
+""", include_dirs=[topdir])
+
 ffi.cdef("""
     typedef struct http_parser http_parser;
     typedef struct http_parser_settings http_parser_settings;
@@ -63,16 +75,5 @@ ffi.cdef("""
 """)
 
 
-parent, _ = os.path.split(os.path.abspath(__file__))
-topdir, _ = os.path.split(parent)
-
-lib = ffi.verify("""
-    #include <stdlib.h>
-    #include "src/http_parser.h"
-    #include "src/http_parser.c"
-
-    unsigned char http_message_type(http_parser *p) { return p->type; }
-    unsigned char http_errno(http_parser *p) { return p->http_errno; }
-    unsigned char http_is_upgrade(http_parser *p) { return p->upgrade; }
-
-    """, modulename='_http_ffi', ext_package='gruvi', include_dirs=[topdir])
+if __name__ == '__main__':
+    ffi.compile()

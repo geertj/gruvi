@@ -16,18 +16,6 @@ import time
 
 from setuptools import setup, Extension
 
-# CFFI is needed to call setup() and therefore it needs to be installed before
-# this setup script can be run. Look in the version history for this file for a
-# hack to install it automatically. However for now let's keep it simple and
-# just require the user to install it.
-
-try:
-    import cffi
-except ImportError:
-    sys.stderr.write('Error: CFFI (required for setup) is not available.\n')
-    sys.stderr.write('Please use "pip install cffi", or equivalent.\n')
-    sys.exit(1)
-
 
 version_info = {
     'name': 'gruvi',
@@ -75,44 +63,30 @@ def update_version():
     print('Updated _version.py')
 
 
+def get_requirements():
+    """Parse a requirements.txt file and return as a list."""
+    lines = []
+    with open(os.path.join(topdir, fname)) as fin:
+        for line in fin:
+            lines.append(line.rstrip())
+    return lines
+
+
 def main():
     os.chdir(topdir)
     update_version()
-    # Import the FFI modules without importing the package.
-    sys.path.append('gruvi')
-    try:
-        import http_ffi
-        import jsonrpc_ffi
-    except cffi.VerificationError:
-        if not sys.platform.startswith('win'):
-            raise
-        # On my Windows 7 system, the first build reproducably results in a
-        # link.exe error 1104. There multiple reports on the Internet of people
-        # running into this. It is caused by /some/ process locking an
-        # executable file (here a .pyd file created by CFFI). Different people
-        # reported success disabling different programs like a virus scanner
-        # but none of those worked for me. However, it appears that if we just
-        # try again importing the ffi modules that things *do* work. So just do
-        # that.
-        # The sleep() below isn't really necessary for me but since I don't
-        # know which program is locking the file I put it in just in case there
-        # is a race condition that for some reason I am not triggering.
-        print('Enabling workaround for link.exe error 1104')
-        time.sleep(1)
-        import http_ffi
-        import jsonrpc_ffi
-    sys.path.pop()
-    ext_modules = [http_ffi.ffi.verifier.get_extension(),
-                   jsonrpc_ffi.ffi.verifier.get_extension()]
+    ext_modules = []
     # Note that on Windows it's more involved to compile _sslcompat because
     # there's no system provided OpenSSL and you need to match the version that
     # was used to compile your Python.
     if sys.version_info[:2] < (3, 5):
-        ext_modules.append(Extension('_sslcompat', ['gruvi/_sslcompat.c'],
+        ext_modules.append(Extension('_sslcompat', ['src/sslcompat.c'],
                                      libraries=['ssl', 'crypto']))
     setup(
         packages=['gruvi', 'gruvi.txdbus'],
-        install_requires=['cffi', 'fibers', 'pyuv', 'six'],
+        setup_requires=['cffi >= 1.0.0'],
+        install_requires=get_requirements(),
+        cffi_modules=['src/build_http.py:ffi', 'src/build_jsonrpc.py:ffi'],
         ext_package='gruvi',
         ext_modules=ext_modules,
         **version_info
