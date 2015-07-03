@@ -1,5 +1,6 @@
 Changes in version 0.10.2:
 
+* New infrastructure for polling FDs.
 * Add Process.close() to explicitly close the process and stdio handles.
 * Remove redundant Process.kill() and Process.poll()
 * Use Memory BIO for faster and more compatible SSL implementation.

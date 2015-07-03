@@ -16,7 +16,7 @@ from setuptools import setup, Extension
 
 version_info = {
     'name': 'gruvi',
-    'version': '0.10.2.dev',
+    'version': '0.10.2',
     'description': 'Synchronous evented IO with pyuv and fibers',
     'author': 'Geert Jansen',
     'author_email': 'geertj@gmail.com',
