@@ -68,7 +68,7 @@ def main():
         cffi_modules=['src/build_http.py:ffi', 'src/build_jsonrpc.py:ffi'],
         ext_package='gruvi',
         ext_modules=ext_modules,
-        zip_safe=True,
+        zip_safe=False,
         **version_info
     )
 
