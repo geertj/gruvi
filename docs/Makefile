@@ -2,9 +2,9 @@
 #
 
 # You can set these variables from the command line.
-SPHINXOPTS    =
+#SPHINXOPTS    =
 SPHINXBUILD   = sphinx-build
-PAPER         =
+#PAPER         =
 BUILDDIR      = _build
 
 # Internal variables.

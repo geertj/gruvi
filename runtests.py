@@ -20,7 +20,7 @@ parser.add_argument('-v', '--verbose', help='be more verbose', action='store_tru
 parser.add_argument('-f', '--failfast', help='stop on first failure', action='store_true')
 parser.add_argument('-b', '--buffer', help='buffer stdout and stderr', action='store_true')
 parser.add_argument('suite', nargs='+', help='name of test suite to run', metavar='suite',
-                    choices=('unit', 'performance', 'memory', 'documentation', 'examples'))
+                    choices=('unit', 'performance', 'memory', 'examples'))
 args = parser.parse_args()
 
 # Change directory to tests/ irrespective of where we're called from.
@@ -28,16 +28,7 @@ topdir = os.path.split(os.path.abspath(__file__))[0]
 testdir = os.path.join(topdir, 'tests')
 os.chdir(testdir)
 
-# If running under tox, replace the entry for the current directory on sys.path
-# with the test directory. This prevents the tox runs from running in the
-# potentially unclean environment from the checkout our source tree.
-# Otherwise, if not running under tox, we want the option to run from the
-# current directory, so we add the test directory instead.
-if os.environ.get('TOX') == 'yes':
-    sys.path[0] = testdir
-else:
-    sys.path.insert(0, testdir)
-
+sys.path.insert(0, testdir)
 from support import TestCase, MemoryTest, PerformanceTest
 
 suite = TestSuite()
@@ -54,8 +45,6 @@ for name in args.suite:
         pattern = 'memory.py'
         MemoryTest.setup_loader()
         MemoryTest.start_new_results()
-    elif name == 'documentation':
-        pattern = 'documentation.py'
     elif name == 'examples':
         pattern = 'examples.py'
     loader = TestLoader()
