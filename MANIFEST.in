@@ -2,12 +2,12 @@ include setup.py release.py runtests.py
 include setup.cfg tox.ini
 include AUTHORS LICENSE README.rst MANIFEST.in TODO
 include *requirements.txt
-include gruvi/*.py gruvi/txdbus/*.py gruvi/_sslcompat.c
-include src/*py src/*.[ch]
+include lib/gruvi/*.py lib/gruvi/txdbus/*.py
+include src/*.py src/*.[ch]
 include tests/*.py
 include tests/bin/*
 exclude tests/bin/*.*
 include changelog.txt
 include docs/Makefile docs/conf.py docs/*.rst
 include examples/*.py
-exclude gruvi/__pycache__/*.c *.so
+exclude __pycache__/* *.so
