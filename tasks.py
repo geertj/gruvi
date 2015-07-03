@@ -14,8 +14,11 @@ from invoke import run, task
 @task
 def clean():
     run('find . -name __pycache__ | xargs rm -rf || :', echo=True)
-    run('find . -name *.so | xargs rm -f', echo=True)
+    run('find . -name \*.so | xargs rm -f', echo=True)
+    run('find . -name \*.pyc | xargs rm -f', echo=True)
+    run('find . -name \*.egg-info | xargs rm -rf', echo=True)
     run('rm -rf build dist', echo=True)
+    run('rm -rf docs/_build/*', echo=True)
 
 
 @task(clean)
