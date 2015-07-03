@@ -14,8 +14,8 @@ These are the design requirements that I had before creating Gruvi:
 
 * I wanted something that is based on libuv_. In my view, libuv represents the
   current state of the art with respect to asynchronous I/O libraries. It is
-  used by a few prominent open source projects including node.js_, Rust_, and
-  Julia_. Libuv offers for very good performance, low memory use, and excellent
+  used by a few prominent open source projects including node.js_and Julia_.
+  Libuv offers for very good performance, low memory use, and excellent
   platform support. The latter includes Windows, which is the weak point of all
   the other I/O libraries due its completely different IO model.
 
@@ -63,7 +63,7 @@ Platform: Linux     FAST                FAST                FAST                
 Platform: Mac OSX   FAST                FAST                FAST                FAST
 Platform: Windows   FAST (IOCP)         FAST (IOCP)         SLOW (select)       SLOW (select)
 SSL: Posix          FAST                FAST                FAST                FAST
-SSL: Windows        FAST (IOCP)         SLOW (select)       SLOW (select)       SLOW (select)
+SSL: Windows        FAST (IOCP)         FAST (IOCP 3.5+)    SLOW (select)       SLOW (select)
 SSL: Contexts       YES (also Py2.7)    YES (also Py2.6+)   NO                  NO
 HTTP                FAST (via           NO (external)       SLOW (stdlib)       SLOW (stdlib)
                     http-parser_)
@@ -179,7 +179,6 @@ The solution that Gruvi offers is two-fold:
 .. _Trollius: https://bitbucket.org/enovance/trollius
 .. _greenlet: https://pypi.python.org/pypi/greenlet
 .. _node.js: http://nodejs.org/
-.. _Rust: http://rust-lang.org/
 .. _Julia: http://julialang.org/
 .. _http-parser: https://github.com/joyent/http-parser
 .. _dnspython: http://www.dnspython.org/
