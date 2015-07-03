@@ -63,7 +63,6 @@ from .stream import StreamWriter
 from .endpoints import Client, Server, add_method, add_protocol_method
 from .stream import StreamReader
 from .http_ffi import lib, ffi
-from ._version import version_info
 
 from six.moves import http_client
 from six.moves.urllib_parse import urlsplit
@@ -645,7 +644,6 @@ class WsgiHandler(object):
         env['wsgi.multiprocess'] = True
         env['wsgi.run_once'] = False
         # Gruvi specific variables
-        env['gruvi.version'] = version_info['version']
         env['gruvi.transport'] = self._transport
         env['gruvi.protocol'] = self._protocol
         env['gruvi.sockname'] = sockname
@@ -680,7 +678,7 @@ class WsgiHandler(object):
 class HttpProtocol(MessageProtocol):
     """HTTP protocol implementation."""
 
-    identifier = '{0[name]}/{0[version]}'.format(version_info)
+    identifier = 'gruvi.http'
 
     def __init__(self, server_side, application=None, server_name=None, version='1.1',
                  timeout=None):
