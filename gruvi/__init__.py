@@ -38,8 +38,5 @@ from .http import *
 from .jsonrpc import *
 from .dbus import *
 
-from ._version import version_info
-__version__ = version_info['version']
-
 # clean up module namespace
 del sys, absolute_import, print_function

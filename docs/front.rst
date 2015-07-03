@@ -81,15 +81,6 @@ In addition the above, there are two other values for timeout arguments:
 When a timeout occurs in a function or method, a :exc:`Timeout` exception is
 raised.
 
-Version Information
-===================
-
-The setup metadata used during the build process is captured and exposed as:
-
-.. attribute:: gruvi.version_info
-
-    A dictionary with version information from ``setup.py``.
-
 Reference Counting
 ==================
 
