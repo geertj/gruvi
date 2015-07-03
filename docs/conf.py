@@ -13,6 +13,29 @@
 
 import sys, os
 
+# Mock out the C modules the documentation build depends on. That way we can
+# build the docs on readthedocs, which doesn't have a full C development
+# environment.
+#
+# See the RTD FAQ at: # http://docs.readthedocs.org/en/latest/faq.html:
+# "I get import errors on libraries that depend on C modules"
+
+try:
+    from unittest.mock import MagicMock
+except ImportError:
+    from mock import MagicMock
+
+class Mock(MagicMock):
+    @classmethod
+    def __getattr__(cls, name):
+        return Mock()
+
+def mock_c_modules():
+    for mod in ('cffi', 'pyuv'):
+        sys.modules[mod] = Mock()
+
+mock_c_modules()
+
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
@@ -70,7 +93,6 @@ def process_docstring(app, what, name, obj, options, lines):
 def setup(app):
     app.connect('autodoc-process-signature', process_signature)
     app.connect('autodoc-process-docstring', process_docstring)
-
 
 # -- General configuration -----------------------------------------------------
 

@@ -13,7 +13,6 @@ import sys
 import textwrap
 import json
 import time
-import re
 
 from setuptools import setup, Extension
 
@@ -27,13 +26,6 @@ try:
 except ImportError:
     sys.stderr.write('Error: CFFI (required for setup) is not available.\n')
     sys.stderr.write('Please use "pip install cffi", or equivalent.\n')
-    sys.exit(1)
-
-re_int = re.compile('^(\d*).*$')
-cffi_ver = tuple((int(re_int.sub('0\\1', x)) for x in cffi.__version__.split('.')))
-if cffi_ver < (0, 8):
-    sys.stderr.write('Error: CFFI (required for setup) is too old.\n')
-    sys.stderr.write('Please install at least version 0.8.\n')
     sys.exit(1)
 
 
