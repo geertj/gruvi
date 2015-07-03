@@ -62,6 +62,7 @@ def main():
                                      libraries=['ssl', 'crypto']))
     setup(
         packages=['gruvi', 'gruvi.txdbus'],
+        package_dir={'': 'lib'},
         setup_requires=['cffi >= 1.0.0'],
         install_requires=get_requirements(),
         cffi_modules=['src/build_http.py:ffi', 'src/build_jsonrpc.py:ffi'],
