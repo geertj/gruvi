@@ -26,3 +26,16 @@ def develop():
     run('python setup.py build', echo=True)
     if develop:
         run('python setup.py develop', echo=True)
+
+
+@task
+def checksdist():
+    from setup import version_info
+    run('git ls-files | sort > files.git')
+    run('rm -rf lib/*.egg-info')
+    run('python setup.py sdist >/dev/null 2>&1')
+    run('tar tfz dist/{name}-{version}.tar.gz'
+       ' | sed -e \'s/^{name}-{version}\///\' -e \'/\/$/d\' -e \'/^$/d\''
+       ' | sort > files.sdist'.format(**version_info))
+    run('diff -u files.git files.sdist || true')
+    run('rm files.git; rm files.sdist')
