@@ -13,6 +13,11 @@
 
 import sys, os
 
+# If extensions (or modules to document with autodoc) are in another directory,
+# add these directories to sys.path here. If the directory is relative to the
+# documentation root, use os.path.abspath to make it absolute, like shown here.
+sys.path.insert(0, os.path.abspath('..'))
+
 # Mock out the C modules the documentation build depends on. That way we can
 # build the docs on readthedocs, which doesn't have a full C development
 # environment.
@@ -31,15 +36,10 @@ class Mock(MagicMock):
         return Mock()
 
 def mock_c_modules():
-    for mod in ('cffi', 'pyuv'):
+    for mod in ('pyuv',):
         sys.modules[mod] = Mock()
 
 mock_c_modules()
-
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-sys.path.insert(0, os.path.abspath('..'))
 
 # Naming conflict with sphinx.
 import setup as gruvi_setup

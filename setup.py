@@ -40,9 +40,14 @@ topdir, _ = os.path.split(os.path.abspath(__file__))
 def get_requirements():
     """Parse a requirements.txt file and return as a list."""
     lines = []
-    with open(os.path.join(topdir, fname)) as fin:
+    with open(os.path.join(topdir, 'requirements.txt')) as fin:
         for line in fin:
             lines.append(line.rstrip())
+    # Workaround readthedocs issue #1401. Automake is not available in the
+    # build environment, which means pyuv cannot be compiled.
+    if os.environ.get('READTHEDOCS'):
+        lines = [line for line in lines if not line.startswith('pyuv')]
+        lines.append('mock')  # conf.py will mock out pyuv
     return lines
 
 
