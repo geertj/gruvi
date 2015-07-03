@@ -61,14 +61,6 @@ def process_signature(app, what, name, obj, options, sig, retann):
     if 'my-show-inheritance' not in options:
         options['my-show-inheritance'] = options.get('show-inheritance')
         options['show-inheritance'] = False
-    # This is another gross hack. Square brackets are used by the "method"
-    # directive to denote optional parameters. The parser in Sphinx splits the
-    # arguments by ','. If an argument looks like "foo=[]", it would be
-    # recognizes as an argument "header=" and an empty group. As an ugly hack,
-    # insert a non-printable character (ascii 1F = unit separator), so that our
-    # argument does not end with ']'. See Sphinx issue #1503
-    if sig and '[]' in sig:
-        return (sig.replace('[]', '[]\x1f'), retann)
 
 done = set()
 
