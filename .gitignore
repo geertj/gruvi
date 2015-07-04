@@ -1,6 +1,7 @@
 build/
 dist/
 trash/
+work/
 *.egg-info
 *.pyc
 *.pyo
@@ -19,3 +20,4 @@ tests/performance.txt
 header
 .coverage
 htmlcov
+.eggs
