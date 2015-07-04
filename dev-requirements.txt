@@ -7,3 +7,4 @@ detox
 invoke
 coverage
 coveralls
+twine
