@@ -10,5 +10,5 @@ env:
 install:
   - pip install tox
 script:
-  - tox -e $TOX_ENV -- -v
+  - VERBOSE=2 tox -e $TOX_ENV
   - if [ $TOX_ENV = "coverage" ]; then pip install coveralls; coveralls; fi

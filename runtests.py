@@ -16,12 +16,19 @@ from unittest import TestLoader, TextTestRunner, TestSuite
 
 
 parser = ArgumentParser()
-parser.add_argument('-v', '--verbose', help='be more verbose', action='store_true')
+parser.add_argument('-v', '--verbose', help='be more verbose', action='count', default=1)
 parser.add_argument('-f', '--failfast', help='stop on first failure', action='store_true')
 parser.add_argument('-b', '--buffer', help='buffer stdout and stderr', action='store_true')
 parser.add_argument('suite', nargs='+', help='name of test suite to run', metavar='suite',
                     choices=('unit', 'performance', 'memory', 'examples'))
 args = parser.parse_args()
+
+# $VERBOSE can override -v
+try:
+    verbose = int(os.environ['VERBOSE'])
+except (KeyError, ValueError):
+    verbose = args.verbose
+os.environ['VERBOSE'] = str(verbose)
 
 # Change directory to tests/ irrespective of where we're called from.
 topdir = os.path.split(os.path.abspath(__file__))[0]
@@ -51,8 +58,7 @@ for name in args.suite:
     tests = loader.discover('.', pattern)
     suite.addTest(tests)
 
-verbosity = 2 if args.verbose else 1
-runner = TextTestRunner(verbosity=verbosity, buffer=args.buffer, failfast=args.failfast)
+runner = TextTestRunner(verbosity=verbose, buffer=args.buffer, failfast=args.failfast)
 result = runner.run(suite)
 if result.errors or result.failures:
     sys.exit(1)
