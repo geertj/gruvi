@@ -39,3 +39,10 @@ def checksdist():
        ' | sort > files.sdist'.format(**version_info))
     run('diff -u files.git files.sdist || true')
     run('rm files.git; rm files.sdist')
+
+
+@task
+def buildwheels():
+    run('tox -e py27 -- python setup.py bdist_wheel')
+    run('tox -e py33 -- python setup.py bdist_wheel')
+    run('tox -e py34 -- python setup.py bdist_wheel')
