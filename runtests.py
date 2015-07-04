@@ -20,8 +20,11 @@ parser.add_argument('-v', '--verbose', help='be more verbose', action='count', d
 parser.add_argument('-f', '--failfast', help='stop on first failure', action='store_true')
 parser.add_argument('-b', '--buffer', help='buffer stdout and stderr', action='store_true')
 parser.add_argument('suite', nargs='+', help='name of test suite to run', metavar='suite',
-                    choices=('unit', 'performance', 'memory', 'examples'))
+                    choices=('all', 'unit', 'performance', 'memory', 'examples'))
 args = parser.parse_args()
+
+if 'all' in args.suite:
+    args.suite = ['unit', 'performance', 'memory', 'examples']
 
 # $VERBOSE can override -v
 try:
