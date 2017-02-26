@@ -724,7 +724,8 @@ class HttpProtocol(MessageProtocol):
         # Create a new CFFI http-parser and settings object that is hooked to
         # our callbacks.
         self._parser = ffi.new('http_parser *')
-        self._parser.data = ffi.new_handle(self)
+        self._chandle = ffi.new_handle(self)  # store in instance to keep alive
+        self._parser.data = self._chandle  # struct field doesn't take reference
         kind = lib.HTTP_REQUEST if self._server_side else lib.HTTP_RESPONSE
         lib.http_parser_init(self._parser, kind)
 
