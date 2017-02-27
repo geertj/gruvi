@@ -43,11 +43,6 @@ def get_requirements():
     with open(os.path.join(topdir, 'requirements.txt')) as fin:
         for line in fin:
             lines.append(line.rstrip())
-    # Workaround readthedocs issue #1401. Automake is not available in the
-    # build environment, which means pyuv cannot be compiled.
-    if os.environ.get('READTHEDOCS'):
-        lines = [line for line in lines if not line.startswith('pyuv')]
-        lines.append('mock')  # conf.py will mock out pyuv
     return lines
 
 
