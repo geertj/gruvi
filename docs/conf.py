@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.abspath('..'))
 # build the docs on readthedocs, which doesn't have a full C development
 # environment.
 #
-# See the RTD FAQ at: # http://docs.readthedocs.org/en/latest/faq.html:
+# See the RTD FAQ at: # http://docs.readthedocs.org/en/latest/faq.html
 # "I get import errors on libraries that depend on C modules"
 
 try:
@@ -30,14 +30,9 @@ try:
 except ImportError:
     from mock import MagicMock
 
-class Mock(MagicMock):
-    @classmethod
-    def __getattr__(cls, name):
-        return Mock()
-
 def mock_c_modules():
     for mod in ('pyuv',):
-        sys.modules[mod] = Mock()
+        sys.modules[mod] = MagicMock()
 
 mock_c_modules()
 
