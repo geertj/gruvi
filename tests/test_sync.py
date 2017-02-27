@@ -138,11 +138,11 @@ class TestLock(UnitTest, LockTests):
         timeouts = 0
         for i in range(count):
             # the granularity of libuv's timers is 1ms.
-            gruvi.sleep(random.randint(0, 14)/10000)
-            timeout = random.choice((None, None, None, 0.001))
+            gruvi.sleep(random.randint(0, 2) / 1000)
+            timeout = random.choice((None, 0.001))
             while not lock.acquire(timeout=timeout):
                 timeouts += 1
-            gruvi.sleep(random.randint(0, 14)/10000)
+            gruvi.sleep(random.randint(0, 2) / 1000)
             if lock._locked != 1 or lock._owner is not gruvi.current_fiber():
                 failed += 1
             lock.release()
@@ -198,19 +198,19 @@ class TestRLock(UnitTest, LockTests):
         failed = 0
         timeouts = 0
         for i in range(count):
-            gruvi.sleep(random.randint(0, 14)/10000)
-            timeout = random.choice((None, None, None, 0.001))
+            gruvi.sleep(random.randint(0, 2) / 1000)
+            timeout = random.choice((None, 0.001))
             while not lock.acquire(timeout=timeout):
                 timeouts += 1
-            gruvi.sleep(random.randint(0, 14)/10000)
+            gruvi.sleep(random.randint(0, 2) / 1000)
             if lock._locked != 1 or lock._owner is not gruvi.current_fiber():
                 failed += 1
             lock.acquire()
-            gruvi.sleep(random.randint(0, 14)/10000)
+            gruvi.sleep(random.randint(0, 2) / 1000)
             if lock._locked != 2 or lock._owner is not gruvi.current_fiber():
                 failed += 1
             lock.release()
-            gruvi.sleep(random.randint(0, 14)/10000)
+            gruvi.sleep(random.randint(0, 2) / 1000)
             if lock._locked != 1 or lock._owner is not gruvi.current_fiber():
                 failed += 1
             lock.release()
@@ -654,7 +654,7 @@ class TestQueue(UnitTest):
         def put_queue(tid, fid, count):
             for i in range(count):
                 with lock:
-                    gruvi.sleep(random.randint(0, 10)/10000)
+                    gruvi.sleep(random.randint(0, 2) / 1000)
                     queue.put((tid, fid, count))
                     reference.append((tid, fid, count))
         def get_queue(count):

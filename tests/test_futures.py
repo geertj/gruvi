@@ -6,7 +6,7 @@
 # Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
-from __future__ import absolute_import, print_function
+from __future__ import absolute_import, print_function, division
 
 import random
 import unittest
@@ -191,7 +191,7 @@ class PoolTest(object):
         # delay in double() will make the results ready out of order, but the
         # return value of map() should be in order nonetheless.
         def double(x):
-            gruvi.sleep(random.random() * 0.01)
+            gruvi.sleep(random.randint(0, 2) / 1000)
             return x*2
         result = self.pool.map(double, range(self.count))
         self.assertEqual(list(result), list(range(0, 2*self.count, 2)))
