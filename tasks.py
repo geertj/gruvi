@@ -12,7 +12,7 @@ from invoke import run, task
 
 
 @task
-def clean():
+def clean(ctx):
     run('find . -name __pycache__ | xargs rm -rf || :', echo=True)
     run('find . -name \*.so | xargs rm -f', echo=True)
     run('find . -name \*.pyc | xargs rm -f', echo=True)
@@ -22,14 +22,14 @@ def clean():
 
 
 @task(clean)
-def develop():
+def develop(ctx):
     run('python setup.py build', echo=True)
     if develop:
         run('python setup.py develop', echo=True)
 
 
 @task
-def checksdist():
+def checksdist(ctx):
     from setup import version_info
     run('git ls-files | sort > files.git')
     run('rm -rf lib/*.egg-info')
@@ -42,7 +42,7 @@ def checksdist():
 
 
 @task
-def buildwheels():
+def buildwheels(ctx):
     run('tox -e py27 -- python setup.py bdist_wheel')
     run('tox -e py33 -- python setup.py bdist_wheel')
     run('tox -e py34 -- python setup.py bdist_wheel')
