@@ -20,7 +20,7 @@ client.connect((url.hostname, port), ssl=is_ssl)
 client.request('GET', url.path or '/')
 
 response = client.getresponse()
-if not 200 <= response.status <= 299:
+if not 200 <= response.status <= 399:
     sys.stderr.write('Error: got status {}\n'.format(response.status))
     sys.exit(1)
 

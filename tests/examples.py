@@ -30,15 +30,15 @@ class TestExamples(TestCase):
 
     def test_curl(self):
         proc = Process(encoding='utf-8')
-        proc.spawn([sys.executable, 'curl.py', 'http://xkcd.org'], stdout=PIPE)
+        proc.spawn([sys.executable, 'curl.py', 'http://www.python.org'], stdout=PIPE)
         stdout, stderr = proc.communicate(timeout=30)
         self.assertEqual(proc.returncode, 0)
-        self.assertTrue('<html' in stdout)
+        self.assertEqual(stdout, '')
         proc.close()
 
     def test_curl_ssl(self):
         proc = Process(encoding='utf-8')
-        proc.spawn([sys.executable, 'curl.py', 'https://xkcd.org'], stdout=PIPE)
+        proc.spawn([sys.executable, 'curl.py', 'https://www.python.org'], stdout=PIPE)
         stdout, stderr = proc.communicate(timeout=30)
         self.assertEqual(proc.returncode, 0)
         self.assertTrue('<html' in stdout)
@@ -101,19 +101,19 @@ class TestExamples(TestCase):
 
     def test_netcat(self):
         proc = Process()
-        proc.spawn([sys.executable, '-u', 'netcat.py', 'xkcd.com', '80'], stdin=PIPE, stdout=PIPE)
-        proc.stdin.write(b'GET / HTTP/1.1\r\nHost: xkcd.com\r\nConnection: close\r\n\r\n')
+        proc.spawn([sys.executable, '-u', 'netcat.py', 'python.org', '80'], stdin=PIPE, stdout=PIPE)
+        proc.stdin.write(b'GET / HTTP/1.1\r\nHost: www.python.org\r\nConnection: close\r\n\r\n')
         result = proc.stdout.read()
-        self.assertTrue(b'<html' in result)
+        self.assertTrue(b'HTTP/1.1 301' in result)
         proc.wait(timeout=1)
         self.assertEqual(proc.returncode, 0)
         proc.close()
 
     def test_netcat_ssl(self):
         proc = Process()
-        proc.spawn([sys.executable, '-u', 'netcat.py', '--ssl', 'xkcd.com', '443'],
+        proc.spawn([sys.executable, '-u', 'netcat.py', '--ssl', 'python.org', '443'],
                    stdin=PIPE, stdout=PIPE)
-        proc.stdin.write(b'GET / HTTP/1.1\r\nHost: xkcd.com\r\nConnection: close\r\n\r\n')
+        proc.stdin.write(b'GET / HTTP/1.1\r\nHost: www.python.org\r\nConnection: close\r\n\r\n')
         result = proc.stdout.read()
         self.assertTrue(b'<html' in result)
         proc.wait(timeout=1)
