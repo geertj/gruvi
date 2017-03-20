@@ -225,11 +225,6 @@ class Hub(fibers.Fiber):
     # The hub is used by fibers to pause themselves until a wake-up condition
     # becomes true. See the documentation for switch_back for details
 
-    #: When CTRL-C is pressed, the default action taken by the Hub is to call
-    #: its own :meth:`close` method. Set this attribute to True to disable this
-    #: behavior and ignore CTRL-C instead.
-    ignore_interrupt = False
-
     def __init__(self):
         if self.parent is not None:
             raise RuntimeError('Hub must be created in the root fiber')
@@ -258,7 +253,6 @@ class Hub(fibers.Fiber):
         self._log = logging.get_logger()
         self._log.debug('new Hub for {.name}', threading.current_thread())
         self._closing = False
-        self._error = None
         self._poll = Poller(self)
 
     @property
@@ -281,13 +275,8 @@ class Hub(fibers.Fiber):
         return self._poll
 
     def _on_sigint(self, h, signo):
-        # SIGINT handler. Terminate the hub and switch back to the root, where
-        # a KeyboardInterrupt will be raised.
-        if self.ignore_interrupt:
-            self._log.debug('SIGINT received, ignoring')
-            return
-        self._log.debug('SIGINT received, delivering as KeyboardInterrupt')
-        self._error = KeyboardInterrupt('CTRL-C pressed')
+        # SIGINT handler. Terminate the hub and switch back to the root.
+        self._log.debug('SIGINT received, stopping loop')
         self.close()
 
     def _on_uncaught_exception(self, *exc_info):
@@ -361,8 +350,6 @@ class Hub(fibers.Fiber):
         self._async = None
         self._sigint = None
         self._log.debug('hub fiber terminated')
-        if self._error:
-            raise compat.saved_exc(self._error)
 
     def switch(self):
         """Switch to the hub.

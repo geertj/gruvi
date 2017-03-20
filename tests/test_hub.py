@@ -59,7 +59,7 @@ class TestHub(UnitTest):
         t1 = threading.Thread(target=send_sigint)
         t1.start()
         hub = gruvi.get_hub()
-        self.assertRaises(KeyboardInterrupt, hub.switch)
+        hub.switch()
         self.assertFalse(hub.is_alive())
         t1.join()
 
