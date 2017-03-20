@@ -367,10 +367,7 @@ class Process(Endpoint):
     # Support wait()
 
     def add_done_callback(self, callback, *args):
-        if self._child_exited.is_set():
-            callback(*args)
-            return
-        return add_callback(self, callback, args)
+        return add_callback(self._child_exited, callback, args)
 
     def remove_done_callback(self, handle):
-        remove_callback(self, handle)
+        remove_callback(self_child_exited, handle)
