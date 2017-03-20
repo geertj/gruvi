@@ -8,3 +8,4 @@ invoke
 coverage
 coveralls
 twine
+flask
