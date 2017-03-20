@@ -246,14 +246,10 @@ class JsonRpcProtocol(MessageProtocol):
     # they are dispatched.
     max_message_size = 65536
 
-    # Max messages to queue up.
-    max_queue_size = 10
-
     def __init__(self, message_handler=None, version='2.0', timeout=None):
         if version not in ('1.0', '2.0'):
             raise ValueError('version: must be "1.0" or "2.0"')
-        super(JsonRpcProtocol, self).__init__(callable(message_handler), timeout=timeout)
-        self._message_handler = message_handler
+        super(JsonRpcProtocol, self).__init__(message_handler, timeout=timeout)
         self._version = version
         self._buffer = bytearray()
         self._context = _ffi.new('struct split_context *')
@@ -261,11 +257,12 @@ class JsonRpcProtocol(MessageProtocol):
 
     def connection_made(self, transport):
         # Protocol callback
-        self._transport = transport
+        super(JsonRpcProtocol, self).connection_made(transport)
         self._writer = Stream(transport, 'w')
 
     def connection_lost(self, exc):
         # Protocol callback
+        super(JsonRpcProtocol, self).connection_lost(exc)
         for switcher in self._method_calls.values():
             switcher.throw(TransportError('connection lost'))
         self._method_calls.clear()
@@ -322,6 +319,7 @@ class JsonRpcProtocol(MessageProtocol):
             elif self._message_handler:
                 # Queue to the dispatcher
                 self._queue.put_nowait(message)
+                self._maybe_pause_transport()
             else:
                 self._log.warning('inbound {} but no message handler', mtype)
             offset = self._context.offset
@@ -330,12 +328,6 @@ class JsonRpcProtocol(MessageProtocol):
         if self._error:
             self._transport.close()
             return
-
-    def message_received(self, message):
-        # Protocol callback
-        if self._queue.qsize() < self.max_queue_size:
-            self._transport.resume_reading()
-        self._message_handler(message, self._transport, self)
 
     @switchpoint
     def send_message(self, message):
@@ -399,7 +391,7 @@ class JsonRpcClient(Client):
         handler. You need to use a message handler if you want to listen to
         notifications or you want to implement server-to-client method calls.
         If provided, the message handler it must be a callable with signature
-        ``message_handler(message, protocol)``.
+        ``message_handler(message, transport, protocol)``.
 
         The *version* argument specifies the JSON-RPC version to use. The
         *timeout* argument specifies the default timeout in seconds.

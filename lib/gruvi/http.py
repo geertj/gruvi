@@ -686,8 +686,7 @@ class HttpProtocol(MessageProtocol):
 
     # In theory, max memory is pipeline_size * (header_size + buffer_size)
 
-    def __init__(self, application=None, server_side=False, server_name=None,
-                 version='1.1', timeout=None):
+    def __init__(self, application=None, server_name=None, version='1.1', timeout=None):
         """
         The *application* argument specifies a WSGI application for this
         protocol.
@@ -699,14 +698,12 @@ class HttpProtocol(MessageProtocol):
         server side protocols. If not provided, then the socket name of the
         listening socket will be used.
         """
-        if server_side and not application:
-            raise ValueError('application is required for server-side protocol')
-        super(HttpProtocol, self).__init__(server_side, timeout=timeout)
-        self._server_side = server_side
-        self._message_handler = WsgiHandler(application) if server_side else None
-        self._server_name = server_name
         if version not in ('1.0', '1.1'):
             raise ValueError('version: unsupported version {!r}'.format(version))
+        handler = WsgiHandler(application) if application else None
+        super(HttpProtocol, self).__init__(handler, timeout=timeout)
+        self._server_side = application is not None
+        self._server_name = server_name
         self._version = version
         self._create_parser()
         self._requests = []
@@ -716,13 +713,7 @@ class HttpProtocol(MessageProtocol):
         self._error = None
 
     @property
-    def server_side(self):
-        """Return whether the protocol is server-side."""
-        return self._server_side
-
-    @property
     def server_name(self):
-        """Return the server name."""
         return self._server_name
 
     def _create_parser(self):
@@ -865,8 +856,7 @@ class HttpProtocol(MessageProtocol):
         self = ffi.from_handle(parser.data)
         self._append_header_value(b'')
         self._message.body.buffer.feed_eof()
-        if self._queue.qsize() >= self.max_pipeline_size:
-            self._transport.pause_reading()
+        self._maybe_pause_transport()
         return 0
 
     _settings = ffi.new('http_parser_settings *')
@@ -880,7 +870,7 @@ class HttpProtocol(MessageProtocol):
 
     def connection_made(self, transport):
         # Protocol callback
-        self._transport = transport
+        super(HttpProtocol, self).connection_made(transport)
         self._writer = Stream(transport, 'w')
 
     def data_received(self, data):
@@ -892,12 +882,12 @@ class HttpProtocol(MessageProtocol):
             self._error = HttpError('parse error: {}'.format(msg))
             if self._message:
                 self._message.body.buffer.feed_error(self._error)
-            self._queue.put_nowait(self._error)
             self._transport.close()
 
     def connection_lost(self, exc):
         # Protocol callback
         # Feed the EOF to the parser. It will tell us it if was unexpected.
+        super(HttpProtocol, self).connection_lost(exc)
         nbytes = lib.http_parser_execute(self._parser, self._settings, b'', 0)
         if nbytes != 0:
             msg = _cd2s(lib.http_errno_name(lib.http_errno(self._parser)))
@@ -907,15 +897,6 @@ class HttpProtocol(MessageProtocol):
             if self._message:
                 self._message.body.buffer.feed_error(exc)
         self._error = exc
-        self._transport = None
-        if not self._server_side:
-            self._queue.put_nowait(self._error)
-
-    def message_received(self, message):
-        # Protocol callback
-        if self._queue.qsize() < self.max_pipeline_size:
-            self._transport.resume_reading()
-        self._message_handler(message, self._transport, self)
 
     @switchpoint
     def request(self, method, url, headers=[], body=b''):
@@ -1054,6 +1035,5 @@ class HttpServer(Server):
         The optional *timeout* argument can be used to specify a timeout for
         the various network operations used within the server.
         """
-        protocol_factory = functools.partial(HttpProtocol, application,
-                                             server_side=True, server_name=server_name)
+        protocol_factory = functools.partial(HttpProtocol, application, server_name=server_name)
         super(HttpServer, self).__init__(protocol_factory, timeout)

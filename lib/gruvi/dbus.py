@@ -217,16 +217,12 @@ class DbusProtocol(MessageProtocol):
     # Maximum size for an authentication line
     max_line_size = 1000
 
-    # Max number of messages to queue before throttling
-    max_queue_size = 10
-
     _next_unique_name = 0
 
     S_CREDS_BYTE, S_AUTHENTICATE, S_MESSAGE_HEADER, S_MESSAGE = range(4)
 
     def __init__(self, message_handler=None, server_side=False, server_guid=None, timeout=None):
-        super(DbusProtocol, self).__init__(callable(message_handler), timeout=timeout)
-        self._message_handler = message_handler
+        super(DbusProtocol, self).__init__(message_handler, timeout=timeout)
         self._server_side = server_side
         self._name_acquired = Event()
         self._buffer = bytearray()
@@ -247,7 +243,7 @@ class DbusProtocol(MessageProtocol):
 
     def connection_made(self, transport):
         # Protocol callback
-        self._transport = transport
+        super(DbusProtocol, self).connection_made(transport)
         # The client initiates by sending a '\0' byte, as per the D-BUS spec.
         if self._server_side:
             self._state = self.S_CREDS_BYTE
@@ -260,6 +256,7 @@ class DbusProtocol(MessageProtocol):
 
     def connection_lost(self, exc):
         # Protocol callback
+        super(DbusProtocol, self).connection_lost(exc)
         if self._error is None:
             self._error = TransportError('connection lost')
         for notify in self._method_calls.values():
@@ -268,12 +265,6 @@ class DbusProtocol(MessageProtocol):
         self._method_calls.clear()
         self._name_acquired.set()
         self._authenticator = None  # break cycle
-
-    def message_received(self, message):
-        # Protocol callback
-        if self._queue.qsize() < self.max_queue_size:
-            self._transport.resume_reading()
-        self._message_handler(message, self._transport, self)
 
     def on_creds_byte(self, byte):
         if byte != 0:
@@ -408,8 +399,7 @@ class DbusProtocol(MessageProtocol):
                 offset += needbytes
                 if not self.on_message(message):
                     break
-        if self._queue.qsize() >= self.max_queue_size:
-            self._transport.pause_reading()
+        self._maybe_pause_transport()
         if self._error:
             self._transport.close()
             return

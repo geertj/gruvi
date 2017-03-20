@@ -71,7 +71,7 @@ class TestHttpProtocol(UnitTest):
     def parse_request(self, *chunks):
         # Parse the HTTP request made up of *chunks.
         transport = MockTransport()
-        protocol = HttpProtocol(self.store_request, server_side=True)
+        protocol = HttpProtocol(self.store_request)
         transport.start(protocol)
         for chunk in chunks:
             protocol.data_received(chunk)
