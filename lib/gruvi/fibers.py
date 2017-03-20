@@ -149,12 +149,13 @@ class Fiber(fibers.Fiber):
 def spawn(func, *args, **kwargs):
     """Spawn a new fiber.
 
-    A new :class:`Fiber` is created with main function *func* and supplied
-    positional and keyword arguments. The fiber is then scheduled to start by
-    calling its :meth:`~Fiber.start` method.
+    A new :class:`Fiber` is created with main function *func* and positional
+    arguments *args*. The keyword arguments are passed to the :class:`Fiber`
+    constructor, not to the main function. The fiber is then scheduled to start
+    by calling its :meth:`~Fiber.start` method.
 
     The fiber instance is returned.
     """
-    fiber = Fiber(func, args, kwargs)
+    fiber = Fiber(func, args, **kwargs)
     fiber.start()
     return fiber
