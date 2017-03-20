@@ -301,7 +301,7 @@ class TestEvent(UnitTest):
     def test_wait_timeout(self):
         event = gruvi.Event()
         self.assertFalse(event.wait(timeout=0.01))
-        self.assertIsNone(event._callbacks)
+        self.assertFalse(event._callbacks)
 
     def test_thread_safety(self):
         event = gruvi.Event()
@@ -329,7 +329,7 @@ class TestEvent(UnitTest):
         self.assertEqual(timeouts + notified, self.nthreads*self.nfibers)
         self.assertGreater(timeouts, 0)
         self.assertGreater(notified, 0)
-        self.assertIsNone(event._callbacks)
+        self.assertFalse(event._callbacks)
 
 
 class TestCondition(UnitTest):
@@ -489,7 +489,7 @@ class TestCondition(UnitTest):
         self.assertEqual(timeouts + notified, self.nthreads*self.nfibers)
         self.assertGreater(timeouts, 0)
         self.assertGreater(notified, 0)
-        self.assertIsNone(cond._callbacks)
+        self.assertFalse(cond._callbacks)
 
 
 class TestQueue(UnitTest):

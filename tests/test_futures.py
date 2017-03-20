@@ -291,14 +291,14 @@ class TestWait(UnitTest):
             self.assertFalse(fib.alive)
         # Test cleanup
         for fut in futures:
-            self.assertIsNone(fut._callbacks)
+            self.assertFalse(fut._callbacks)
 
     def test_timeout(self):
         futures = [Future() for i in range(10)]
         result = gruvi.wait(futures, timeout=0.01)
         self.assertEqual(result, ([], futures))
         for fut in futures:
-            self.assertIsNone(fut._callbacks)
+            self.assertFalse(fut._callbacks)
 
     def test_timeout_fibers(self):
         futures = [Future() for i in range(10)]
@@ -314,7 +314,7 @@ class TestWait(UnitTest):
         for res in result:
             self.assertEqual(res, ([], futures))
         for fut in futures:
-            self.assertIsNone(fut._callbacks)
+            self.assertFalse(fut._callbacks)
 
     def test_duplicate(self):
         futures = [Future()] * 5
@@ -364,7 +364,7 @@ class TestWait(UnitTest):
         self.assertEqual(objects[6].returncode, 0)
         self.assertEqual(objects[7].returncode, 0)
         for obj in objects:
-            self.assertIsNone(obj._callbacks)
+            self.assertFalse(obj._callbacks)
         objects[6].close()
         objects[7].close()
 
@@ -384,7 +384,7 @@ class TestAsCompleted(UnitTest):
                 futures[order[count]].set_result(None)
         self.assertEqual(count, len(futures))
         for fut in futures:
-            self.assertIsNone(fut._callbacks)
+            self.assertFalse(fut._callbacks)
 
     def test_partial(self):
         futures = [Future() for i in range(100)]
@@ -396,7 +396,7 @@ class TestAsCompleted(UnitTest):
             futures[count].set_result(None)
         self.assertEqual(count, 10)
         for fut in futures:
-            self.assertIsNone(fut._callbacks)
+            self.assertFalse(fut._callbacks)
 
     def test_partial_fibers(self):
         futures = [Future() for i in range(100)]
@@ -417,13 +417,13 @@ class TestAsCompleted(UnitTest):
             self.assertFalse(fib.alive)
         self.assertEqual(len(result), len(fibers)*2)
         for fut in futures:
-            self.assertIsNone(fut._callbacks)
+            self.assertFalse(fut._callbacks)
 
     def test_timeout(self):
         futures = [Future() for i in range(10)]
         self.assertRaises(Timeout, lambda: list(gruvi.as_completed(futures, timeout=0.01)))
         for fut in futures:
-            self.assertIsNone(fut._callbacks)
+            self.assertFalse(fut._callbacks)
 
     def test_timeout_fibers(self):
         futures = [Future() for i in range(10)]
@@ -442,7 +442,7 @@ class TestAsCompleted(UnitTest):
         for exc in exceptions:
             self.assertIsInstance(exc, Timeout)
         for fut in futures:
-            self.assertIsNone(fut._callbacks)
+            self.assertFalse(fut._callbacks)
 
 
 if __name__ == '__main__':

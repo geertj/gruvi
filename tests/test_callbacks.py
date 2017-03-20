@@ -305,7 +305,7 @@ class TestCallbacks(UnitTest):
         count = walk_callbacks(obj, walker)
         self.assertEqual(count, 3)
         self.assertEqual(walk, ref)
-        self.assertIsNone(obj._callbacks)
+        self.assertFalse(obj._callbacks)
 
 
 if __name__ == '__main__':
