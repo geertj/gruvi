@@ -749,7 +749,42 @@ class HttpProtocol(MessageProtocol):
     def get_read_buffer_size(self):
         return self._header_size + self._queue.qsize() + self._all_body_sizes
 
-    # Parser callbacks
+    def _append_header_field(self, buf):
+        # Add a chunk to a header field.
+        if self._header_value:
+            # This starts a new header: stash away the previous one.
+            # The header might be part of the http headers or trailers.
+            header = (_ba2s(self._header_field), _ba2s(self._header_value))
+            if self._message.body:
+                self._message.trailers.append(header)
+            else:
+                self._message.headers.append(header)
+            del self._header_field[:]
+            del self._header_value[:]
+        self._header_field.extend(buf)
+
+    def _append_header_value(self, buf):
+        # Add a chunk to a header value.
+        if buf:
+            self._header_value.extend(buf)
+            return
+        # If buf is empty, then complete a header set that is in progress.
+        # This is called by both on_headers_complete() (for http headers) and
+        # on_message_complete() (for http trailers).
+        if self._header_field:
+            header = (_ba2s(self._header_field), _ba2s(self._header_value))
+            if self._message.body:
+                self._message.trailers.append(header)
+            else:
+                self._message.headers.append(header)
+            del self._header_field[:]
+            del self._header_value[:]
+
+    # Parser callbacks. Callbacks are run in the hub fiber, so we only do
+    # parsing here. For server protocols we stash away the result in a queue
+    # to be processed in a dispatcher fiber (one per protocol).
+    #
+    # Callbacks return 0 for success, 1 for error.
 
     @ffi.callback('http_cb')
     def on_message_begin(parser):
@@ -757,8 +792,8 @@ class HttpProtocol(MessageProtocol):
         self = ffi.from_handle(parser.data)
         self._url = bytearray()
         self._header = bytearray()
-        self._field_name = bytearray()
-        self._field_value = bytearray()
+        self._header_field = bytearray()
+        self._header_value = bytearray()
         assert self._header_size == 0
         self._message = HttpMessage()
         return 0
@@ -772,44 +807,14 @@ class HttpProtocol(MessageProtocol):
         self._url.extend(ffi.buffer(at, length))
         return 0
 
-    def _complete_header_field(self, buf):
-        # Add a chunk to a header field. May need to store away a previous
-        # (field, value) pair.
-        if self._field_value:
-            # Store previous field_name, field_value pair
-            if not self._message.body:
-                self._message.headers.append((_ba2s(self._field_name),
-                                              _ba2s(self._field_value)))
-            else:
-                self._message.trailers.append((_ba2s(self._field_name),
-                                               _ba2s(self._field_value)))
-            del self._field_name[:]
-            del self._field_value[:]
-        self._field_name.extend(buf)
-
-    def _complete_header_value(self, buf):
-        # Add a chunk to a header value. If buf == b'', then complete any
-        # (field, value) pair that is in progress.
-        if buf:
-            self._field_value.extend(buf)
-        elif self._field_name:
-            if not self._message.body:
-                self._message.headers.append((_ba2s(self._field_name),
-                                              _ba2s(self._field_value)))
-            else:
-                self._message.trailers.append((_ba2s(self._field_name),
-                                               _ba2s(self._field_value)))
-            del self._field_name[:]
-            del self._field_value[:]
-
     @ffi.callback('http_data_cb')
     def on_header_field(parser, at, length):
-        # http-parser callback: got a piece of a header name
+        # http-parser callback: got a piece of a header field (name)
         self = ffi.from_handle(parser.data)
         if not self._update_header_size(length):
             return 1
         buf = ffi.buffer(at, length)
-        self._complete_header_field(buf)
+        self._append_header_field(buf)
         return 0
 
     @ffi.callback('http_data_cb')
@@ -819,7 +824,7 @@ class HttpProtocol(MessageProtocol):
         if not self._update_header_size(length):
             return 1
         buf = ffi.buffer(at, length)
-        self._complete_header_value(buf)
+        self._append_header_value(buf)
         return 0
 
     @ffi.callback('http_cb')
@@ -828,7 +833,7 @@ class HttpProtocol(MessageProtocol):
         # where we hand off the message to our consumer. Going forward,
         # on_body() will continue to write chunks of the body to message.body.
         self = ffi.from_handle(parser.data)
-        self._complete_header_value(b'')
+        self._append_header_value(b'')
         m = self._message
         m.message_type = lib.http_message_type(parser)
         m.version = '{}.{}'.format(parser.http_major, parser.http_minor)
@@ -850,7 +855,7 @@ class HttpProtocol(MessageProtocol):
         self._queue.put_nowait(m, self._header_size)
         self._header_size = 0
         # Return 1 if this is a HEAD request, 0 otherwise. This instructs the
-        # parser whether or not a body follows.
+        # parser whether or not a body follows that it needs to parse.
         if not self._requests:
             return 0
         return 1 if self._requests.pop(0) == 'HEAD' else 0
@@ -864,10 +869,10 @@ class HttpProtocol(MessageProtocol):
 
     @ffi.callback('http_cb')
     def on_message_complete(parser):
-        # http-parser callback: the body ended
+        # http-parser callback: the http request or response ended
         # complete any trailers that might be present
         self = ffi.from_handle(parser.data)
-        self._complete_header_value(b'')
+        self._append_header_value(b'')
         self._message.body.feed_eof()
         return 0
 
