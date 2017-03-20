@@ -270,5 +270,5 @@ def walk_callbacks(obj, func, log=None):
 def run_callbacks(obj, log=None):
     """Run callbacks."""
     def run_callback(callback, args):
-        callback(*args)
+        return callback(*args)
     return walk_callbacks(obj, run_callback, log)
