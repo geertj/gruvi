@@ -13,7 +13,8 @@ import threading
 import heapq
 
 from .hub import switchpoint, get_hub, switch_back, assert_no_switchpoints
-from .callbacks import add_callback, remove_callback, pop_callback, walk_callbacks
+from .callbacks import add_callback, remove_callback, pop_callback
+from .callbacks import run_callbacks, walk_callbacks
 
 __all__ = ['Lock', 'RLock', 'Event', 'Condition', 'QueueEmpty', 'QueueFull',
            'Queue', 'LifoQueue', 'PriorityQueue']
@@ -210,13 +211,8 @@ class Event(object):
             if self._flag:
                 return
             self._flag = True
-            def walker(callback, args):
-                if isinstance(callback, switch_back):
-                    callback.switch()
-                else:
-                    callback(*args)
             with assert_no_switchpoints():
-                walk_callbacks(self, walker)
+                run_callbacks(self)
 
     def clear(self):
         """Clear the internal flag."""
@@ -237,7 +233,11 @@ class Event(object):
                     # Need to check the flag again, now under the lock.
                     if self._flag:
                         return True
-                    handle = add_callback(self, switcher)
+                    # Allow other fibers to wake us up via callback in set().
+                    # The callback goes to switcher.switch directly() instead of
+                    # __call__(), because the latter would try to lock our lock
+                    # which is already held when callbacks are run by set().
+                    handle = add_callback(self, switcher.switch)
                 # See note in Lock.acquire() why we can call to hub.switch()
                 # outside the lock.
                 hub.switch()
