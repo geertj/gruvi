@@ -347,11 +347,18 @@ class Condition(object):
         """
         if not is_locked(self._lock):
             raise RuntimeError('lock is not locked')
+        notified = [0]  # Work around lack of "nonlocal" in py27
         def walker(switcher, predicate):
-            if not switcher.active or predicate and not predicate():
+            if not switcher.active:
+                return False  # not not keep switcher that timed out
+            if predicate and not predicate():
+                return True
+            if n >= 0 and notified[0] >= n:
                 return True
             switcher.switch()
-        walk_callbacks(self, walker, n)
+            notified[0] += 1
+            return False  # only notify once
+        walk_callbacks(self, walker)
 
     def notify_all(self):
         """Raise the condition and wake up all fibers waiting on it."""
