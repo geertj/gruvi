@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -36,7 +36,7 @@ def split_string(s):
     return ctx
 
 
-class TestJsonRpcFfi(UnitTest):
+class TestJsonSplitter(UnitTest):
 
     def test_simple(self):
         r = b'{ "foo": "bar" }'
@@ -208,28 +208,33 @@ class TestJsonRpcProtocol(UnitTest):
 
     def test_maximum_message_size_exceeded(self):
         proto = self.protocol
-        proto.set_read_buffer_limits(100)
+        proto.max_message_size = 100
         message = {'id': 1, 'method': 'foo', 'params': ['x'*100]}
         self.assertEqual(jsonrpc.check_message(message), '1.0')
         message = json.dumps(message).encode('utf8')
-        self.assertGreater(len(message), proto._read_buffer_high)
+        self.assertGreater(len(message), proto.max_message_size)
         proto.data_received(message)
         self.assertEqual(self.get_messages(), [])
         self.assertIsInstance(proto._error, JsonRpcError)
 
     def test_flow_control(self):
-        # Write more bytes than the protocol buffers. Flow control should kick
-        # in and alternate scheduling of the producer and the consumer.
+        # Write more messages than the protocol is willing to pipeline. Flow
+        # control should kick in and alternate scheduling of the producer and
+        # the consumer.
         proto, trans = self.protocol, self.transport
-        proto.read_buffer_size = 100
+        self.assertTrue(trans._reading)
+        proto.max_pipeline_size = 10
         message = b'{ "id": 1, "method": "foo"}'
+        interrupted = 0
         for i in range(1000):
             proto.data_received(message)
-            if not trans.reading:
+            if not trans._reading:
+                interrupted += 1
                 gruvi.sleep(0)  # run dispatcher
-            self.assertTrue(trans.reading)
+            self.assertTrue(trans._reading)
         mm = self.get_messages()
         self.assertEqual(len(mm), 1000)
+        self.assertEqual(interrupted, 100)
         message = json.loads(message.decode('utf8'))
         for m in mm:
             self.assertEqual(m, message)
@@ -381,12 +386,11 @@ class TestJsonRpc(UnitTest):
         addr = server.addresses[0]
         client = JsonRpcClient()
         client.connect(addr)
-        transport = client.connection[0]
         exc = None
         try:
             chunk = b'{' * 1024
             while True:
-                transport.write(chunk)
+                client.transport.write(chunk)
                 gruvi.sleep(0)
         except Exception as e:
             exc = e
@@ -400,12 +404,11 @@ class TestJsonRpc(UnitTest):
         addr = server.addresses[0]
         client = JsonRpcClient()
         client.connect(addr)
-        transport = client.connection[0]
         exc = None
         try:
             chunk = b' ' * 1024
             while True:
-                transport.write(chunk)
+                client.transport.write(chunk)
                 gruvi.sleep(0)
         except Exception as e:
             exc = e
@@ -419,12 +422,11 @@ class TestJsonRpc(UnitTest):
         addr = server.addresses[0]
         client = JsonRpcClient()
         client.connect(addr)
-        transport = client.connection[0]
         exc = None
         try:
             while True:
                 chunk = os.urandom(1024)
-                transport.write(chunk)
+                client.transport.write(chunk)
                 gruvi.sleep(0)
         except Exception as e:
             exc = e
@@ -436,19 +438,19 @@ class TestJsonRpc(UnitTest):
         server = JsonRpcServer(echo_app)
         server.listen(('127.0.0.1', 0))
         addr = server.addresses[0]
-        server.max_connections = 10
+        server.max_connections = 2
         clients = []
         exc = None
         try:
-            for i in range(15):
+            for i in range(3):
                 client = JsonRpcClient(timeout=2)
                 client.connect(addr)
                 client.call_method('echo')
                 clients.append(client)
         except Exception as e:
             exc = e
-        self.assertIsInstance(exc, TransportError)
-        self.assertLessEqual(len(server.connections), server.max_connections)
+        #self.assertIsInstance(exc, TransportError)
+        self.assertEqual(len(server.connections), server.max_connections)
         for client in clients:
             client.close()
         server.close()

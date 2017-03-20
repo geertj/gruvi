@@ -57,8 +57,9 @@ import six
 from . import compat
 from .hub import switchpoint, switch_back
 from .util import delegate_method
+from .transports import TransportError
 from .protocols import ProtocolError, MessageProtocol
-from .stream import StreamWriter
+from .stream import Stream
 from .endpoints import Client, Server
 from .address import saddr
 from .jsonrpc_ffi import lib as _lib, ffi as _ffi
@@ -239,10 +240,13 @@ def create_notification(method, args=[], version='2.0'):
 class JsonRpcProtocol(MessageProtocol):
     """JSON-RPC protocol."""
 
-    # Read buffer size is also the max message size
-    # Total buffer size (split buffer + queue) may grow up to high watermark +
-    # read_buffer_size.
-    read_buffer_size = 65536
+    # Any message larger than this and the connection is dropped.
+    # This can be increased, but do note that message are kept in memory until
+    # they are dispatched.
+    max_message_size = 65536
+
+    # Max messages to queue up.
+    max_queue_size = 10
 
     def __init__(self, message_handler=None, version='2.0', timeout=None):
         super(JsonRpcProtocol, self).__init__(callable(message_handler), timeout=timeout)
@@ -255,22 +259,17 @@ class JsonRpcProtocol(MessageProtocol):
 
     def connection_made(self, transport):
         # Protocol callback
-        super(JsonRpcProtocol, self).connection_made(transport)
-        self._writer = StreamWriter(transport, self)
+        self._transport = transport
+        self._writer = Stream(transport, 'w')
 
     def connection_lost(self, exc):
         # Protocol callback
-        super(JsonRpcProtocol, self).connection_lost(exc)
         for switcher in self._method_calls.values():
-            switcher.throw(self._error)
+            switcher.throw(self._error or TransportError('connection lost'))
         self._method_calls.clear()
         if self._tracefile:
             self._tracefile.close()
             self._tracefile = None
-
-    def get_read_buffer_size(self):
-        # Return the size of the read buffer
-        return len(self._buffer) + self._queue.qsize()
 
     def _set_buffer(self, data):
         # Note: "struct split_context" does not keep a reference to its fields!
@@ -283,16 +282,15 @@ class JsonRpcProtocol(MessageProtocol):
         # Protocol callback
         self._set_buffer(data)
         offset = 0
-        # Use the CFFI JSON splitter to delineate a single JSON dictionary from
-        # the input stream. Then decode, parse and check it.
+        # Use the CFFI JSON splitter to delineate JSON messages in the input
+        # stream. Then decode, parse and check it.
         while offset != len(data):
             error = _lib.json_split(self._context)
             if error and error != _lib.INCOMPLETE:
                 self._error = JsonRpcError('json_split() error: {}'.format(error))
                 break
             size = len(self._buffer) + self._context.offset - offset
-            if size > self._read_buffer_high or size == self._read_buffer_high \
-                            and error == _lib.INCOMPLETE:
+            if size > self.max_message_size:
                 self._error = JsonRpcError('message too large')
                 break
             if error == _lib.INCOMPLETE:
@@ -328,17 +326,20 @@ class JsonRpcProtocol(MessageProtocol):
                 switcher(message)
             elif self._message_handler:
                 # Queue to the dispatcher
-                self._queue.put_nowait(message, size=size)
+                self._queue.put_nowait(message)
             else:
                 self._log.warning('inbound {} but no message handler', mtype)
             offset = self._context.offset
+        if self._queue.qsize() >= self.max_queue_size:
+            self._transport.pause_reading()
         if self._error:
             self._transport.close()
             return
-        self.read_buffer_size_changed()
 
     def message_received(self, message):
         # Protocol callback
+        if self._queue.qsize() < self.max_queue_size:
+            self._transport.resume_reading()
         self._message_handler(message, self._transport, self)
 
     def _set_tracefile(self, tracefile):
@@ -354,7 +355,6 @@ class JsonRpcProtocol(MessageProtocol):
         The *message* argument must be a dictionary, and must be a valid
         JSON-RPC message.
         """
-        self._may_write.wait()
         if self._error:
             raise compat.saved_exc(self._error)
         elif self._transport is None:

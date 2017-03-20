@@ -61,8 +61,9 @@ from . import txdbus, compat
 from .hub import switchpoint, switch_back
 from .util import delegate_method
 from .sync import Event
+from .transports import TransportError
 from .protocols import ProtocolError, MessageProtocol
-from .stream import StreamWriter
+from .stream import Stream
 from .endpoints import Client, Server
 from .address import saddr
 
@@ -210,10 +211,13 @@ class DbusProtocol(MessageProtocol):
 
     # According to the D-BUS spec the max message size is 128MB. However since
     # we want to limited memory usage we are much more conservative here.
-    read_buffer_size = 128*1024
+    max_message_size = 128*1024
 
     # Maximum size for an authentication line
     max_line_size = 1000
+
+    # Max number of messages to queue before throttling
+    max_queue_size = 10
 
     _next_unique_name = 0
 
@@ -242,20 +246,21 @@ class DbusProtocol(MessageProtocol):
 
     def connection_made(self, transport):
         # Protocol callback
-        super(DbusProtocol, self).connection_made(transport)
+        self._transport = transport
         # The client initiates by sending a '\0' byte, as per the D-BUS spec.
         if self._server_side:
             self._state = self.S_CREDS_BYTE
         else:
             self._state = self.S_AUTHENTICATE
             self._transport.write(b'\0')
-        self._writer = StreamWriter(transport, self)
+        self._writer = Stream(transport, 'w')
         self._authenticator = TxdbusAuthenticator(transport, self._server_side, self._server_guid)
         self._message_size = 0
 
     def connection_lost(self, exc):
         # Protocol callback
-        super(DbusProtocol, self).connection_lost(exc)
+        if self._error is None:
+            self._error = TransportError('connection lost')
         for notify in self._method_calls.values():
             if isinstance(notify, switch_back):
                 notify.throw(self._error)
@@ -265,11 +270,9 @@ class DbusProtocol(MessageProtocol):
 
     def message_received(self, message):
         # Protocol callback
+        if self._queue.qsize() < self.max_queue_size:
+            self._transport.resume_reading()
         self._message_handler(message, self._transport, self)
-
-    def get_read_buffer_size(self):
-        # Return the size of the read buffer.
-        return len(self._buffer) + self._queue.qsize()
 
     def on_creds_byte(self, byte):
         if byte != 0:
@@ -320,7 +323,7 @@ class DbusProtocol(MessageProtocol):
         except ValueError:
             self._error = DbusError('invalid message header')
             return False
-        if size > self._read_buffer_high:
+        if size > self.max_message_size:
             self._error = DbusError('message too large ({} bytes)'.format(size))
             return False
         self._message_size = size
@@ -351,7 +354,7 @@ class DbusProtocol(MessageProtocol):
             notify = self._method_calls.pop(parsed.reply_serial)
             notify(parsed)
         elif self._dispatcher:
-            self._queue.put_nowait(parsed, len(message))
+            self._queue.put_nowait(parsed)
         else:
             mtype = type(parsed).__name__[:-7].lower()
             info = ' {!r}'.format(getattr(parsed, 'member', getattr(parsed, 'error_name', '')))
@@ -404,10 +407,11 @@ class DbusProtocol(MessageProtocol):
                 offset += needbytes
                 if not self.on_message(message):
                     break
+        if self._queue.qsize() >= self.max_queue_size:
+            self._transport.pause_reading()
         if self._error:
             self._transport.close()
             return
-        self.read_buffer_size_changed()
 
     @switchpoint
     def get_unique_name(self):
@@ -429,7 +433,6 @@ class DbusProtocol(MessageProtocol):
             raise TypeError('message: expecting DbusMessage instance (got {!r})',
                                 type(message).__name__)
         self._name_acquired.wait()
-        self._may_write.wait()
         if self._error:
             raise compat.saved_exc(self._error)
         elif self._transport is None:

@@ -10,15 +10,10 @@ transports using file-like, blocking and flow-controlled API.
 Utility classes
 ===============
 
-.. autoclass:: gruvi.StreamReader
+.. autoclass:: gruvi.StreamBuffer
     :members:
-    :show-inheritance:
 
-.. autoclass:: gruvi.StreamWriter
-    :members:
-    :show-inheritance:
-
-.. autoclass:: gruvi.ReadWriteStream
+.. autoclass:: gruvi.Stream
     :members:
     :show-inheritance:
 

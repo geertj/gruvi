@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -143,7 +143,8 @@ class Process(Endpoint):
     def _connect_stdio(self, stdio):
         # Connect a StdIO container to a StreamProtocol. Return the (possibly
         # textio wrapped) Stream
-        transport, protocol = create_connection(self._protocol_factory, stdio.stream)
+        transport, protocol = create_connection(self._protocol_factory, stdio.stream,
+                                                timeout=self._timeout)
         if self._encoding:
             stream = TextIOWrapper(protocol.stream, self._encoding, **self._textio_args)
             if self._emulate_write_through:
@@ -277,13 +278,13 @@ class Process(Endpoint):
         # an on-close callback that will close the protocol, which we wait for.
         if self._stdin:
             self._stdin[1].close()
-            waitfor.append(self._stdin[2]._closed)
+            waitfor.append(self._stdin[1]._closed)
         if self._stdout:
             self._stdout[1].close()
-            waitfor.append(self._stdout[2]._closed)
+            waitfor.append(self._stdout[1]._closed)
         if self._stderr:
             self._stderr[1].close()
-            waitfor.append(self._stderr[2]._closed)
+            waitfor.append(self._stderr[1]._closed)
         futures.wait(waitfor)
         self._process = None
         self._stdin = self._stdout = self._stderr = None

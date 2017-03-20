@@ -60,9 +60,8 @@ from .hub import switchpoint
 from .util import delegate_method
 from .errors import Error
 from .protocols import MessageProtocol
-from .stream import StreamWriter
+from .stream import Stream
 from .endpoints import Client, Server
-from .stream import StreamReader
 from .http_ffi import lib, ffi
 
 from six.moves import http_client
@@ -314,14 +313,14 @@ class HttpRequest(object):
     generator, or if you want to use "chunked" encoding trailers.
     """
 
-    def __init__(self, transport, protocol):
-        self._transport = transport
+    def __init__(self, protocol):
         self._protocol = protocol
         self._chunked = False
         self._charset = 'ISO-8859-1'
         self._content_length = None
         self._bytes_written = 0
 
+    @switchpoint
     def start_request(self, method, url, headers=None, body=None):
         """Start a new HTTP request.
 
@@ -405,6 +404,7 @@ class HttpRequest(object):
             buf = create_chunk(buf)
         self._protocol._writer.write(buf)
 
+    @switchpoint
     def end_request(self, trailers=None):
         """End the request body.
 
@@ -469,15 +469,14 @@ class HttpResponse(object):
 
     @property
     def body(self):
-        """A :class:`gruvi.StreamReader` instance for reading the response
-        body."""
+        """A :class:`gruvi.Stream` instance for reading the response body."""
         return self._message.body
 
-    delegate_method(body, StreamReader.read)
-    delegate_method(body, StreamReader.read1)
-    delegate_method(body, StreamReader.readline)
-    delegate_method(body, StreamReader.readlines)
-    delegate_method(body, StreamReader.__iter__)
+    delegate_method(body, Stream.read)
+    delegate_method(body, Stream.read1)
+    delegate_method(body, Stream.readline)
+    delegate_method(body, Stream.readlines)
+    delegate_method(body, Stream.__iter__)
 
 
 class WsgiHandler(object):
@@ -504,6 +503,7 @@ class WsgiHandler(object):
         self._headers = None
         self._prev_body = None
 
+    @switchpoint
     def send_headers(self):
         """Send the HTTP headers and start the response body."""
         # We need to figure out the transfer encoding of the body that will
@@ -549,6 +549,7 @@ class WsgiHandler(object):
         self._headers = headers
         return self.write
 
+    @switchpoint
     def write(self, data):
         """Callable passed to the WSGI application by :meth:`start_response`."""
         if isinstance(data, six.text_type):
@@ -564,6 +565,7 @@ class WsgiHandler(object):
             data = create_chunk(data)
         self._protocol._writer.write(data)
 
+    @switchpoint
     def end_response(self):
         """End a response."""
         if not self._headers_sent:
@@ -576,12 +578,13 @@ class WsgiHandler(object):
         if not self._message.should_keep_alive:
             self._protocol._writer.close()
 
+    @switchpoint
     def __call__(self, message, transport, protocol):
         """Run a WSGI handler."""
         if self._transport is None:
             self._transport = transport
             self._protocol = protocol
-        if self._prev_body and not self._prev_body.eof:
+        if self._prev_body and not self._prev_body.buffer.eof:
             self._log.error('body not fully read pipelined request, closing connection')
             self._transport.close()
             return
@@ -676,14 +679,26 @@ class HttpProtocol(MessageProtocol):
 
     identifier = 'gruvi.http'
 
+    # Max header size. This should be enough for most things.
+    # The parser keeps the header in memory during parsing.
+    max_header_size = 65536
+
+    # Max number of body bytes to buffer
+    max_buffer_size = 65536
+
+    # Max number of pipelined requests to keep before pausing the transport.
+    max_pipeline_size = 10
+
+    # In theory, max memory is pipeline_size * (header_size + buffer_size)
+
     def __init__(self, server_side, application=None, server_name=None, version='1.1',
                  timeout=None):
         """
         The *server_side* argument specifies whether this is a client or server
         side protocol.
 
-        If this is a server side protocol, the *wsgi_application* argument is
-        mandatory and it must be a WSGI application callable.
+        The *application* argument specifies a WSGI application for this
+        protocol. If it is specified then this is a server side protocol.
 
         The *server_name* argument can be used to override the server name for
         server side protocols. If not provided, then the socket name of the
@@ -700,11 +715,10 @@ class HttpProtocol(MessageProtocol):
         self._version = version
         self._create_parser()
         self._requests = []
-        self._header_size = 0
-        self._all_body_sizes = 0
         self._response = None
         self._writer = None
         self._message = None
+        self._error = None
 
     @property
     def server_side(self):
@@ -724,26 +738,6 @@ class HttpProtocol(MessageProtocol):
         self._parser.data = self._chandle  # struct field doesn't take reference
         kind = lib.HTTP_REQUEST if self._server_side else lib.HTTP_RESPONSE
         lib.http_parser_init(self._parser, kind)
-
-    def _update_header_size(self, length):
-        # Add *length* to the size of the current HTTP header. If the size
-        # becomes larger than the high-water mark then set an error. This is
-        # needed because we cannot consume any of the read buffer until we've
-        # got a full header and we can dispatch the message.
-        self._header_size += length
-        if self._header_size >= self._read_buffer_high:
-            self._error = HttpError('HTTP header too large')
-            return False
-        return True
-
-    def _update_body_size(self, reader, oldsize, newsize):
-        # Installed as the "on_buffer_size_changed" callback to the Reader
-        # instances of all requests in the queue.
-        self._all_body_sizes += (newsize - oldsize)
-        self.read_buffer_size_changed()
-
-    def get_read_buffer_size(self):
-        return self._header_size + self._queue.qsize() + self._all_body_sizes
 
     def _append_header_field(self, buf):
         # Add a chunk to a header field.
@@ -790,7 +784,7 @@ class HttpProtocol(MessageProtocol):
         self._header = bytearray()
         self._header_field = bytearray()
         self._header_value = bytearray()
-        assert self._header_size == 0
+        self._header_size = 0
         self._message = HttpMessage()
         return 0
 
@@ -798,7 +792,9 @@ class HttpProtocol(MessageProtocol):
     def on_url(parser, at, length):
         # http-parser callback: got a piece of the URL
         self = ffi.from_handle(parser.data)
-        if not self._update_header_size(length):
+        self._header_size += length
+        if self._header_size > self.max_header_size:
+            self._error = HttpError('HTTP header too large')
             return 1
         self._url.extend(ffi.buffer(at, length))
         return 0
@@ -807,7 +803,9 @@ class HttpProtocol(MessageProtocol):
     def on_header_field(parser, at, length):
         # http-parser callback: got a piece of a header field (name)
         self = ffi.from_handle(parser.data)
-        if not self._update_header_size(length):
+        self._header_size += length
+        if self._header_size > self.max_header_size:
+            self._error = HttpError('HTTP header too large')
             return 1
         buf = ffi.buffer(at, length)
         self._append_header_field(buf)
@@ -817,7 +815,9 @@ class HttpProtocol(MessageProtocol):
     def on_header_value(parser, at, length):
         # http-parser callback: got a piece of a header value
         self = ffi.from_handle(parser.data)
-        if not self._update_header_size(length):
+        self._header_size += length
+        if self._header_size > self.max_header_size:
+            self._error = HttpError('HTTP header too large')
             return 1
         buf = ffi.buffer(at, length)
         self._append_header_value(buf)
@@ -845,11 +845,10 @@ class HttpProtocol(MessageProtocol):
         else:
             m.status_code = parser.status_code
         m.should_keep_alive = lib.http_should_keep_alive(parser)
-        m.body = StreamReader(self._update_body_size)
-        # Make the message available. There is no need to call
-        # read_buffer_size_change() here as the changes sum up to 0.
-        self._queue.put_nowait(m, self._header_size)
-        self._header_size = 0
+        m.body = Stream(self._transport, 'r')
+        m.body.buffer.set_buffer_limits(self.max_buffer_size)
+        # Make the message available on the queue.
+        self._queue.put_nowait(m)
         # Return 1 if this is a HEAD request, 0 otherwise. This instructs the
         # parser whether or not a body follows that it needs to parse.
         if not self._requests:
@@ -860,7 +859,8 @@ class HttpProtocol(MessageProtocol):
     def on_body(parser, at, length):
         # http-parser callback: got a body chunk
         self = ffi.from_handle(parser.data)
-        self._message.body.feed(bytes(ffi.buffer(at, length)))
+        # StreamBuffer.feed() may pause the transport here if the buffer size is exceeded.
+        self._message.body.buffer.feed(bytes(ffi.buffer(at, length)))
         return 0
 
     @ffi.callback('http_cb')
@@ -869,7 +869,9 @@ class HttpProtocol(MessageProtocol):
         # complete any trailers that might be present
         self = ffi.from_handle(parser.data)
         self._append_header_value(b'')
-        self._message.body.feed_eof()
+        self._message.body.buffer.feed_eof()
+        if self._queue.qsize() >= self.max_pipeline_size:
+            self._transport.pause_reading()
         return 0
 
     _settings = ffi.new('http_parser_settings *')
@@ -883,8 +885,8 @@ class HttpProtocol(MessageProtocol):
 
     def connection_made(self, transport):
         # Protocol callback
-        super(HttpProtocol, self).connection_made(transport)
-        self._writer = StreamWriter(transport, self)
+        self._transport = transport
+        self._writer = Stream(transport, 'w')
 
     def data_received(self, data):
         # Protocol callback
@@ -894,10 +896,9 @@ class HttpProtocol(MessageProtocol):
             self._log.debug('http_parser_execute(): {}'.format(msg))
             self._error = HttpError('parse error: {}'.format(msg))
             if self._message:
-                self._message.body.feed_error(self._error)
+                self._message.body.buffer.feed_error(self._error)
             self._queue.put_nowait(self._error)
             self._transport.close()
-        self.read_buffer_size_changed()
 
     def connection_lost(self, exc):
         # Protocol callback
@@ -909,14 +910,16 @@ class HttpProtocol(MessageProtocol):
             if exc is None:
                 exc = HttpError('parse error: {}'.format(msg))
             if self._message:
-                self._message.body.feed_error(self._error)
-            self._queue.put_nowait(self._error)
-        super(HttpProtocol, self).connection_lost(exc)
+                self._message.body.buffer.feed_error(exc)
+        self._error = exc
+        self._transport = None
         if not self._server_side:
             self._queue.put_nowait(self._error)
 
     def message_received(self, message):
         # Protocol callback
+        if self._queue.qsize() < self.max_pipeline_size:
+            self._transport.resume_reading()
         self._message_handler(message, self._transport, self)
 
     @switchpoint
@@ -966,7 +969,7 @@ class HttpProtocol(MessageProtocol):
         elif self._transport is None:
             raise HttpError('not connected')
         self._requests.append(method)
-        request = HttpRequest(self._transport, self)
+        request = HttpRequest(self)
         request.start_request(method, url, headers, body)
         if body is None:
             return request
@@ -1004,7 +1007,7 @@ class HttpProtocol(MessageProtocol):
             raise RuntimeError('there are no outstanding requests')
         if timeout < 0:
             timeout = self._timeout
-        if self._response and not self._response.body.eof:
+        if self._response and not self._response.body.buffer.eof:
             raise RuntimeError('body of previous response not completely read')
         message = self._queue.get(timeout=timeout)
         if isinstance(message, Exception):

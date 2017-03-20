@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -25,22 +25,13 @@ class ProtocolError(Error):
 class BaseProtocol(object):
     """Base class for all protocols."""
 
-    read_buffer_size = 65536
-
     def __init__(self, timeout=None):
         """The *timeout* argument specifies a default timeout for various
         protocol operations."""
         self._timeout = timeout
-        self._transport = None
         self._log = logging.get_logger()
-        self._hub = get_hub()
-        self._read_buffer_size = 0
-        self._read_buffer_high = self.read_buffer_size
-        self._read_buffer_low = self.read_buffer_size // 2
+        self._transport = None
         self._error = None
-        self._may_write = Event()
-        self._may_write.set()
-        self._closed = Event()
 
     def connection_made(self, transport):
         """Called when a connection is made."""
@@ -51,44 +42,15 @@ class BaseProtocol(object):
         # Unblock everybody who might be waiting.
         if self._error is None:
             self._error = exc
-        self._closed.set()
-        self._may_write.set()
         self._transport = None
 
     def pause_writing(self):
         """Called when the write buffer in the transport has exceeded the high
         water mark. The protocol should stop writing new data."""
-        self._may_write.clear()
 
     def resume_writing(self):
         """Called when the write buffer in the transport has fallen below the
         low water mark. The protocol can start writing data again."""
-        self._may_write.set()
-
-    def get_read_buffer_size(self):
-        """Return the current size of the read buffer."""
-        return self._read_buffer_size
-
-    def set_read_buffer_limits(self, high=None, low=None):
-        """Set the low and high watermark for the read buffer."""
-        if high is None:
-            high = self.read_buffer_size
-        if low is None:
-            low = high // 2
-        if low > high:
-            low = high
-        self._read_buffer_high = high
-        self._read_buffer_low = low
-
-    def read_buffer_size_changed(self):
-        """Notify the protocol that the buffer size has changed."""
-        if self._transport is None:
-            return
-        bufsize = self.get_read_buffer_size()
-        if bufsize >= self._read_buffer_high:
-            self._transport.pause_reading()
-        elif bufsize <= self._read_buffer_low:
-            self._transport.resume_reading()
 
 
 class Protocol(BaseProtocol):
@@ -112,6 +74,7 @@ class MessageProtocol(Protocol):
         operations.
         """
         super(MessageProtocol, self).__init__(timeout=timeout)
+        self._hub = get_hub()
         self._queue = Queue()
         if not dispatch:
             self._dispatcher = None
@@ -155,7 +118,6 @@ class MessageProtocol(Protocol):
         try:
             while True:
                 message = self._queue.get()
-                self.read_buffer_size_changed()
                 self.message_received(message)
         except Cancelled as e:
             self._log.debug('dispatcher was canceled')

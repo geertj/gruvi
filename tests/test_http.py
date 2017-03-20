@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -16,7 +16,7 @@ from gruvi.http import HttpServer, HttpClient
 from gruvi.http import HttpMessage, HttpProtocol, HttpResponse
 from gruvi.http import parse_option_header
 from gruvi.http_ffi import lib as _lib
-from gruvi.stream import StreamReader, StreamClient
+from gruvi.stream import Stream, StreamClient
 
 from support import UnitTest, MockTransport
 
@@ -109,8 +109,8 @@ class TestHttpProtocol(UnitTest):
         self.assertEqual(m.parsed_url, ('', '', '/', '', ''))
         self.assertEqual(m.headers, [('Host', 'example.com')])
         self.assertEqual(m.trailers, [])
-        self.assertIsInstance(m.body, StreamReader)
-        self.assertTrue(m.body.eof)
+        self.assertIsInstance(m.body, Stream)
+        self.assertTrue(m.body.buffer.eof)
         self.assertEqual(env['test.body'], b'')
 
     def test_request_with_body(self):
@@ -122,7 +122,7 @@ class TestHttpProtocol(UnitTest):
         self.assertEqual(m.url, '/')
         self.assertEqual(m.version, '1.1')
         self.assertEqual(m.headers, [('Host', 'example.com'), ('Content-Length', '3')])
-        self.assertTrue(m.body.eof)
+        self.assertTrue(m.body.buffer.eof)
         self.assertEqual(env['test.body'], b'Foo')
 
     def test_request_with_body_incremental(self):
@@ -134,7 +134,7 @@ class TestHttpProtocol(UnitTest):
         self.assertEqual(m.url, '/')
         self.assertEqual(m.version, '1.1')
         self.assertEqual(m.headers, [('Host', 'example.com'), ('Content-Length', '3')])
-        self.assertTrue(m.body.eof)
+        self.assertTrue(m.body.buffer.eof)
         self.assertEqual(env['test.body'], b'Foo')
 
     def test_request_with_chunked_body(self):
@@ -148,7 +148,7 @@ class TestHttpProtocol(UnitTest):
         self.assertEqual(m.version, '1.1')
         self.assertEqual(m.headers, [('Host', 'example.com'),
                                      ('Transfer-Encoding', 'chunked')])
-        self.assertTrue(m.body.eof)
+        self.assertTrue(m.body.buffer.eof)
         self.assertEqual(env['test.body'], b'Foo')
 
     def test_request_with_chunked_body_incremental(self):
@@ -162,7 +162,7 @@ class TestHttpProtocol(UnitTest):
         self.assertEqual(m.version, '1.1')
         self.assertEqual(m.headers, [('Host', 'example.com'),
                                      ('Transfer-Encoding', 'chunked')])
-        self.assertTrue(m.body.eof)
+        self.assertTrue(m.body.buffer.eof)
         self.assertEqual(env['test.body'], b'Foo')
 
     def test_request_with_chunked_body_and_trailers(self):
@@ -177,7 +177,7 @@ class TestHttpProtocol(UnitTest):
         self.assertEqual(m.headers, [('Host', 'example.com'),
                                      ('Transfer-Encoding', 'chunked')])
         self.assertEqual(m.trailers, [('ETag', 'foo')])
-        self.assertTrue(m.body.eof)
+        self.assertTrue(m.body.buffer.eof)
         self.assertEqual(env['test.body'], b'Foo')
 
     def test_pipelined_requests(self):
@@ -190,7 +190,7 @@ class TestHttpProtocol(UnitTest):
             self.assertEqual(m.url, '/{0}'.format(i))
             self.assertEqual(m.version, '1.1')
             self.assertEqual(m.headers, [('Host', 'example{0}.com'.format(i))])
-            self.assertTrue(m.body.eof)
+            self.assertTrue(m.body.buffer.eof)
             self.assertEqual(env['test.body'], b'')
 
     def test_pipelined_requests_with_body(self):
@@ -355,6 +355,7 @@ class TestHttpProtocol(UnitTest):
             self.assertEqual(ro.read(), b'')
 
     def test_pipelined_empty_responses(self):
+        # These status codes take no body. The parser should know this.
         r = b'HTTP/1.1 100 OK\r\nCookie: foo0\r\n\r\n' \
             b'HTTP/1.1 204 OK\r\nCookie: foo1\r\n\r\n' \
             b'HTTP/1.1 304 OK\r\nCookie: foo2\r\n\r\n'
@@ -375,9 +376,9 @@ class TestHttpProtocol(UnitTest):
         self.assertEqual(ro.version, '1.1')
         self.assertEqual(ro.headers, [('Cookie', 'foo0')])
         self.assertEqual(ro.read(3), b'foo')
-        self.assertFalse(ro._message.body.eof)
+        self.assertFalse(ro._message.body.buffer.eof)
         self.protocol.connection_lost(None)
-        self.assertTrue(ro._message.body.eof)
+        self.assertTrue(ro._message.body.buffer.eof)
         self.assertEqual(ro.read(), b'')
 
     def test_pipelined_204_response_eof(self):

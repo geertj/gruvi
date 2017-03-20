@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -16,6 +16,7 @@ import struct
 from . import logging, compat
 from .util import docfrom
 from .errors import Error
+from .sync import Event
 
 __all__ = ['TransportError', 'BaseTransport', 'Transport', 'DatagramTransport']
 
@@ -57,17 +58,22 @@ class BaseTransport(object):
         self._closing = False
         self._error = None
         self._reading = False
-        self._writing = True
+        self._writing = False
         self._started = False
+        self._can_write = Event()
+        self._closed = Event()
 
     def start(self, protocol):
-        """Bind to *protocol* and start calling callbacks on it."""
+        """Bind to *protocol* and start calling callbacks on it. """
         if self._protocol is not None:
-            raise RuntimeError('already started')
+            raise TransportError('already started')
         self._protocol = protocol
         self._protocol.connection_made(self)
         if self._readable:
             self.resume_reading()
+        if self._writable:
+            self._writing = True
+            self._can_write.set()
 
     def _check_status(self):
         # Check the status of the transport.
@@ -102,16 +108,18 @@ class BaseTransport(object):
         if self._closing or self._handle.closed or self._writing:
             return
         if self.get_write_buffer_size() <= self.get_write_buffer_limits()[0]:
-            self._protocol.resume_writing()
             self._writing = True
+            self._can_write.set()
+            self._protocol.resume_writing()
 
     def _maybe_pause_protocol(self):
         # Called after the write buffer size increased. Possibly pause the protocol.
         if self._closing or self._handle.closed or not self._writing:
             return
         if self.get_write_buffer_size() > self.get_write_buffer_limits()[0]:
-            self._protocol.pause_writing()
             self._writing = False
+            self._can_write.clear()
+            self._protocol.pause_writing()
 
     def resume_reading(self):
         """Resume calling callbacks on the protocol.
@@ -147,6 +155,7 @@ class BaseTransport(object):
         assert handle.closed
         self._protocol.connection_lost(self._error)
         self._protocol = None  # remove cycle to help garbage collection
+        self._closed.set()
 
     def close(self):
         """Close the transport after all oustanding data has been written."""
@@ -155,7 +164,7 @@ class BaseTransport(object):
         elif self._protocol is None:
             raise TransportError('transport not started')
         # If the write buffer is empty, close now. Otherwise defer to
-        # _on_write_complete that will close when it's empty.
+        # _on_write_complete that will close when the buffer is empty.
         if self._write_buffer_size == 0:
             self._handle.close(self._on_close_complete)
             assert self._handle.closed
@@ -275,7 +284,8 @@ class Transport(BaseTransport):
         self._check_status()
         if not self._writable:
             raise TransportError('transport is not writable')
-        self._maybe_pause_protocol()
+        if self._closing:
+            raise TransportError('transport is closing')
         try:
             self._handle.write(data, self._on_write_complete)
         except pyuv.error.UVError as e:
@@ -285,6 +295,7 @@ class Transport(BaseTransport):
         # We only keep track of the number of outstanding write requests
         # outselves. See note in get_write_buffer_size().
         self._write_buffer_size += 1
+        self._maybe_pause_protocol()
 
     def writelines(self, seq):
         """Write all elements from *seq* to the transport."""
@@ -430,7 +441,6 @@ class DatagramTransport(BaseTransport):
         self._check_status()
         if not self._writable:
             raise TransportError('transport is not writable')
-        self._maybe_pause_protocol()
         try:
             self._handle.send(addr, data, self._on_send_complete)
         except pyuv.error.UVError as e:
@@ -439,3 +449,4 @@ class DatagramTransport(BaseTransport):
             # Possible improvement: identify and store permanent errors like EBADF
             raise TransportError.from_errno(e.args[0])
         self._write_buffer_size += 1
+        self._maybe_pause_protocol()

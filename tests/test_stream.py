@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -15,270 +15,303 @@ import unittest
 from io import TextIOWrapper
 
 import gruvi
-from gruvi.stream import StreamReader, StreamProtocol, StreamClient, StreamServer
+from gruvi.stream import Stream, StreamProtocol, StreamClient, StreamServer
 from gruvi.errors import Timeout
 from gruvi.transports import TransportError
 from support import UnitTest, MockTransport
 
 
-class TestStreamReader(UnitTest):
+class TestStream(UnitTest):
 
     def test_read(self):
-        reader = StreamReader()
-        reader.feed(b'foo')
-        self.assertEqual(reader.read(3), b'foo')
-        reader.feed(b'foo bar')
-        self.assertEqual(reader.read(3), b'foo')
-        self.assertEqual(reader.read(4), b' bar')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
+        self.assertEqual(stream.read(3), b'foo')
+        stream.buffer.feed(b'foo bar')
+        self.assertEqual(stream.read(3), b'foo')
+        self.assertEqual(stream.read(4), b' bar')
 
     def test_read_incr(self):
-        reader = StreamReader()
+        stream = Stream(None)
         buf = b'foobar'
         for i in range(len(buf)):
-            reader.feed(buf[i:i+1])
-        reader.feed_eof()
-        self.assertEqual(reader.read(), b'foobar')
+            stream.buffer.feed(buf[i:i+1])
+        stream.buffer.feed_eof()
+        self.assertEqual(stream.read(), b'foobar')
 
     def test_read_eof(self):
-        reader = StreamReader()
-        reader.feed(b'foo')
-        reader.feed_eof()
-        self.assertEqual(reader.read(), b'foo')
-        self.assertEqual(reader.read(), b'')
-        reader.feed_error(RuntimeError)
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
+        stream.buffer.feed_eof()
+        self.assertEqual(stream.read(), b'foo')
+        self.assertEqual(stream.read(), b'')
 
     def test_read_wait(self):
-        reader = StreamReader()
-        reader.feed(b'foo')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
         def write_more():
             gruvi.sleep(0.01)
-            reader.feed(b'bar')
+            stream.buffer.feed(b'bar')
             gruvi.sleep(0.01)
-            reader.feed_eof()
+            stream.buffer.feed_eof()
         gruvi.spawn(write_more)
-        self.assertEqual(reader.read(), b'foobar')
-        self.assertEqual(reader.read(), b'')
+        self.assertEqual(stream.read(), b'foobar')
+        self.assertEqual(stream.read(), b'')
 
     def test_read_error(self):
-        reader = StreamReader()
-        reader.feed(b'foo')
-        reader.feed_error(RuntimeError)
-        self.assertEqual(reader.read(), b'foo')
-        self.assertRaises(RuntimeError, reader.read)
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
+        stream.buffer.feed_error(RuntimeError)
+        self.assertEqual(stream.read(), b'foo')
+        self.assertRaises(RuntimeError, stream.read)
 
     def test_read_wait_error(self):
-        reader = StreamReader()
-        reader.feed(b'foo')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
         def write_more():
             gruvi.sleep(0.01)
-            reader.feed(b'bar')
+            stream.buffer.feed(b'bar')
             gruvi.sleep(0.01)
-            reader.feed_error(RuntimeError)
+            stream.buffer.feed_error(RuntimeError)
         gruvi.spawn(write_more)
-        self.assertEqual(reader.read(), b'foobar')
-        self.assertRaises(RuntimeError, reader.read)
+        self.assertEqual(stream.read(), b'foobar')
+        self.assertRaises(RuntimeError, stream.read)
+
+    def test_read_eof_and_error(self):
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
+        stream.buffer.feed_eof()
+        stream.buffer.feed_error(RuntimeError)
+        self.assertEqual(stream.read(), b'foo')
+        self.assertEqual(stream.read(), b'')
 
     def test_read1(self):
-        reader = StreamReader()
-        reader.feed(b'foobar')
-        self.assertEqual(reader.read1(3), b'foo')
-        self.assertEqual(reader.read1(100), b'bar')
+        stream = Stream(None)
+        stream.buffer.feed(b'foobar')
+        self.assertEqual(stream.read1(3), b'foo')
+        self.assertEqual(stream.read1(100), b'bar')
 
     def test_read1_wait(self):
-        reader = StreamReader()
-        reader.feed(b'foo')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
         def write_more():
             gruvi.sleep(0.01)
-            reader.feed(b'bar')
+            stream.buffer.feed(b'bar')
             gruvi.sleep(0.01)
-            reader.feed_eof()
+            stream.buffer.feed_eof()
         gruvi.spawn(write_more)
-        self.assertEqual(reader.read1(100), b'foo')
-        self.assertEqual(reader.read1(100), b'bar')
-        self.assertEqual(reader.read1(100), b'')
+        self.assertEqual(stream.read1(100), b'foo')
+        self.assertEqual(stream.read1(100), b'bar')
+        self.assertEqual(stream.read1(100), b'')
 
     def test_readline(self):
-        reader = StreamReader()
-        reader.feed(b'foo\n')
-        self.assertEqual(reader.readline(), b'foo\n')
-        reader.feed(b'bar\nbaz\n')
-        self.assertEqual(reader.readline(), b'bar\n')
-        self.assertEqual(reader.readline(), b'baz\n')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\n')
+        self.assertEqual(stream.readline(), b'foo\n')
+        stream.buffer.feed(b'bar\nbaz\n')
+        self.assertEqual(stream.readline(), b'bar\n')
+        self.assertEqual(stream.readline(), b'baz\n')
 
     def test_readline_incr(self):
-        reader = StreamReader()
+        stream = Stream(None)
         buf = b'foo\nbar\n'
         for i in range(len(buf)):
-            reader.feed(buf[i:i+1])
-        self.assertEqual(reader.readline(), b'foo\n')
-        self.assertEqual(reader.readline(), b'bar\n')
+            stream.buffer.feed(buf[i:i+1])
+        self.assertEqual(stream.readline(), b'foo\n')
+        self.assertEqual(stream.readline(), b'bar\n')
 
     def test_readline_limit(self):
-        reader = StreamReader()
-        reader.feed(b'foobar\n')
-        self.assertEqual(reader.readline(3), b'foo')
-        self.assertEqual(reader.readline(), b'bar\n')
+        stream = Stream(None)
+        stream.buffer.feed(b'foobar\n')
+        self.assertEqual(stream.readline(3), b'foo')
+        self.assertEqual(stream.readline(), b'bar\n')
 
     def test_readline_eof(self):
-        reader = StreamReader()
-        reader.feed(b'foo')
-        reader.feed_eof()
-        self.assertEqual(reader.readline(), b'foo')
-        self.assertEqual(reader.readline(), b'')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
+        stream.buffer.feed_eof()
+        self.assertEqual(stream.readline(), b'foo')
+        self.assertEqual(stream.readline(), b'')
 
     def test_readline_wait_eof(self):
-        reader = StreamReader()
-        reader.feed(b'foo')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
         def write_more():
             gruvi.sleep(0.01)
-            reader.feed(b'bar')
+            stream.buffer.feed(b'bar')
             gruvi.sleep(0.01)
-            reader.feed_eof()
+            stream.buffer.feed_eof()
         gruvi.spawn(write_more)
-        self.assertEqual(reader.readline(), b'foobar')
-        self.assertEqual(reader.readline(), b'')
+        self.assertEqual(stream.readline(), b'foobar')
+        self.assertEqual(stream.readline(), b'')
 
     def test_readline_error(self):
-        reader = StreamReader()
-        reader.feed(b'foo')
-        reader.feed_error(RuntimeError)
-        self.assertEqual(reader.readline(), b'foo')
-        self.assertRaises(RuntimeError, reader.readline)
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
+        stream.buffer.feed_error(RuntimeError)
+        self.assertEqual(stream.readline(), b'foo')
+        self.assertRaises(RuntimeError, stream.readline)
 
     def test_readline_wait_error(self):
-        reader = StreamReader()
-        reader.feed(b'foo')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
         def write_more():
             gruvi.sleep(0.01)
-            reader.feed(b'bar')
+            stream.buffer.feed(b'bar')
             gruvi.sleep(0.01)
-            reader.feed_error(RuntimeError)
+            stream.buffer.feed_error(RuntimeError)
         gruvi.spawn(write_more)
-        self.assertEqual(reader.readline(), b'foobar')
-        self.assertRaises(RuntimeError, reader.readline)
+        self.assertEqual(stream.readline(), b'foobar')
+        self.assertRaises(RuntimeError, stream.readline)
+
+    def test_readline_eof_and_error(self):
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
+        stream.buffer.feed_eof()
+        stream.buffer.feed_error(RuntimeError)
+        self.assertEqual(stream.readline(), b'foo')
+        self.assertEqual(stream.readline(), b'')
 
     def test_readlines_limit(self):
-        reader = StreamReader()
-        reader.feed(b'foo\nbar\n')
-        self.assertEqual(reader.readlines(4), [b'foo\n', b'bar\n'])
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\nbar\n')
+        self.assertEqual(stream.readlines(4), [b'foo\n', b'bar\n'])
 
     def test_readlines_eof(self):
-        reader = StreamReader()
-        reader.feed(b'foo\nbar\n')
-        reader.feed_eof()
-        self.assertEqual(reader.readlines(), [b'foo\n', b'bar\n'])
-        self.assertEqual(reader.readlines(), [])
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\nbar\n')
+        stream.buffer.feed_eof()
+        self.assertEqual(stream.readlines(), [b'foo\n', b'bar\n'])
+        self.assertEqual(stream.readlines(), [])
 
     def test_readlines_wait_eof(self):
-        reader = StreamReader()
-        reader.feed(b'foo\n')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\n')
         def write_more():
             gruvi.sleep(0.01)
-            reader.feed(b'bar\n')
+            stream.buffer.feed(b'bar\n')
             gruvi.sleep(0.01)
-            reader.feed_eof()
+            stream.buffer.feed_eof()
         gruvi.spawn(write_more)
-        self.assertEqual(reader.readlines(), [b'foo\n', b'bar\n'])
-        self.assertEqual(reader.readlines(), [])
+        self.assertEqual(stream.readlines(), [b'foo\n', b'bar\n'])
+        self.assertEqual(stream.readlines(), [])
 
     def test_readlines_error(self):
-        reader = StreamReader()
-        reader.feed(b'foo\nbar\n')
-        reader.feed_error(RuntimeError)
-        self.assertEqual(reader.readlines(), [b'foo\n', b'bar\n'])
-        self.assertRaises(RuntimeError, reader.readlines)
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\nbar\n')
+        stream.buffer.feed_error(RuntimeError)
+        self.assertEqual(stream.readlines(), [b'foo\n', b'bar\n'])
+        self.assertRaises(RuntimeError, stream.readlines)
 
     def test_readlines_wait_error(self):
-        reader = StreamReader()
-        reader.feed(b'foo\n')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\n')
         def write_more():
             gruvi.sleep(0.01)
-            reader.feed(b'bar\n')
+            stream.buffer.feed(b'bar\n')
             gruvi.sleep(0.01)
-            reader.feed_error(RuntimeError)
+            stream.buffer.feed_error(RuntimeError)
         gruvi.spawn(write_more)
-        self.assertEqual(reader.readlines(), [b'foo\n', b'bar\n'])
-        self.assertRaises(RuntimeError, reader.readlines)
+        self.assertEqual(stream.readlines(), [b'foo\n', b'bar\n'])
+        self.assertRaises(RuntimeError, stream.readlines)
+
+    def test_readlines_eof_and_error(self):
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\nbar\n')
+        stream.buffer.feed_eof()
+        stream.buffer.feed_error(RuntimeError)
+        self.assertEqual(stream.readlines(), [b'foo\n', b'bar\n'])
+        self.assertEqual(stream.readlines(), [])
 
     def test_iter_eof(self):
-        reader = StreamReader()
-        reader.feed(b'foo\nbar\n')
-        reader.feed_eof()
-        it = iter(reader)
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\nbar\n')
+        stream.buffer.feed_eof()
+        it = iter(stream)
         self.assertEqual(six.next(it), b'foo\n')
         self.assertEqual(six.next(it), b'bar\n')
         self.assertRaises(StopIteration, six.next, it)
 
     def test_iter_wait_eof(self):
-        reader = StreamReader()
-        reader.feed(b'foo\n')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\n')
         def write_more():
             gruvi.sleep(0.01)
-            reader.feed(b'bar\n')
+            stream.buffer.feed(b'bar\n')
             gruvi.sleep(0.01)
-            reader.feed_eof()
+            stream.buffer.feed_eof()
         gruvi.spawn(write_more)
-        it = iter(reader)
+        it = iter(stream)
         self.assertEqual(six.next(it), b'foo\n')
         self.assertEqual(six.next(it), b'bar\n')
         self.assertRaises(StopIteration, six.next, it)
 
     def test_iter_error(self):
-        reader = StreamReader()
-        reader.feed(b'foo\nbar\n')
-        reader.feed_error(RuntimeError)
-        it = iter(reader)
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\nbar\n')
+        stream.buffer.feed_error(RuntimeError)
+        it = iter(stream)
         self.assertEqual(six.next(it), b'foo\n')
         self.assertEqual(six.next(it), b'bar\n')
         self.assertRaises(RuntimeError, six.next, it)
 
     def test_iter_wait_error(self):
-        reader = StreamReader()
-        reader.feed(b'foo\n')
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\n')
         def write_more():
             gruvi.sleep(0.01)
-            reader.feed(b'bar\n')
+            stream.buffer.feed(b'bar\n')
             gruvi.sleep(0.01)
-            reader.feed_error(RuntimeError)
+            stream.buffer.feed_error(RuntimeError)
         gruvi.spawn(write_more)
-        it = iter(reader)
+        it = iter(stream)
         self.assertEqual(six.next(it), b'foo\n')
         self.assertEqual(six.next(it), b'bar\n')
         self.assertRaises(RuntimeError, six.next, it)
+
+    def test_iter_eof_and_error(self):
+        stream = Stream(None)
+        stream.buffer.feed(b'foo\nbar\n')
+        stream.buffer.feed_eof()
+        stream.buffer.feed_error(RuntimeError)
+        it = iter(stream)
+        self.assertEqual(six.next(it), b'foo\n')
+        self.assertEqual(six.next(it), b'bar\n')
+        self.assertRaises(StopIteration, six.next, it)
 
 
 class TestWrappedStreamReader(UnitTest):
 
     def test_simple(self):
-        reader = StreamReader()
-        wrapped = TextIOWrapper(reader, 'utf-8')
-        reader.feed(b'foo')
+        stream = Stream(None)
+        wrapped = TextIOWrapper(stream, 'utf-8')
+        stream.buffer.feed(b'foo')
         self.assertEqual(wrapped.read(3), 'foo')
 
     def test_read_eof(self):
-        reader = StreamReader()
-        wrapped = TextIOWrapper(reader, 'utf-8')
-        reader.feed(b'foo')
-        reader.feed_eof()
+        stream = Stream(None)
+        wrapped = TextIOWrapper(stream, 'utf-8')
+        stream.buffer.feed(b'foo')
+        stream.buffer.feed_eof()
         self.assertEqual(wrapped.read(), 'foo')
 
     def test_partial_decode_at_eof(self):
-        reader = StreamReader()
-        wrapped = TextIOWrapper(reader, 'utf-8')
+        stream = Stream(None)
+        wrapped = TextIOWrapper(stream, 'utf-8')
         # \u20ac is the euro sign in case you wondered..
         buf = u'20 \u20ac'.encode('utf-8')
-        reader.feed(buf[:-1])
-        reader.feed_eof()
+        stream.buffer.feed(buf[:-1])
+        stream.buffer.feed_eof()
         self.assertRaises(UnicodeDecodeError, wrapped.read, 4)
 
     def test_partial_decode_wait(self):
-        reader = StreamReader()
-        wrapped = TextIOWrapper(reader, 'utf-8')
+        stream = Stream(None)
+        wrapped = TextIOWrapper(stream, 'utf-8')
         buf = u'20 \u20ac'.encode('utf-8')
-        reader.feed(buf[:-1])
+        stream.buffer.feed(buf[:-1])
         def write_last():
             gruvi.sleep(0.01)
-            reader.feed(buf[-1:])
+            stream.buffer.feed(buf[-1:])
         gruvi.spawn(write_last)
         self.assertEqual(wrapped.read(4), u'20 \u20ac')
 
@@ -307,7 +340,7 @@ class TestStreamProtocol(UnitTest):
         stream = protocol.stream
         self.assertEqual(stream.read(3), b'foo')
         self.assertEqual(stream.read(3), b'bar')
-        self.assertEqual(stream.read(), b'')
+        self.assertRaises(RuntimeError, stream.read)
 
     def test_readline(self):
         # Test that readline() works.
@@ -329,7 +362,7 @@ class TestStreamProtocol(UnitTest):
         self.assertEqual(stream.readlines(), [b'foo\n', b'bar\n'])
 
     def test_iter(self):
-        # Ensure that iterating over a stream protocol produces lines.
+        # Ensure that iterating over a reader produces lines.
         transport = MockTransport()
         protocol = StreamProtocol()
         transport.start(protocol)
@@ -370,43 +403,38 @@ class TestStreamProtocol(UnitTest):
         transport = MockTransport()
         protocol = StreamProtocol()
         transport.start(protocol)
-        protocol.set_read_buffer_limits(100)
+        protocol.stream.buffer.set_buffer_limits(100)
         transport.set_write_buffer_limits(50)
-        stream = protocol.stream
         def reader():
             while True:
-                buf = stream.read(20)
+                buf = protocol.stream.read(20)
                 if not buf:
                     break
-                stream.write(buf)
+                protocol.stream.write(buf)
         fib = gruvi.spawn(reader)
         buf = b'x' * 20
         interrupted = 0
         for i in range(100):
             protocol.data_received(buf)
-            if transport.reading:
+            if transport._reading:
                 continue
             interrupted += 1
-            self.assertGreater(protocol._read_buffer_size, 0)
+            self.assertGreater(protocol.stream.buffer.get_buffer_size(), 0)
             # Switch to the reader() fiber which will fill up the transport
             # write buffer.
             gruvi.sleep(0)
             # The transport write buffer should be full but the protocol read
             # buffer should still contain something.
-            self.assertTrue(transport.reading)
-            self.assertGreater(protocol._read_buffer_size, 0)
-            self.assertFalse(protocol._may_write.is_set())
+            self.assertGreater(protocol.stream.buffer.get_buffer_size(), 0)
+            self.assertFalse(transport._can_write.is_set())
             # Drain write buffer and resume writing
-            transport.buffer.seek(0)
-            transport.buffer.truncate()
-            protocol.resume_writing()
+            transport.drain()
         self.assertGreater(interrupted, 30)
         fib.cancel()
         gruvi.sleep(0)
 
 
 def echo_handler(stream, transport, protocol):
-    stream = protocol.stream
     while True:
         buf = stream.readline()
         if not buf:
@@ -414,7 +442,7 @@ def echo_handler(stream, transport, protocol):
         stream.write(buf)
 
 
-class TestStream(UnitTest):
+class TestStreamEndpoints(UnitTest):
 
     def test_echo_pipe(self):
         server = StreamServer(echo_handler)
@@ -509,7 +537,7 @@ class TestStream(UnitTest):
                 client.connect(addr)
                 client.write(b'foo\n')
                 buf = client.readline()
-                if buf == b'':  # conneciton closed: EOF
+                if buf == b'':  # connection closed: EOF
                     client.close()
                 clients.append(client)
         except TransportError:

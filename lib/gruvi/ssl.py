@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -359,7 +359,7 @@ class SslTransport(Transport):
                 self._log.warning('ignore read status {} after close', error)
             elif error == pyuv.errno.UV_EOF:
                 self._sslpipe.feed_eof()  # Raises SSL_ERROR_EOF if unexpected
-                if not self._close_on_unwrap and self._protocol.eof_received():
+                if self._protocol.eof_received() and not self._close_on_unwrap:
                     self._log.debug('EOF received, protocol wants to continue')
                 elif not self._closing:
                     self._log.debug('EOF received, closing transport')
@@ -377,6 +377,7 @@ class SslTransport(Transport):
                     if chunk and not self._closing:
                         self._protocol.data_received(chunk)
                     elif not chunk and self._close_on_unwrap:
+                        # close_notify
                         self.close()
         except ssl.SSLError as e:
             self._log.warning('SSL error {} (reason {})', e.errno,

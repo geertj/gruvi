@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -83,8 +83,8 @@ class TestDbusProtocol(UnitTest):
     def store_and_echo_messages(self, message, transport, protocol):
         self.messages.append(message)
         self.protocols.append(protocol)
-        response = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
-                        signature=message.signature, body=message.body)
+        response = txdbus.SignalMessage(message.path, message.member, message.interface,
+                                        signature=message.signature, body=message.body)
         protocol.send_message(response)
 
     def test_auth_missing_creds_byte(self):
@@ -93,10 +93,10 @@ class TestDbusProtocol(UnitTest):
         transport = MockTransport()
         protocol = DbusProtocol(True, None)
         transport.start(protocol)
-        self.assertFalse(transport.closed)
+        self.assertFalse(transport._closed.is_set())
         protocol.data_received(b'\1')
         self.assertIsInstance(protocol._error, DbusError)
-        self.assertTrue(transport.closed)
+        self.assertTrue(transport._closed.is_set())
 
     def test_auth_non_ascii(self):
         # After the '\0' byte, an authentiction phase happens. The
@@ -104,10 +104,10 @@ class TestDbusProtocol(UnitTest):
         transport = MockTransport()
         protocol = DbusProtocol(True, None)
         transport.start(protocol)
-        self.assertFalse(transport.closed)
+        self.assertFalse(transport._closed.is_set())
         protocol.data_received(b'\0\xff\r\n')
         self.assertIsInstance(protocol._error, DbusError)
-        self.assertTrue(transport.closed)
+        self.assertTrue(transport._closed.is_set())
 
     def test_auth_long_line(self):
         # An authentication line should not exceed the maximum line size.
@@ -115,10 +115,10 @@ class TestDbusProtocol(UnitTest):
         protocol = DbusProtocol(True, None, 'foo')
         protocol.max_line_size = 5
         transport.start(protocol)
-        self.assertFalse(transport.closed)
+        self.assertFalse(transport._closed.is_set())
         protocol.data_received(b'\0AUTH ANONYMOUS\r\n')
         self.assertIsInstance(protocol._error, DbusError)
-        self.assertTrue(transport.closed)
+        self.assertTrue(transport._closed.is_set())
 
     def test_auth_ok(self):
         # Test anonymous authenication. Ensure that the server GUID is
@@ -132,7 +132,7 @@ class TestDbusProtocol(UnitTest):
         auth = protocol._authenticator
         self.assertTrue(auth.authenticationSucceeded())
         self.assertTrue(auth.getGUID(), 'foo')
-        self.assertFalse(transport.closed)
+        self.assertFalse(transport._closed.is_set())
 
     def test_missing_hello(self):
         # After authentication, the first message should be a "Hello".
@@ -146,7 +146,7 @@ class TestDbusProtocol(UnitTest):
         self.assertTrue(auth.authenticationSucceeded())
         protocol.data_received(message.rawMessage)
         self.assertIsInstance(protocol._error, DbusError)
-        self.assertTrue(transport.closed)
+        self.assertTrue(transport._closed.is_set())
 
     def test_send_message(self):
         # After the "Hello" message, it should be possible to send other
@@ -162,14 +162,14 @@ class TestDbusProtocol(UnitTest):
         protocol.data_received(message.rawMessage)
         gruvi.sleep(0)
         self.assertIsNone(protocol._error)
-        self.assertFalse(transport.closed)
+        self.assertFalse(transport._closed.is_set())
         self.assertTrue(protocol._name_acquired)
         self.assertEqual(len(self.messages), 0)
         message = txdbus.MethodCallMessage('/my/path', 'Method')
         protocol.data_received(message.rawMessage)
         gruvi.sleep(0)
         self.assertIsNone(protocol._error)
-        self.assertFalse(transport.closed)
+        self.assertFalse(transport._closed.is_set())
         self.assertEqual(len(self.messages), 1)
         self.assertEqual(self.messages[0].path, '/my/path')
         self.assertEqual(self.messages[0].member, 'Method')
@@ -191,14 +191,14 @@ class TestDbusProtocol(UnitTest):
             protocol.data_received(message.rawMessage[i:i+1])
         gruvi.sleep(0)
         self.assertIsNone(protocol._error)
-        self.assertFalse(transport.closed)
+        self.assertFalse(transport._closed.is_set())
         self.assertEqual(len(self.messages), 0)
         message = txdbus.MethodCallMessage('/my/path', 'Method')
         for i in range(len(message.rawMessage)):
             protocol.data_received(message.rawMessage[i:i+1])
         gruvi.sleep(0)
         self.assertIsNone(protocol._error)
-        self.assertFalse(transport.closed)
+        self.assertFalse(transport._closed.is_set())
         self.assertEqual(len(self.messages), 1)
         self.assertEqual(self.messages[0].path, '/my/path')
         self.assertEqual(self.messages[0].member, 'Method')
@@ -221,21 +221,21 @@ class TestDbusProtocol(UnitTest):
                                        signature='s', body=['x'*100])
         msglen = len(message.rawMessage)
         self.assertGreater(msglen, 100)
-        protocol.set_read_buffer_limits(msglen)
+        protocol.max_message_size = msglen
         protocol.data_received(message.rawMessage)
         gruvi.sleep(0)
         self.assertIsNone(protocol._error)
-        self.assertFalse(transport.closed)
+        self.assertFalse(transport._closed.is_set())
         self.assertEqual(len(self.messages), 1)
         # Now send a signal with a size larger than the high-water mark. This should fail.
         message = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
                                        signature='s', body=['x'*100])
         msglen = len(message.rawMessage)
-        protocol.set_read_buffer_limits(msglen-1)
+        protocol.max_message_size = msglen-1
         protocol.data_received(message.rawMessage)
         gruvi.sleep(0)
         self.assertIsInstance(protocol._error, DbusError)
-        self.assertTrue(transport.closed)
+        self.assertTrue(transport._closed.is_set())
         self.assertEqual(len(self.messages), 1)
 
     def test_read_write_flow_control(self):
@@ -250,35 +250,28 @@ class TestDbusProtocol(UnitTest):
                         interface='org.freedesktop.DBus', destination='org.freedesktop.DBus')
         protocol.data_received(message.rawMessage)
         gruvi.sleep(0)
-        self.assertTrue(protocol._name_acquired)
+        self.assertTrue(protocol._name_acquired.is_set())
         interrupted = 0
         message = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
                                        signature='s', body=['x'*100])
         msglen = len(message.rawMessage)
-        protocol.set_read_buffer_limits(10*msglen)
-        transport.buffer.seek(0)
-        transport.buffer.truncate()
+        protocol.max_queue_size = 10
+        transport.drain()
         transport.set_write_buffer_limits(7*msglen)
         for i in range(100):
-            # Fill up protocol read buffer
-            message = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
-                                           signature='s', body=['x'*100])
+            # Fill up protocol message queue
             protocol.data_received(message.rawMessage)
-            if transport.reading:
+            if transport._reading:
                 continue
             interrupted += 1
-            self.assertGreater(protocol._queue.qsize(), 0)
+            self.assertEqual(protocol._queue.qsize(), 10)
             # Run the dispatcher to fill up the transport write buffer
             gruvi.sleep(0)
             # Now the write buffer is full and the read buffer still contains
             # some entries because it is larger.
-            self.assertTrue(transport.reading)
             self.assertGreater(protocol._queue.qsize(), 0)
-            self.assertFalse(protocol._may_write.is_set())
-            # Drain write buffer and resume writing
-            transport.buffer.seek(0)
-            transport.buffer.truncate()
-            protocol.resume_writing()
+            self.assertFalse(transport._can_write.is_set())
+            transport.drain()
         # Should be interrupted > 10 times. The write buffer is the limiting factor
         # not the read buffer.
         self.assertGreater(interrupted, 10)
@@ -312,7 +305,7 @@ class TestGruviDbus(UnitTest):
         server.listen(addr)
         client = DbusClient()
         client.connect(addr)
-        cproto = client.connection[1]
+        cproto = client.protocol
         cauth = cproto._authenticator
         sproto = list(server.connections)[0][1]
         sauth = sproto._authenticator
@@ -340,7 +333,7 @@ class TestGruviDbus(UnitTest):
         server.listen(addr)
         client = DbusClient()
         client.connect(server.addresses[0])
-        cproto = client.connection[1]
+        cproto = client.protocol
         cauth = cproto._authenticator
         sproto = list(server.connections)[0][1]
         sauth = sproto._authenticator
@@ -468,12 +461,11 @@ class TestGruviDbus(UnitTest):
         server.listen(addr)
         client = DbusClient()
         client.connect(addr)
-        transport = client.connection[0]
         exc = None
         try:
             while True:
                 chunk = os.urandom(100)
-                transport.write(chunk)
+                client.transport.write(chunk)
                 gruvi.sleep(0)
         except Exception as e:
             exc = e
@@ -487,18 +479,18 @@ class TestGruviDbus(UnitTest):
         server = DbusServer(echo_app)
         addr = 'unix:path=' + self.pipename()
         server.listen(addr)
-        server.max_connections = 10
+        server.max_connections = 2
         clients = []
         exc = None
         try:
-            for i in range(15):
+            for i in range(4):
                 client = DbusClient()
                 client.connect(addr)
                 clients.append(client)
         except Exception as e:
             exc = e
         self.assertIsInstance(exc, TransportError)
-        self.assertLessEqual(len(server.connections), server.max_connections)
+        self.assertEqual(len(server.connections), server.max_connections)
         for client in clients:
             client.close()
         server.close()

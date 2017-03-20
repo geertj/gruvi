@@ -16,7 +16,7 @@ import unittest
 from support import TestCase
 
 import gruvi
-from gruvi import Process, PIPE, StreamClient, HttpClient
+from gruvi import Process, PIPE, DEVNULL, StreamClient, HttpClient
 
 
 class TestExamples(TestCase):
@@ -47,7 +47,7 @@ class TestExamples(TestCase):
     def test_echoserver1(self):
         proc = Process(encoding='ascii')
         # -u: unbuffered stdio
-        proc.spawn([sys.executable, '-u', 'echoserver1.py'], stdout=PIPE)
+        proc.spawn([sys.executable, '-u', 'echoserver1.py'], stdout=PIPE, stderr=DEVNULL)
         line = proc.stdout.readline()
         self.assertTrue(line.startswith('Listen on '))
         addr = gruvi.paddr(line[10:])
@@ -60,12 +60,12 @@ class TestExamples(TestCase):
         client.close()
         proc.send_signal(signal.SIGINT)
         proc.wait(timeout=2)
-        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.returncode, 1)
         proc.close()
 
     def test_echoserver2(self):
         proc = Process(encoding='ascii')
-        proc.spawn([sys.executable, '-u', 'echoserver2.py'], stdout=PIPE)
+        proc.spawn([sys.executable, '-u', 'echoserver2.py'], stdout=PIPE, stderr=DEVNULL)
         line = proc.stdout.readline()
         self.assertTrue(line.startswith('Listen on '))
         addr = gruvi.paddr(line[10:])
@@ -78,7 +78,7 @@ class TestExamples(TestCase):
         client.close()
         proc.send_signal(signal.SIGINT)
         proc.wait(timeout=1)
-        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.returncode, 1)
         proc.close()
 
     def test_fortune(self):

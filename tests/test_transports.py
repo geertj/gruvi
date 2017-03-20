@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -147,15 +147,14 @@ class TransportTest(object):
         ctrans.close()
         self.run_loop(0.1)
         sevents = sproto.events
-        nevents = 4 if strans.can_write_eof() else 3
-        self.assertEqual(len(sevents), nevents)
+        self.assertIn(len(sevents), (3, 4))
         self.assertEqual(sevents[0], ('connection_made', strans))
         self.assertEqual(sevents[1], ('data_received', b'foo\nbar\nquxquux'))
         if strans.can_write_eof():
             self.assertEqual(sevents[2], ('eof_received',))
         self.assertEqual(sevents[-1][0], 'connection_lost')
         cevents = cproto.events
-        self.assertEqual(len(cevents), nevents)
+        self.assertIn(len(cevents), (3, 4))
         self.assertEqual(cevents[0], ('connection_made', ctrans))
         self.assertEqual(cevents[1], ('data_received', b'foo\nbar\nquxquux'))
         if ctrans.can_write_eof():

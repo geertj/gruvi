@@ -164,6 +164,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
     if local_address:
         handle.bind(*local_address)
     protocol = protocol_factory()
+    protocol._timeout = timeout
     if ssl:
         context = ssl if hasattr(ssl, 'set_ciphers') else create_ssl_context()
         transport = SslTransport(handle, context, False, **ssl_args)
@@ -231,7 +232,7 @@ class Endpoint(object):
         return self._timeout
 
     def close(self):
-        self._log.debug('endpoint closed')
+        raise NotImplementedError
 
 
 class Client(Endpoint):
@@ -239,21 +240,18 @@ class Client(Endpoint):
 
     def __init__(self, protocol_factory, timeout=None):
         super(Client, self).__init__(protocol_factory, timeout=timeout)
-        self._connection = None
-
-    @property
-    def connection(self):
-        return self._connection
+        self._transport = None
+        self._protocol = None
 
     @property
     def transport(self):
         """Return the transport, or ``None`` if not connected."""
-        return self._connection[0]
+        return self._transport
 
     @property
     def protocol(self):
         """Return the protocol, or ``None`` if not connected."""
-        return self._connection[1]
+        return self._protocol
 
     @switchpoint
     def connect(self, address, **kwargs):
@@ -262,21 +260,25 @@ class Client(Endpoint):
         See :func:`create_connection` for a description of *address* and the
         supported keyword arguments.
         """
-        if self._connection:
+        if self._transport:
             raise RuntimeError('already connected')
-        kwargs.setdefault('timeout', self.timeout)
-        self._connection = create_connection(self._protocol_factory, address, **kwargs)
-        self._connection[0]._log = self._log
-        self._connection[1]._log = self._log
+        kwargs.setdefault('timeout', self._timeout)
+        conn = create_connection(self._protocol_factory, address, **kwargs)
+        self._transport = conn[0]
+        self._transport._log = self._log
+        self._protocol = conn[1]
+        self._protocol._log = self._log
+        self._protocol._timeout = self._timeout
 
     @switchpoint
     def close(self):
         """Close the connection."""
-        if not self._connection:
+        if self._transport is None:
             return
-        self._connection[0].close()
-        self._connection[1]._closed.wait()
-        self._connection = None
+        self._transport.close()
+        self._transport._closed.wait()
+        self._transport = None
+        self._protocol = None
 
 
 class Server(Endpoint):
@@ -327,6 +329,7 @@ class Server(Endpoint):
                 self._log.debug('remote peer is {}', saddr(client.getpeername()))
         protocol = self._protocol_factory()
         protocol._log = self._log
+        protocol._timeout = self._timeout
         self._connections[transport] = protocol
         # Chain _on_connection_lost() into protocol.connection_lost()
         protocol.connection_lost = functools.partial(self._on_connection_lost, transport,

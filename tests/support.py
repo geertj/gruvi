@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -24,6 +24,7 @@ import six
 import gruvi
 from gruvi.util import split_cap_words
 from gruvi.ssl import create_ssl_context
+from gruvi.sync import Event
 
 __all__ = []
 
@@ -298,28 +299,53 @@ class MockTransport(object):
     All writes are redirected to a BytesIO instance.
     """
 
-    write_buffer_size = 65536
+    default_write_buffer = 65536
 
-    def __init__(self):
-        self.buffer = six.BytesIO()
-        self.reading = False
-        self.writing = True
-        self.protocol = None
-        self.set_write_buffer_limits()
-        self.closed = False
-        self.eof = False
+    def __init__(self, mode='rw'):
+        self._mode = mode
+        self._readable = 'r' in mode
+        self._writable = 'w' in mode
+        self._protocol = None
         self._error = None
+        self._reading = False
+        self._writing = False
+        self._can_write = Event()
+        self._closed = Event()
+        self._write_buffer_high = self.default_write_buffer
+        self._write_buffer_low = self.default_write_buffer // 2
+        self.buffer = six.BytesIO()
+        self.eof = False
 
     def start(self, protocol):
-        self.protocol = protocol
-        self.protocol.connection_made(self)
-        self.reading = True
+        self._protocol = protocol
+        self._protocol.connection_made(self)
+        if self._readable:
+            self.resume_reading()
+        if self._writable:
+            self._writing = True
+            self._can_write.set()
 
-    def feed(self, data):
-        self.protocol.data_received(data)
+    def get_write_buffer_size(self):
+        return len(self.buffer.getvalue())
 
-    def feed_eof(self):
-        self.protocol.eof_received()
+    def get_write_buffer_limits(self):
+        return self._write_buffer_high, self._write_buffer_low
+
+    def set_write_buffer_limits(self, high=None, low=None):
+        if high is None:
+            high = self._write_buffer_size
+        if low is None:
+            low = high // 2
+        if low > high:
+            low = high
+        self._write_buffer_high = high
+        self._write_buffer_low = low
+
+    def drain(self):
+        self.buffer.seek(0)
+        self.buffer.truncate()
+        self._can_write.set()
+        self._protocol.resume_writing()
 
     def get_extra_info(self, name, default=None):
         if name == 'unix_creds':
@@ -329,32 +355,22 @@ class MockTransport(object):
         else:
             return default
 
-    def set_write_buffer_limits(self, high=None, low=None):
-        if high is None:
-            high = self.write_buffer_size
-        if low is None:
-            low = high // 2
-        if low > high:
-            low = high
-        self.write_buffer_high = high
-        self.write_buffer_low = low
-
-    def get_write_buffer_size(self):
-        return len(self.buffer.getvalue())
-
     def pause_reading(self):
-        self.reading = False
+        self._reading = False
 
     def resume_reading(self):
-        self.reading = True
+        self._reading = True
 
     def write(self, buf):
         self.buffer.write(buf)
-        if len(self.buffer.getvalue()) > self.write_buffer_high:
-            self.protocol.pause_writing()
+        if self.get_write_buffer_size() > self.get_write_buffer_limits()[0]:
+            self._can_write.clear()
+            self._writing = False
+            self._protocol.pause_writing()
 
     def writelines(self, seq):
-        self.buffer.writelines(seq)
+        for line in seq:
+            self.write(line)
 
     def write_eof(self):
         self.eof = True
@@ -363,9 +379,9 @@ class MockTransport(object):
         return True
 
     def close(self):
-        self.closed = True
-        self.protocol.connection_lost(None)
+        self._closed.set()
+        self._protocol.connection_lost(None)
 
     def abort(self):
-        self.closed = True
-        self.protocol.connection_lost(None)
+        self._closed.set()
+        self._protocol.connection_lost(None)
