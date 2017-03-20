@@ -1,24 +1,14 @@
 TODO:
 
-* Should we expose a Protocol.transport? If so the message handler signature
-  can be simplied to handler(protocol, message) or handler(message, protocol)
+* Tests for Client/Server with do_handshake_on_connect=False
+  - An Server with SSL should require SSL. Does it work if the client is not
+    starting the handshake?
+  - Do we rip out do_handshake_on_connect and remove support for unwrapped
+    SslTransport?
+    - SslTranport tests for _close_on_unwrap=False
+* Add connection refused tests to Client/Server tests.
+* Ensure eof_received() is always called for SSL transports (test_ssl.test_echo)
 * Threads that exit without calling Hub.close() are not garbage collected. Not
   sure how this can be implemented. I think it is not possible without this
   Python RFE: http://bugs.python.org/issue14073
-* Add a "trace id" around MessageProtocol.message_received() Or add it for a
-  connection?
-* http.parse_option_header() should ignore LWS. A better way to implement this
-  function would be to use the parsing infrastructure from bluepass.parsing and
-  then do a proper tokenization + parsing.
 * gruvi.http needs better test coverage
-* Rename jsonrpc_ffi to json_ffi. Make json_splitter.c move analogous to
-  http_parser.c using callbacks.
-* util.py -> utils.py
-* The Events returned by Protocol.connection_made() and Transport.start()
-  should be Futures so that exceptions can be passed into the waiter.
-
-Things that could be done if they are useful:
-
-* Graceful shutdown in Server: drain a protocol's queue.
-* Missing synchronization primitives from asyncio: Semaphore, BoundedSemaphore.
-* Future.cancel() could remove itself from a Pool's queue if not yet started.
