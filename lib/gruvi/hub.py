@@ -254,7 +254,7 @@ class Hub(fibers.Fiber):
         self.name = 'Hub'
         self.context = ''
         self._loop = pyuv.Loop()
-        self._loop.excepthook = self._uncaught_exception
+        self._loop.excepthook = self._on_uncaught_exception
         self._data = {}
         self._noswitch_depth = 0
         # Use a deque() instead of our dllist from gruvi.callbacks because we
@@ -265,13 +265,13 @@ class Hub(fibers.Fiber):
         # hub is alive, it won't be recycled so in that case we can use just
         # the ID as a check whether we are in the same thread or not.
         self._thread = compat.get_thread_ident()
-        self._async = pyuv.Async(self._loop, lambda h: self._loop.stop())
-        self._sigint = pyuv.Signal(self._loop)
-        self._sigint.start(self._on_sigint, signal.SIGINT)
+        self._async_handle = pyuv.Async(self._loop, lambda h: self._loop.stop())
+        self._sigint_handle = pyuv.Signal(self._loop)
+        self._sigint_handle.start(self._on_sigint, signal.SIGINT)
         # Mark our own handles as "system handles". This allows the test suite
         # to check that no active handles except these escape from tests.
-        self._async._system_handle = True
-        self._sigint._system_handle = True
+        self._async_handle._system_handle = True
+        self._sigint_handle._system_handle = True
         self._log = logging.get_logger()
         self._log.debug('new Hub for {.name}', threading.current_thread())
         self._closing = False
@@ -307,20 +307,21 @@ class Hub(fibers.Fiber):
         self._error = KeyboardInterrupt('CTRL-C pressed')
         self.close()
 
-    def _stop_loop(self):
-        # Interrupt the event loop
-        if compat.get_thread_ident() == self._thread:
-            self._loop.stop()
-        else:
-            self._async.send()
-
-    def _uncaught_exception(self, *exc_info):
+    def _on_uncaught_exception(self, *exc_info):
         # Installed as the handler for uncaught exceptions in pyuv callbacks.
         # The exception is cleared by pyuv when this method is called. So we
         # have to format *exc_info ourselves, we cannot use _log.exception().
         self._log.error('uncaught exception in pyuv callback')
         trace = '\n'.join(traceback.format_exception(*exc_info))
         self._log.error('Traceback (most recent call last):\n{}', trace)
+
+    def _interrupt_loop(self):
+        # Interrupt the event loop. If this is a cross-thread interrupt we need
+        # to do this via the async handle.
+        if compat.get_thread_ident() == self._thread:
+            self._loop.stop()
+        else:
+            self._async_handle.send()
 
     def close(self):
         """Close the hub.
@@ -333,18 +334,32 @@ class Hub(fibers.Fiber):
             return
         self._closing = True
         self._poll.close()
-        self._stop_loop()
+        self._interrupt_loop()
 
     def run(self):
         # Target of Hub.switch().
         if self.current() is not self:
             raise RuntimeError('run() may only be called from the Hub')
         self._log.debug('starting hub fiber')
-        # This is where the loop is running.
+        # This is where the loop runs. There are two loops:
+        #
+        # * An outer loop, in Python. This is where callbacks scheduled via
+        #   run_callback() run. We call these "Python" callbacks, and they are
+        #   alowed to switch between fibers.
+        # * An inner loop, in libuv. This is where we block for input. Fiber
+        #   switches are not allowed here, primarily to enforce that protocol
+        #   callbacks stay fully event based and do not switch.
+        #
+        # The libuv loop is the main loop, and is interrupted only when Python
+        # callbacks need to run (via _interrupt_loop()). After those are run,
+        # we enter the libuv loop again.
         while True:
             self._run_callbacks()
             if self._closing:
                 break
+            # If the Python callbacks run above scheduled further callbacks, do
+            # not wait for new events in the libuv loop. This would cause the
+            # Pyton callbacks to potentially be delayed indefinitely.
             mode = pyuv.UV_RUN_NOWAIT if len(self._callbacks) else pyuv.UV_RUN_DEFAULT
             with assert_no_switchpoints(self):
                 self._loop.run(mode)
@@ -417,7 +432,7 @@ class Hub(fibers.Fiber):
         elif not callable(callback):
             raise TypeError('"callback": expecting a callable')
         self._callbacks.append((callback, args))  # thread-safe
-        self._stop_loop()
+        self._interrupt_loop()
 
 
 @switchpoint
