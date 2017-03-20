@@ -406,6 +406,15 @@ class Server(Endpoint):
             transport.close()
         self._all_closed.wait()
 
+    @switchpoint
+    def run(self):
+        """Run the event loop and start serving requests.
+
+        This method is a shortcut for scripts that run only one server. In more
+        complicated applications you normally call :meth:`~Hub.run` explicitly.
+        """
+        get_hub().switch()
+
 
 def add_method(template, method, globs=None, depth=1):
     """Add a method to the class that's being defined in the enclosing scope.

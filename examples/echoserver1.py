@@ -16,8 +16,4 @@ server = gruvi.StreamServer(echo_handler)
 server.listen(('localhost', 0))
 for addr in server.addresses:
     print('Listen on {0}'.format(gruvi.saddr(addr)))
-
-try:
-    gruvi.get_hub().switch()
-except KeyboardInterrupt:
-    print('Exiting on CTRL-C')
+server.run()
