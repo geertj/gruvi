@@ -230,13 +230,12 @@ class Transport(BaseTransport):
         # Callback used with handle.start_read().
         assert handle is self._handle
         if self._error:
-            self._log.warning('ignore read status {} after close', error)
+            self._log.warning('ignore read status {} after error', error)
         elif error == pyuv.errno.UV_EOF:
             if self._protocol.eof_received():
                 self._log.debug('EOF received, protocol wants to continue')
-            elif not self._closing:
+            else:
                 self._log.debug('EOF received, closing transport')
-                self._error = TransportError('connection lost')
                 self.close()
         elif error:
             self._log.warning('pyuv error {} in read callback', error)
@@ -271,7 +270,9 @@ class Transport(BaseTransport):
         self._write_buffer_size -= 1
         assert self._write_buffer_size >= 0
         if self._error:
-            self._log.debug('ignore write status {} after close', error)
+            self._log.debug('ignore write status {} after error', error)
+        # UV_ECANCELED happens when a handle is closed that has a write backlog.
+        # This happens when Transport.abort() is called.
         elif error and error != pyuv.errno.UV_ECANCELED:
             self._log.warning('pyuv error {} in write callback', error)
             self._error = TransportError.from_errno(error)
@@ -354,6 +355,7 @@ class Transport(BaseTransport):
                 return default
             return self._handle.get_winsize()
         elif name == 'unix_creds':
+            # In case you're wondering, DBUS needs this.
             if not isinstance(self._handle, pyuv.Pipe) or not hasattr(socket, 'SO_PEERCRED'):
                 return default
             fd = self._handle.fileno()
@@ -425,7 +427,8 @@ class DatagramTransport(BaseTransport):
         self._write_buffer_size -= 1
         assert self._write_buffer_size >= 0
         if self._error:
-            self._log.debug('ignore sendto status {} after close', error)
+            self._log.debug('ignore sendto status {} after error', error)
+        # See note in _on_write_complete() about UV_ECANCELED
         elif error and error != pyuv.errno.UV_ECANCELED:
             self._log.warning('pyuv error {} in sendto callback', error)
             self._protocol.error_received(TransportError.from_errno(error))
@@ -447,9 +450,12 @@ class DatagramTransport(BaseTransport):
         try:
             self._handle.send(addr, data, self._on_send_complete)
         except pyuv.error.UVError as e:
-            # Don't store a permanent error here, errors can be transient with
-            # a datagram based transport.
-            # Possible improvement: identify and store permanent errors like EBADF
-            raise TransportError.from_errno(e.args[0])
+            error = TransportError.from_errno(e.args[0])
+            # Try to discern between permanent and transient errors. Permanent
+            # errors close the transport. This list is very likely not complete.
+            if error.errno != pyuv.errno.UV_EBADF:
+                raise error
+            self._error = error
+            self.abort()
         self._write_buffer_size += 1
         self._maybe_pause_protocol()

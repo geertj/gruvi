@@ -363,7 +363,6 @@ class SslTransport(Transport):
                     self._log.debug('EOF received, protocol wants to continue')
                 elif not self._closing:
                     self._log.debug('EOF received, closing transport')
-                    self._error = TransportError('connection lost')
                     super(SslTransport, self).close()
             elif error:
                 self._log.warning('pyuv error {} in read callback', error)
