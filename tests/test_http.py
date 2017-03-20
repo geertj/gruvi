@@ -16,7 +16,7 @@ from gruvi.http import HttpServer, HttpClient
 from gruvi.http import HttpMessage, HttpProtocol, HttpResponse
 from gruvi.http import parse_option_header
 from gruvi.http_ffi import lib as _lib
-from gruvi.stream import StreamReader
+from gruvi.stream import StreamReader, StreamClient
 
 from support import UnitTest, MockTransport
 
@@ -487,6 +487,19 @@ class TestHttp(UnitTest):
         response = client.getresponse()
         body = response.read()
         self.assertEqual(body, b'foobar')
+        server.close()
+        client.close()
+
+    def test_illegal_request(self):
+        server = HttpServer(hello_app)
+        server.listen(('localhost', 0))
+        addr = server.addresses[0]
+        client = StreamClient()
+        client.connect(addr)
+        client.write(b'foo\r\n')
+        client.write_eof()
+        buf = client.read()
+        self.assertEqual(buf, b'')
         server.close()
         client.close()
 
