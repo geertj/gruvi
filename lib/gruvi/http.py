@@ -389,6 +389,7 @@ class HttpRequest(object):
         header = create_request(version, method, url, headers)
         self._protocol._writer.write(header)
 
+    @switchpoint
     def write(self, buf):
         """Write *buf* to the request body."""
         if not buf:
