@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -12,7 +12,6 @@ import os
 import sys
 import socket
 import functools
-import textwrap
 import pyuv
 import six
 import errno
@@ -414,31 +413,3 @@ class Server(Endpoint):
         complicated applications you normally call :meth:`~Hub.run` explicitly.
         """
         get_hub().switch()
-
-
-def add_method(template, method, globs=None, depth=1):
-    """Add a method to the class that's being defined in the enclosing scope.
-
-    The *template* argument is a string containing the method template. The
-    *method* argument is the method itself.
-    """
-    frame = sys._getframe(depth)
-    classdict = frame.f_locals
-    wrapped = util.wrap(template, method, globs, depth+1, True)
-    if getattr(method, 'switchpoint', False):
-        wrapped = switchpoint(wrapped)
-    classdict[method.__name__] = wrapped
-
-
-_protocol_method_template = textwrap.dedent("""\
-    def {name}{signature}:
-        '''An alias for ``self.protocol.{name}()``.'''
-        if not self.protocol:
-            raise RuntimeError('not connected')
-        return self.protocol.{name}{arglist}
-    """)
-
-def add_protocol_method(method, globs=None, depth=1):
-    """Import a method from a :class:`Protocol` the class that's being defined
-    in the enclosing scope."""
-    return add_method(_protocol_method_template, method, globs, depth+1)

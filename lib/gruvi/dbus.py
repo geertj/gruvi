@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 """
@@ -59,10 +59,11 @@ import pyuv
 
 from . import txdbus, compat
 from .hub import switchpoint, switch_back
+from .util import delegate_method
 from .sync import Event
 from .protocols import ProtocolError, MessageProtocol
 from .stream import StreamWriter
-from .endpoints import Client, Server, add_protocol_method
+from .endpoints import Client, Server
 from .address import saddr
 
 __all__ = ['DbusError', 'DbusMethodCallError', 'DbusProtocol', 'DbusClient', 'DbusServer']
@@ -519,9 +520,11 @@ class DbusClient(Client):
     def _create_protocol(self):
         return DbusProtocol(False, self._message_handler, self._timeout)
 
-    add_protocol_method(DbusProtocol.get_unique_name)
-    add_protocol_method(DbusProtocol.send_message)
-    add_protocol_method(DbusProtocol.call_method)
+    protocol = Client.protocol
+
+    delegate_method(protocol, DbusProtocol.get_unique_name)
+    delegate_method(protocol, DbusProtocol.send_message)
+    delegate_method(protocol, DbusProtocol.call_method)
 
 
 class DbusServer(Server):

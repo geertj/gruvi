@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 """
@@ -57,10 +57,11 @@ import six
 
 from . import logging, compat
 from .hub import switchpoint
+from .util import delegate_method
 from .errors import Error
 from .protocols import MessageProtocol
 from .stream import StreamWriter
-from .endpoints import Client, Server, add_method, add_protocol_method
+from .endpoints import Client, Server
 from .stream import StreamReader
 from .http_ffi import lib, ffi
 
@@ -472,17 +473,11 @@ class HttpResponse(object):
         body."""
         return self._message.body
 
-    _body_method = textwrap.dedent("""\
-        def {name}{signature}:
-            '''A alias for ``self.body.{name}().``'''
-            return self.body.{name}{arglist}
-            """)
-
-    add_method(_body_method, StreamReader.read)
-    add_method(_body_method, StreamReader.read1)
-    add_method(_body_method, StreamReader.readline)
-    add_method(_body_method, StreamReader.readlines)
-    add_method(_body_method, StreamReader.__iter__)
+    delegate_method(body, StreamReader.read)
+    delegate_method(body, StreamReader.read1)
+    delegate_method(body, StreamReader.readline)
+    delegate_method(body, StreamReader.readlines)
+    delegate_method(body, StreamReader.__iter__)
 
 
 class WsgiHandler(object):
@@ -1039,8 +1034,10 @@ class HttpClient(Client):
             self._server_name = host
         return super(HttpClient, self).connect(address, **kwargs)
 
-    add_protocol_method(HttpProtocol.request)
-    add_protocol_method(HttpProtocol.getresponse)
+    protocol = Client.protocol
+
+    delegate_method(protocol, HttpProtocol.request)
+    delegate_method(protocol, HttpProtocol.getresponse)
 
     def _create_protocol(self):
         return HttpProtocol(False, server_name=self._server_name, timeout=self._timeout)

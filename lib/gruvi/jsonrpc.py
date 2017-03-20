@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 """
@@ -56,9 +56,10 @@ import six
 
 from . import compat
 from .hub import switchpoint, switch_back
+from .util import delegate_method
 from .protocols import ProtocolError, MessageProtocol
 from .stream import StreamWriter
-from .endpoints import Client, Server, add_protocol_method
+from .endpoints import Client, Server
 from .address import saddr
 from .jsonrpc_ffi import lib as _lib, ffi as _ffi
 
@@ -432,10 +433,12 @@ class JsonRpcClient(Client):
         # Protocol factory
         return JsonRpcProtocol(self._message_handler, self._version, self._timeout)
 
-    add_protocol_method(JsonRpcProtocol.send_message)
-    add_protocol_method(JsonRpcProtocol.send_notification)
-    add_protocol_method(JsonRpcProtocol.call_method)
-    add_protocol_method(JsonRpcProtocol._set_tracefile)
+    protocol = Client.protocol
+
+    delegate_method(protocol, JsonRpcProtocol.send_message)
+    delegate_method(protocol, JsonRpcProtocol.send_notification)
+    delegate_method(protocol, JsonRpcProtocol.call_method)
+    delegate_method(protocol, JsonRpcProtocol._set_tracefile)
 
 
 class JsonRpcServer(Server):

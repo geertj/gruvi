@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -12,12 +12,13 @@ import textwrap
 from io import BufferedIOBase
 
 from . import compat
+from .util import delegate_method
+from .hub import switchpoint
 from .sync import Event
 from .errors import Cancelled, Timeout
 from .fibers import spawn
 from .protocols import Protocol, ProtocolError
-from .endpoints import Client, Server, add_method
-from .hub import switchpoint
+from .endpoints import Client, Server
 
 __all__ = ['StreamReader', 'StreamWriter', 'ReadWriteStream', 'StreamProtocol',
            'StreamClient', 'StreamServer']
@@ -382,23 +383,23 @@ class StreamClient(Client):
             raise ProtocolError('not connected')
         return self.connection[1].stream
 
-    _stream_method = textwrap.dedent("""\
-        def {name}{signature}:
-            '''A alias for ``self.stream.{name}().``'''
-            if not self.protocol:
-                raise ProtocolError('not connected')
-            return self.stream.{name}{arglist}
-            """)
+    @property
+    def reader(self):
+        return self.stream._reader
 
-    add_method(_stream_method, StreamReader.read)
-    add_method(_stream_method, StreamReader.read1)
-    add_method(_stream_method, StreamReader.readline)
-    add_method(_stream_method, StreamReader.readlines)
-    add_method(_stream_method, StreamReader.__iter__)
+    @property
+    def writer(self):
+        return self.stream._writer
 
-    add_method(_stream_method, StreamWriter.write)
-    add_method(_stream_method, StreamWriter.writelines)
-    add_method(_stream_method, StreamWriter.write_eof)
+    delegate_method(reader, StreamReader.read)
+    delegate_method(reader, StreamReader.read1)
+    delegate_method(reader, StreamReader.readline)
+    delegate_method(reader, StreamReader.readlines)
+    delegate_method(reader, StreamReader.__iter__)
+
+    delegate_method(writer, StreamWriter.write)
+    delegate_method(writer, StreamWriter.writelines)
+    delegate_method(writer, StreamWriter.write_eof)
 
 
 class StreamServer(Server):
