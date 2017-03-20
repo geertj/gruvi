@@ -34,9 +34,11 @@ def setup_logging():
     logger = logging.getLogger()
     if logger.handlers:
         return
+    handler = logging.StreamHandler(sys.stdout)
     debug = int(os.environ.get('DEBUG', '0'))
+    verbose = int(os.environ.get('VERBOSE', '5' if debug else '2'))
     # Smarty-pants way to say 0 = no logs (60), 1 = CRITICAL (50), ... 6 = TRACE (5)
-    level = int(os.environ.get('VERBOSE', '5' if debug else '2'))
+    level = max(5, 10 * (6 - verbose))
     logger.setLevel(level)
     template = '%(levelname)s %(message)s'
     handler.setFormatter(logging.Formatter(template))

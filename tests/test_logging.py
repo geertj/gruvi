@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -142,7 +142,7 @@ class TestLogging(UnitTest):
         self.assertIn('Traceback', messages[1])
         self.assertIn('foo bar', messages[-1])
 
-    re_frame = re.compile(r'\|test_[a-z]+\.py:[0-9]+![a-z_]+\(\)\]')
+    re_frame = re.compile(r'\|test_[a-z]+\.py:[0-9]+\]')
 
     def test_debug_frame_info(self):
         # Ensure that frame info is appended when the level is DEBUG

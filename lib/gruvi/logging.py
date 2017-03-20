@@ -77,13 +77,13 @@ class ContextLogger(object):
             tid = 'Main'
         current = fibers.current()
         fid = getattr(current, 'name', util.objref(current)) if current.parent else 'Root'
-        return '{}:{}'.format(tid, fid)
+        return '{}/{}'.format(tid, fid)
 
     def context_info(self):
         log_context = self.context
         fiber_context = getattr(fibers.current(), 'context', '')
         if not fiber_context:
-            return log_context
+            return log_context or '@'
         return '{}:{}'.format(log_context, fiber_context)
 
     def stack_info(self):
@@ -91,16 +91,12 @@ class ContextLogger(object):
             return ''
         f = sys._getframe(3)
         fname = os.path.split(f.f_code.co_filename)[1]
-        funcname = f.f_code.co_name
-        return '{}:{}!{}()'.format(fname, f.f_lineno, funcname)
+        return '{}:{}'.format(fname, f.f_lineno)
 
     def log(self, level, msg, *args, **kwargs):
         if not self.logger.isEnabledFor(level):
             return
-        prefix = [self.thread_info(), self.context_info(), self.stack_info()]
-        while not prefix[-1]:
-            prefix.pop()
-        prefix = '|'.join(prefix)
+        prefix = '{}|{}|{}'.format(self.thread_info(), self.context_info(), self.stack_info())
         if args:
             msg = msg.format(*args)
         msg = '[{}] {}'.format(prefix, msg)
