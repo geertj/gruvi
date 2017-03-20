@@ -27,41 +27,30 @@ logging.addLevelName('TRACE', logging.TRACE)
 _logger_name = 'gruvi'
 _logger_dict = {}
 
-# Method used by patch_logger() to runtime patch our logger
-if six.PY2:
-    def _dummy_find_caller(*ignored):
-        return ('(unknown file)', 0, '(unknown function)')
-else:
-    def _dummy_find_caller(*ignored):
-        return ('(unknown file)', 0, '(unknown function)', None)
+# The logging module documents this slight hack to disable finding caller
+# information (via sys._getframe()) for every logging call. In our logger we
+# only get logging information if needed (at the DEBUG level or higher), so we
+# can disable collecting it for every call.
+logging._srcfile = None
 
 
-def get_logger(context='', name=None):
+def get_logger(context=None, name=None):
     """Return a logger for *context*.
 
     Return a :class:`ContextLogger` instance. The instance implements the
     standard library's :class:`logging.Logger` interface.
     """
+    # Many class instances have their own logger. Share them to save memory if
+    # possible, i.e. when *context* is not set.
     if name is None:
         name = _logger_name
-    # To save memory, return a singleton instance for loggers without context.
-    if not context:
-        logger = _logger_dict.get(name)
-        if logger is not None:
-            return logger
-    elif not isinstance(context, six.string_types):
+    if context is None and name in _logger_dict:
+        return _logger_dict[name]
+    if context is not None and not isinstance(context, six.string_types):
         context = util.objref(context)
     logger = logging.getLogger(name)
-    # The Logger.findCaller() is used by the various logging methods to find
-    # out the function name and line number of our caller.
-    # Since our logging adapter has a way to print out caller information *if
-    # and only if* debugging is enabled, we don't need this information, and
-    # therefore we patch out this funtion with an no-op.
-    # The benefit is that if and when we support PyPy, we don't have the
-    # slowdown.
-    logger.findCaller = _dummy_find_caller
     logger = ContextLogger(logger, context)
-    if not context:
+    if context is None:
         _logger_dict[name] = logger
     return logger
 
