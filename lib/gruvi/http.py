@@ -502,7 +502,6 @@ class WsgiHandler(object):
         self._environ = {}
         self._status = None
         self._headers = None
-        self._prev_body = None
 
     @switchpoint
     def send_headers(self):
@@ -585,10 +584,6 @@ class WsgiHandler(object):
         if self._transport is None:
             self._transport = transport
             self._protocol = protocol
-        if self._prev_body and not self._prev_body.buffer.eof:
-            self._log.error('body not fully read pipelined request, closing connection')
-            self._transport.close()
-            return
         self._status = None
         self._headers = None
         self._headers_sent = False
@@ -608,7 +603,6 @@ class WsgiHandler(object):
                 self.write(chunk)
             self.end_response()
         finally:
-            self._prev_body = self._message.body
             if hasattr(result, 'close'):
                 result.close()
         if __debug__:
