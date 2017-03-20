@@ -309,10 +309,6 @@ class SslTransport(Transport):
         elif len(data) == 0:
             return
         self._write_backlog.append([data, 0])
-        self._write_buffer_size += len(data)
-        if self._write_buffer_size >= self._write_buffer_high and self._writing:
-            self._writing = False
-            self._protocol.pause_writing()
         self._process_write_backlog()
 
     def _process_write_backlog(self):
@@ -326,9 +322,11 @@ class SslTransport(Transport):
                     ssldata, offset = self._sslpipe.do_handshake(self._ssl_active.set), 1
                 else:
                     ssldata, offset = self._sslpipe.shutdown(self._ssl_active.clear), 1
-                # Temporarily set _closing to False to prevent
-                # Transport.write() from raising an error.
+                # Temporarily set _closing to False to prevent Transport.write()
+                # from raising an error when we are doing a close_notify.
                 saved, self._closing = self._closing, False
+                # Write the ssl data that came out of the SSL pipe to the handle.
+                # Note that flow control is done at the record level data.
                 for chunk in ssldata:
                     super(SslTransport, self).write(chunk)
                 self._closing = saved
@@ -336,20 +334,24 @@ class SslTransport(Transport):
                     self._write_backlog[0][1] = offset
                     # A short write means that a write is blocked on a read
                     # We need to enable reading if it is not enabled!!
+                    # At the same time stop the protocol from writing data to
+                    # make the situation not worse.
                     assert self._sslpipe.need_ssldata
                     if not self._reading:
                         self.resume_reading()
+                    if self._writing:
+                        self._protocol.pause_writing()
+                        self._writing = False
                     break
                 # An entire chunk from the backlog was processed. We can
                 # delete it and reduce the outstanding buffer size.
                 del self._write_backlog[0]
-                self._write_buffer_size -= offset
         except ssl.SSLError as e:
             self._log.warning('SSL error {} (reason {})', e.errno, e.reason, exc_info=True)
             self._error = e
             self.abort()
 
-    def _read_callback(self, handle, data, error):
+    def _on_read_complete(self, handle, data, error):
         # Callback used with handle.start_read().
         assert handle is self._handle
         try:
@@ -400,12 +402,7 @@ class SslTransport(Transport):
 
         The consequence is that if you are implementing your own protocol and
         you want to support SSL, then your protocol should be able to handle a
-        callback even if it called :meth:`pause_reading` before. The
-        recommended way to do this is to store a flag "currently reading" and
-        set it when you call :meth:`resume_reading` and when
-        :meth:`Protocol.data_received` is called by the transport. Based on
-        this flag you can prevent calling :meth:`resume_reading` when you are
-        already reading due to a handshake.
+        callback even if it called :meth:`pause_reading` before.
         """
         if self._sslpipe.need_ssldata:
             return
@@ -436,7 +433,6 @@ class SslTransport(Transport):
         elif self._closing or self._handle.closed:
             raise TransportError('SSL transport is closing/closed')
         self._write_backlog.append([b'', True])
-        self._write_buffer_size += 1
         self._process_write_backlog()
 
     def unwrap(self):
@@ -461,7 +457,6 @@ class SslTransport(Transport):
             raise TransportError('SSL transport is closing/closed')
         self._close_on_unwrap = False
         self._write_backlog.append([b'', False])
-        self._write_buffer_size += 1
         self._process_write_backlog()
 
     def can_write_eof(self):
@@ -475,7 +470,6 @@ class SslTransport(Transport):
             return
         self._closing = True
         self._write_backlog.append([b'', False])
-        self._write_buffer_size += 1
         self._process_write_backlog()
 
 

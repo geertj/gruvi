@@ -14,6 +14,7 @@ import socket
 import struct
 
 from . import logging, compat
+from .util import docfrom
 from .errors import Error
 
 __all__ = ['TransportError', 'BaseTransport', 'Transport', 'DatagramTransport']
@@ -42,7 +43,7 @@ class BaseTransport(object):
     """Base class for :mod:`pyuv` based transports. There is no public
     constructor."""
 
-    write_buffer_size = 65536
+    default_write_buffer = 65536
 
     def __init__(self, handle, mode):
         self._handle = handle
@@ -51,8 +52,8 @@ class BaseTransport(object):
         self._protocol = None
         self._log = logging.get_logger()
         self._write_buffer_size = 0
-        self._write_buffer_high = self.write_buffer_size
-        self._write_buffer_low = self.write_buffer_size // 2
+        self._write_buffer_high = self.default_write_buffer
+        self._write_buffer_low = self.default_write_buffer // 2
         self._closing = False
         self._error = None
         self._reading = False
@@ -64,41 +65,26 @@ class BaseTransport(object):
         if self._protocol is not None:
             raise RuntimeError('already started')
         self._protocol = protocol
-        return self._protocol.connection_made(self)
+        self._protocol.connection_made(self)
+        if self._readable:
+            self.resume_reading()
 
-    def get_extra_info(self, name, default=None):
-        """Get transport specific data.
-
-        The following information is available for all transports:
-
-        ==============  =================================================
-        Name            Description
-        ==============  =================================================
-        ``'handle'``    The pyuv handle that is being wrapped.
-        ``'sockname'``  The socket name i.e. the result of the
-                        ``getsockname()`` system call.
-        ``'peername'``  The peer name i.e. the result of the
-                        ``getpeername()`` system call.
-        ``'fd'``        The handle's file descriptor. Unix only.
-        ==============  =================================================
-        """
-        if name == 'handle':
-            return self._handle
-        elif name == 'sockname':
-            return self._handle.getsockname()
-        elif name == 'peername':
-            if not hasattr(self._handle, 'getpeername'):
-                return default
-            return self._handle.getpeername()
-        elif name == 'fd':
-            fd = self._handle.fileno()
-            return fd if fd >= 0 else None
-        else:
-            return default
+    def _check_status(self):
+        # Check the status of the transport.
+        if self._error:
+            raise compat.saved_exc(self._error)
+        elif self._protocol is None:
+            raise TransportError('transport not started')
+        elif self._handle.closed:
+            raise TransportError('transport was closed')
 
     def get_write_buffer_size(self):
-        """Return the current write buffer size."""
+        """Return the total number of bytes in the write buffer."""
         return self._write_buffer_size
+
+    def get_write_buffer_limits(self):
+        """Return the write buffer limits as a ``(low, high)`` tuple."""
+        return self._write_buffer_low, self._write_buffer_high
 
     def set_write_buffer_limits(self, high=None, low=None):
         """Set the low and high watermark for the write buffer."""
@@ -111,9 +97,54 @@ class BaseTransport(object):
         self._write_buffer_high = high
         self._write_buffer_low = low
 
+    def _maybe_resume_protocol(self):
+        # Called after the write buffer size decreased. Possibly resume the protocol.
+        if self._closing or self._handle.closed or self._writing:
+            return
+        if self.get_write_buffer_size() <= self.get_write_buffer_limits()[0]:
+            self._protocol.resume_writing()
+            self._writing = True
+
+    def _maybe_pause_protocol(self):
+        # Called after the write buffer size increased. Possibly pause the protocol.
+        if self._closing or self._handle.closed or not self._writing:
+            return
+        if self.get_write_buffer_size() > self.get_write_buffer_limits()[0]:
+            self._protocol.pause_writing()
+            self._writing = False
+
+    def resume_reading(self):
+        """Resume calling callbacks on the protocol.
+
+        As a relaxation from the requirements in Python asyncio, this method
+        may be called even if reading was already paused, and also if a close
+        is pending. This simplifies protocol design, especially in combination
+        with SSL where reading may need to be enabled by the transport itself,
+        without knowledge of the protocol, to complete handshakes.
+        """
+        raise NotImplementedError
+
+    def pause_reading(self):
+        """Pause calling callbacks on the protocol.
+
+        This method may be called even if reading was already paused or a close
+        is pending. See the note in :meth:`resume_reading`.
+        """
+        raise NotImplementedError
+
+    def _maybe_close(self):
+        # Check a pending close request and close.
+        if not self._closing or self._write_buffer_size > 0:
+            return
+        if not self._handle.closed:
+            self._handle.close(self._on_close_complete)
+            assert self._handle.closed
+        self._closing = False
+
     def _on_close_complete(self, handle):
         # Callback used with handle.close().
         assert handle is self._handle
+        assert handle.closed
         self._protocol.connection_lost(self._error)
         self._protocol = None  # remove cycle to help garbage collection
 
@@ -122,7 +153,7 @@ class BaseTransport(object):
         if self._closing or self._handle.closed:
             return
         elif self._protocol is None:
-            raise RuntimeError('transport not started')
+            raise TransportError('transport not started')
         # If the write buffer is empty, close now. Otherwise defer to
         # _on_write_complete that will close when it's empty.
         if self._write_buffer_size == 0:
@@ -136,9 +167,25 @@ class BaseTransport(object):
         if self._handle.closed:
             return
         elif self._protocol is None:
-            raise RuntimeError('transport not started')
+            raise TransportError('transport not started')
         self._handle.close(self._on_close_complete)
         assert self._handle.closed
+
+    def get_extra_info(self, name, default=None):
+        """Get transport specific data.
+
+        The following information is available for all transports:
+
+        ==============  =================================================
+        Name            Description
+        ==============  =================================================
+        ``'handle'``    The pyuv handle that is being wrapped.
+        ==============  =================================================
+        """
+        if name == 'handle':
+            return self._handle
+        else:
+            return default
 
 
 class Transport(BaseTransport):
@@ -158,18 +205,16 @@ class Transport(BaseTransport):
                                 .format(type(handle).__name__))
         super(Transport, self).__init__(handle, mode)
 
-    def start(self, protocol):
-        events = super(Transport, self).start(protocol)
-        if self._readable:
-            self._handle.start_read(self._read_callback)
-            self._reading = True
-        return events
-
+    @docfrom(BaseTransport.get_write_buffer_size)
     def get_write_buffer_size(self):
-        """Return the current write buffer size."""
+        # Return the size of the write buffer. Return the actual number of
+        # outstanding bytes, which libuv keeps track of for us. Note that we
+        # _also_ use self._write_buffer_size to keep track of the total number
+        # of oustanding write requests.. This allows us to keep track of e.g.
+        # write_eof() that doesn't write actual bytes.
         return self._handle.write_queue_size
 
-    def _read_callback(self, handle, data, error):
+    def _on_read_complete(self, handle, data, error):
         # Callback used with handle.start_read().
         assert handle is self._handle
         if self._error:
@@ -185,45 +230,28 @@ class Transport(BaseTransport):
             self._log.warning('pyuv error {} in read callback', error)
             self._error = TransportError.from_errno(error)
             self.abort()
-        elif not self._closing and data:
+        elif data:
             self._protocol.data_received(data)
 
-    def pause_reading(self):
-        """Pause calling callbacks on the protocol.
-
-        This method may be called even if reading was already paused. This
-        simplifies protocol design, especially in combination with SSL where
-        reading may need to be enabled by the transport itself without
-        knowledge of the protocol.
-        """
-        # Note: pause_reading() and resume_reading() are allowed when _closing
-        # is true (unlike e.g. write()). This makes it easier for our child
-        # class SslTransport to enable reading when it is closing down.
+    @docfrom(BaseTransport.resume_reading)
+    def resume_reading(self):
+        # Resume reading
+        self._check_status()
         if not self._readable:
             raise TransportError('transport is not readable')
-        elif self._error:
-            raise compat.saved_exc(self._error)
-        elif self._protocol is None:
-            raise TransportError('transport not started')
-        elif self._reading:
+        if not self._reading:
+            self._handle.start_read(self._on_read_complete)
+            self._reading = True
+
+    @docfrom(BaseTransport.pause_reading)
+    def pause_reading(self):
+        # Pause reading
+        self._check_status()
+        if not self._readable:
+            raise TransportError('transport is not readable')
+        if self._reading:
             self._handle.stop_read()
             self._reading = False
-
-    def resume_reading(self):
-        """Resume calling callbacks on the protocol.
-
-        This method may be called even if reading was already resumed. See the
-        note in :meth:`pause_reading`.
-        """
-        if not self._readable:
-            raise TransportError('transport is not readable')
-        elif self._error:
-            raise compat.saved_exc(self._error)
-        elif self._protocol is None:
-            raise TransportError('transport not started')
-        elif not self._reading:
-            self._handle.start_read(self._read_callback)
-            self._reading = True
 
     def _on_write_complete(self, handle, error):
         # Callback used with handle.write().
@@ -231,48 +259,31 @@ class Transport(BaseTransport):
         self._write_buffer_size -= 1
         assert self._write_buffer_size >= 0
         if self._error:
-            self._log.debug('write status {} after close', error)
+            self._log.debug('ignore write status {} after close', error)
         elif error and error != pyuv.errno.UV_ECANCELED:
             self._log.warning('pyuv error {} in write callback', error)
             self._error = TransportError.from_errno(error)
             self.abort()
-        if not self._closing and not handle.closed and not self._writing \
-                    and self.get_write_buffer_size() <= self._write_buffer_low:
-            self._protocol.resume_writing()
-            self._writing = True
-        if self._closing and self._write_buffer_size == 0:
-            if not handle.closed:
-                handle.close(self._on_close_complete)
-            self._closing = False
+        self._maybe_resume_protocol()
+        self._maybe_close()
 
     def write(self, data):
         """Write *data* to the transport."""
         if not isinstance(data, (bytes, bytearray, memoryview)):
             raise TypeError("data: expecting a bytes-like instance, got {!r}"
                                 .format(type(data).__name__))
+        self._check_status()
         if not self._writable:
             raise TransportError('transport is not writable')
-        elif self._error:
-            raise compat.saved_exc(self._error)
-        elif self._closing or self._handle.closed:
-            raise TransportError('transport is closing/closed')
-        elif self._protocol is None:
-            raise TransportError('transport not started')
-        elif len(data) == 0:
-            return
-        if self.get_write_buffer_size() > self._write_buffer_high:
-            self._protocol.pause_writing()
-            self._writing = False
+        self._maybe_pause_protocol()
         try:
             self._handle.write(data, self._on_write_complete)
         except pyuv.error.UVError as e:
             self._error = TransportError.from_errno(e.args[0])
             self.abort()
             raise compat.saved_exc(self._error)
-        # For stream transports (and datagram transports below), we only keep
-        # track of the number of outstanding writes, as the number of
-        # outstanding bytes is available from libuv. (For SSL transports we do
-        # need to keep track.)
+        # We only keep track of the number of outstanding write requests
+        # outselves. See note in get_write_buffer_size().
         self._write_buffer_size += 1
 
     def writelines(self, seq):
@@ -282,14 +293,11 @@ class Transport(BaseTransport):
 
     def write_eof(self):
         """Shut down the write direction of the transport."""
+        self._check_status()
         if not self._writable:
             raise TransportError('transport is not writable')
-        elif self._error:
-            raise compat.saved_exc(self._error)
-        elif self._closing or self._handle.closed:
-            raise TransportError('transport is closing/closed')
-        elif self._protocol is None:
-            raise RuntimeError('transport not started')
+        if self._closing:
+            raise TransportError('transport is closing')
         try:
             self._handle.shutdown(self._on_write_complete)
         except pyuv.error.UVError as e:
@@ -311,6 +319,10 @@ class Transport(BaseTransport):
         ==================  ===================================================
         Name                Description
         ==================  ===================================================
+        ``'sockname'``      The socket name i.e. the result of the
+                            ``getsockname()`` system call.
+        ``'peername'``      The peer name i.e. the result of the
+                            ``getpeername()`` system call.
         ``'winsize'``       The terminal window size as a ``(cols, rows)``
                             tuple. Only available for :class:`pyuv.TTY`
                             handles.
@@ -319,7 +331,11 @@ class Transport(BaseTransport):
                             :class:`pyuv.Pipe` handles on Unix.
         ==================  ===================================================
         """
-        if name == 'winsize':
+        if name == 'sockname':
+            return self._handle.getsockname()
+        elif name == 'peername':
+            return self._handle.getpeername()
+        elif name == 'winsize':
             if not isinstance(self._handle, pyuv.TTY):
                 return default
             return self._handle.get_winsize()
@@ -351,17 +367,13 @@ class DatagramTransport(BaseTransport):
                                 .format(type(handle).__name__))
         super(DatagramTransport, self).__init__(handle, mode)
 
-    def start(self, protocol):
-        events = super(DatagramTransport, self).start(protocol)
-        if self._readable:
-            self._handle.start_recv(self._recv_callback)
-        return events
-
+    @docfrom(BaseTransport.get_write_buffer_size)
     def get_write_buffer_size(self):
-        """Return the current write buffer size."""
-        return getattr(self._handle, 'send_queue_size', 0)
+        # Return the size of the write buffer. See the note for the same method
+        # in Transport.
+        return self._handle.send_queue_size
 
-    def _recv_callback(self, handle, addr, flags, data, error):
+    def _on_recv_complete(self, handle, addr, flags, data, error):
         """Callback used with handle.start_recv()."""
         assert handle is self._handle
         if error:
@@ -370,25 +382,41 @@ class DatagramTransport(BaseTransport):
         elif flags:
             assert flags & pyuv.UV_UDP_PARTIAL
             self._log.warning('ignoring partial datagram')
-        elif data and not self._closing:
+        elif data:
             self._protocol.datagram_received(data, addr)
+
+    @docfrom(BaseTransport.resume_reading)
+    def resume_reading(self):
+        # Resume reading
+        self._check_status()
+        if not self._readable:
+            raise TransportError('transport is not readable')
+        if not self._reading:
+            self._handle.start_recv(self._on_recv_complete)
+            self._reading = True
+
+    @docfrom(BaseTransport.pause_reading)
+    def pause_reading(self):
+        # Pause reading
+        self._check_status()
+        if not self._readable:
+            raise TransportError('transport is not readable')
+        if self._reading:
+            self._handle.stop_recv()
+            self._reading = False
 
     def _on_send_complete(self, handle, error):
         """Callback used with handle.send()."""
         assert handle is self._handle
         self._write_buffer_size -= 1
         assert self._write_buffer_size >= 0
-        if error and error != pyuv.errno.UV_ECANCELED:
+        if self._error:
+            self._log.debug('ignore sendto status {} after close', error)
+        elif error and error != pyuv.errno.UV_ECANCELED:
             self._log.warning('pyuv error {} in sendto callback', error)
             self._protocol.error_received(TransportError.from_errno(error))
-        if not self._closing and not self._writing and \
-                    self.get_write_buffer_size() <= self._write_buffer_low:
-            self._protocol.resume_writing()
-            self._writing = True
-        if self._closing and self._write_buffer_size == 0:
-            if not handle.closed:
-                self._handle.close(self._on_close_complete)
-            self._closing = False
+        self._maybe_resume_protocol()
+        self._maybe_close()
 
     def sendto(self, data, addr=None):
         """Send a datagram containing *data* to *addr*.
@@ -396,17 +424,18 @@ class DatagramTransport(BaseTransport):
         The *addr* argument may be omitted only if the handle was bound to a
         default remote address.
         """
-        if not isinstance(data, bytes):
-            raise TypeError("data: expecting a 'bytes' instance, got {!r}"
+        if not isinstance(data, (bytes, bytearray, memoryview)):
+            raise TypeError("data: expecting a bytes-like instance, got {!r}"
                                 .format(type(data).__name__))
+        self._check_status()
         if not self._writable:
             raise TransportError('transport is not writable')
-        elif self._closing or self._handle.closed:
-            raise TransportError('transport is closing/closed')
-        elif len(data) == 0:
-            return
+        self._maybe_pause_protocol()
+        try:
+            self._handle.send(addr, data, self._on_send_complete)
+        except pyuv.error.UVError as e:
+            # Don't store a permanent error here, errors can be transient with
+            # a datagram based transport.
+            # Possible improvement: identify and store permanent errors like EBADF
+            raise TransportError.from_errno(e.args[0])
         self._write_buffer_size += 1
-        if self.get_write_buffer_size() > self._write_buffer_high:
-            self._protocol.pause_writing()
-            self._writing = False
-        self._handle.send(addr, data, self._on_send_complete)

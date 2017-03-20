@@ -50,6 +50,12 @@ class ProtocolLogger(object):
     def error_received(self, exc):
         self.events.append(('error_received', exc))
 
+    def resume_writing(self):
+        pass
+
+    def pause_writing(self):
+        pass
+
 
 class EchoServer(ProtocolLogger):
 
