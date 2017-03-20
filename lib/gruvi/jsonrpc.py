@@ -52,6 +52,7 @@ separate fiber allows them to call into a switchpoint.
 from __future__ import absolute_import, print_function
 
 import json
+import functools
 import six
 
 from . import compat
@@ -249,6 +250,8 @@ class JsonRpcProtocol(MessageProtocol):
     max_queue_size = 10
 
     def __init__(self, message_handler=None, version='2.0', timeout=None):
+        if version not in ('1.0', '2.0'):
+            raise ValueError('version: must be "1.0" or "2.0"')
         super(JsonRpcProtocol, self).__init__(callable(message_handler), timeout=timeout)
         self._message_handler = message_handler
         self._version = version
@@ -265,7 +268,7 @@ class JsonRpcProtocol(MessageProtocol):
     def connection_lost(self, exc):
         # Protocol callback
         for switcher in self._method_calls.values():
-            switcher.throw(self._error or TransportError('connection lost'))
+            switcher.throw(TransportError('connection lost'))
         self._method_calls.clear()
         if self._tracefile:
             self._tracefile.close()
@@ -423,22 +426,14 @@ class JsonRpcClient(Client):
         The *version* argument specifies the JSON-RPC version to use. The
         *timeout* argument specifies the default timeout in seconds.
         """
-        super(JsonRpcClient, self).__init__(self._create_protocol, timeout=timeout)
-        self._message_handler = message_handler
-        if version not in ('1.0', '2.0'):
-            raise ValueError('version: must be "1.0" or "2.0"')
-        self._version = version
-
-    def _create_protocol(self):
-        # Protocol factory
-        return JsonRpcProtocol(self._message_handler, self._version, self._timeout)
+        protocol_factory = functools.partial(JsonRpcProtocol, message_handler, version)
+        super(JsonRpcClient, self).__init__(protocol_factory, timeout)
 
     protocol = Client.protocol
 
     delegate_method(protocol, JsonRpcProtocol.send_message)
     delegate_method(protocol, JsonRpcProtocol.send_notification)
     delegate_method(protocol, JsonRpcProtocol.call_method)
-    delegate_method(protocol, JsonRpcProtocol._set_tracefile)
 
 
 class JsonRpcServer(Server):
@@ -450,26 +445,12 @@ class JsonRpcServer(Server):
         """
         The *message_handler* argument specifies the JSON-RPC message handler.
         It must be a callable with signature ``message_handler(message,
-        protocol)``. The message handler is called in a separate dispatcher
-        fiber (one per connection).
+        transport, protocol)``. The message handler is called in a separate
+        dispatcher fiber (one per connection).
 
         The *version* argument specifies the default JSON-RPC version. The
         *timeout* argument specifies the default timeout.
         """
-        super(JsonRpcServer, self).__init__(self._create_protocol, timeout=timeout)
-        self._message_handler = message_handler
-        if version not in ('1.0', '2.0'):
-            raise ValueError('version: must be "1.0" or "2.0"')
-        self._version = version
-        self._tracefile = None
 
-    def _create_protocol(self):
-        # Protocol factory
-        protocol = JsonRpcProtocol(self._message_handler, self._version, self._timeout)
-        if self._tracefile:
-            protocol._set_tracefile(self._tracefile)
-        return protocol
-
-    def _set_tracefile(self, tracefile):
-        """Set a tracefile for all new connections."""
-        self._tracefile = tracefile
+        protocol_factory = functools.partial(JsonRpcProtocol, message_handler, version)
+        super(JsonRpcServer, self).__init__(protocol_factory, timeout=timeout)

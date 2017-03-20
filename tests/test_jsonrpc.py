@@ -310,18 +310,6 @@ class TestJsonRpc(UnitTest):
         server.close()
         client.close()
 
-    def test_call_method_trace(self):
-        server = JsonRpcServer(echo_app)
-        server.listen(('localhost', 0))
-        server._set_tracefile(self.tempname('json.trace'))
-        addr = server.addresses[0]
-        client = JsonRpcClient()
-        client.connect(addr)
-        result = client.call_method('echo', 'foo')
-        self.assertEqual(result, ['foo'])
-        server.close()
-        client.close()
-
     def test_call_method_no_args(self):
         server = JsonRpcServer(echo_app)
         server.listen(('127.0.0.1', 0))

@@ -51,6 +51,7 @@ class BaseTransport(object):
         self._readable = 'r' in mode
         self._writable = 'w' in mode
         self._protocol = None
+        self._server = None
         self._log = logging.get_logger()
         self._write_buffer_size = 0
         self._write_buffer_high = self.default_write_buffer
@@ -153,6 +154,8 @@ class BaseTransport(object):
         # Callback used with handle.close().
         assert handle is self._handle
         assert handle.closed
+        if self._server is not None:
+            self._server._on_close_complete(self, self._protocol, self._error)
         self._protocol.connection_lost(self._error)
         self._protocol = None  # remove cycle to help garbage collection
         self._closed.set()

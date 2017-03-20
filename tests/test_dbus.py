@@ -91,7 +91,7 @@ class TestDbusProtocol(UnitTest):
         # The first thing a client should send to the server is a '\0' byte. If
         # not, the server should close the connection.
         transport = MockTransport()
-        protocol = DbusProtocol(True, None)
+        protocol = DbusProtocol(server_side=True)
         transport.start(protocol)
         self.assertFalse(transport._closed.is_set())
         protocol.data_received(b'\1')
@@ -102,7 +102,7 @@ class TestDbusProtocol(UnitTest):
         # After the '\0' byte, an authentiction phase happens. The
         # authentication protocol is line based and all lines should be ascii.
         transport = MockTransport()
-        protocol = DbusProtocol(True, None)
+        protocol = DbusProtocol(server_side=True)
         transport.start(protocol)
         self.assertFalse(transport._closed.is_set())
         protocol.data_received(b'\0\xff\r\n')
@@ -112,7 +112,7 @@ class TestDbusProtocol(UnitTest):
     def test_auth_long_line(self):
         # An authentication line should not exceed the maximum line size.
         transport = MockTransport()
-        protocol = DbusProtocol(True, None, 'foo')
+        protocol = DbusProtocol(server_side=True, server_guid='foo')
         protocol.max_line_size = 5
         transport.start(protocol)
         self.assertFalse(transport._closed.is_set())
@@ -124,7 +124,7 @@ class TestDbusProtocol(UnitTest):
         # Test anonymous authenication. Ensure that the server GUID is
         # correctly sent back.
         transport = MockTransport()
-        protocol = DbusProtocol(True, None, 'foo')
+        protocol = DbusProtocol(server_side=True, server_guid='foo')
         transport.start(protocol)
         protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
         buf = transport.buffer.getvalue()
@@ -138,7 +138,7 @@ class TestDbusProtocol(UnitTest):
         # After authentication, the first message should be a "Hello".
         # Otherwise, the server should close the connection.
         transport = MockTransport()
-        protocol = DbusProtocol(True, self.store_messages, 'foo')
+        protocol = DbusProtocol(self.store_messages, server_side=True, server_guid='foo')
         transport.start(protocol)
         protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
         message = txdbus.MethodCallMessage('/my/path', 'Method')
@@ -152,7 +152,7 @@ class TestDbusProtocol(UnitTest):
         # After the "Hello" message, it should be possible to send other
         # messages.
         transport = MockTransport()
-        protocol = DbusProtocol(True, self.store_messages, 'foo')
+        protocol = DbusProtocol(self.store_messages, server_side=True, server_guid='foo')
         transport.start(protocol)
         protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
         auth = protocol._authenticator
@@ -178,7 +178,7 @@ class TestDbusProtocol(UnitTest):
     def test_send_message_incremental(self):
         # Send a message byte by byte. The protocol should be able process it.
         transport = MockTransport()
-        protocol = DbusProtocol(True, self.store_messages, 'foo')
+        protocol = DbusProtocol(self.store_messages, server_side=True, server_guid='foo')
         transport.start(protocol)
         authexchange = b'\0AUTH ANONYMOUS\r\nBEGIN\r\n'
         for i in range(len(authexchange)):
@@ -208,7 +208,7 @@ class TestDbusProtocol(UnitTest):
         # Send a message that exceeds the maximum message size. The connection
         # should be closed.
         transport = MockTransport()
-        protocol = DbusProtocol(True, self.store_messages, 'foo')
+        protocol = DbusProtocol(self.store_messages, server_side=True, server_guid='foo')
         transport.start(protocol)
         protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
         message = txdbus.MethodCallMessage('/org/freedesktop/DBus', 'Hello',
@@ -241,7 +241,7 @@ class TestDbusProtocol(UnitTest):
     def test_read_write_flow_control(self):
         # Send a lot of messages filling up the protocol read buffer.
         transport = MockTransport()
-        protocol = DbusProtocol(True, self.store_and_echo_messages)
+        protocol = DbusProtocol(self.store_and_echo_messages, server_side=True)
         transport.start(protocol)
         protocol.data_received(b'\0AUTH ANONYMOUS\r\nBEGIN\r\n')
         auth = protocol._authenticator

@@ -296,7 +296,7 @@ class Server(Endpoint):
 
     @property
     def addresses(self):
-        """A list of all listen addresses."""
+        """The addresses this server is listening on."""
         return self._addresses
 
     @property
@@ -322,6 +322,7 @@ class Server(Endpoint):
         else:
             transport = Transport(client)
         transport._log = self._log
+        transport._server = self
         self._all_closed.clear()
         if __debug__:
             self._log.debug('new connection on {}', saddr(client.getsockname()))
@@ -331,33 +332,26 @@ class Server(Endpoint):
         protocol._log = self._log
         protocol._timeout = self._timeout
         self._connections[transport] = protocol
-        # Chain _on_connection_lost() into protocol.connection_lost()
-        protocol.connection_lost = functools.partial(self._on_connection_lost, transport,
-                                                     protocol, protocol.connection_lost)
         self.connection_made(transport, protocol)
         transport.start(protocol)
 
-    def _on_connection_lost(self, transport, protocol, connection_lost, exc):
-        self.connection_lost(transport, protocol, exc)
-        connection_lost(exc)
+    def _on_close_complete(self, transport, protocol, exc=None):
+        # Called by Transport._on_close_complete
         self._connections.pop(transport, None)
         if not self._connections:
             self._all_closed.set()
+        self.connection_lost(transport, protocol, exc)
 
     def connection_made(self, transport, protocol):
         """Called when a new connection is made."""
 
-    def connection_lost(self, transport, protocol, exc):
+    def connection_lost(self, transport, protocol, exc=None):
         """Called when a connection is lost."""
 
     @switchpoint
     def listen(self, address, ssl=False, ssl_args={}, family=0, flags=0, backlog=128):
         """Create a new transport, bind it to *address*, and start listening
         for new connections.
-
-        For each new connection, a new transport is created that is bound to a
-        a new protocol obtained by calling the *protocol_factory* passed to the
-        constructor.
 
         See :func:`create_server` for a description of *address* and the
         supported keyword arguments.

@@ -49,7 +49,7 @@ class Process(Endpoint):
         standard input and outputs in case *encoding* is provided. It can be
         used e.g. to change buffering and enable universal newlines.
         """
-        super(Process, self).__init__(self._create_protocol, timeout)
+        super(Process, self).__init__(StreamProtocol, timeout)
         self._encoding = encoding
         self._textio_args = textio_args.copy()
         # Unless specified otherwise, a text stream should be write-through.
@@ -67,10 +67,6 @@ class Process(Endpoint):
         self._exit_status = None
         self._term_signal = None
         self._callbacks = None
-
-    def _create_protocol(self):
-        # Protocol for stdin/stdout/stderr
-        return StreamProtocol(timeout=self._timeout)
 
     @property
     def stdin(self):

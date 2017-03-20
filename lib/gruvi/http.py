@@ -53,6 +53,7 @@ from __future__ import absolute_import, print_function
 import re
 import time
 import textwrap
+import functools
 import six
 
 from . import logging, compat
@@ -691,14 +692,14 @@ class HttpProtocol(MessageProtocol):
 
     # In theory, max memory is pipeline_size * (header_size + buffer_size)
 
-    def __init__(self, server_side, application=None, server_name=None, version='1.1',
-                 timeout=None):
+    def __init__(self, application=None, server_side=False, server_name=None,
+                 version='1.1', timeout=None):
         """
+        The *application* argument specifies a WSGI application for this
+        protocol.
+
         The *server_side* argument specifies whether this is a client or server
         side protocol.
-
-        The *application* argument specifies a WSGI application for this
-        protocol. If it is specified then this is a server side protocol.
 
         The *server_name* argument can be used to override the server name for
         server side protocols. If not provided, then the socket name of the
@@ -1022,7 +1023,7 @@ class HttpClient(Client):
     def __init__(self, timeout=None):
         """The optional *timeout* argument can be used to specify a timeout for
         the various network operations used within the client."""
-        super(HttpClient, self).__init__(self._create_protocol, timeout=timeout)
+        super(HttpClient, self).__init__(HttpProtocol, timeout=timeout)
         self._server_name = None
 
     def connect(self, address, **kwargs):
@@ -1035,15 +1036,13 @@ class HttpClient(Client):
             if not default_port:
                 host = '{}:{}'.format(host, port)
             self._server_name = host
-        return super(HttpClient, self).connect(address, **kwargs)
+        super(HttpClient, self).connect(address, **kwargs)
+        self.protocol._server_name = self._server_name
 
     protocol = Client.protocol
 
     delegate_method(protocol, HttpProtocol.request)
     delegate_method(protocol, HttpProtocol.getresponse)
-
-    def _create_protocol(self):
-        return HttpProtocol(False, server_name=self._server_name, timeout=self._timeout)
 
 
 class HttpServer(Server):
@@ -1061,10 +1060,6 @@ class HttpServer(Server):
         The optional *timeout* argument can be used to specify a timeout for
         the various network operations used within the server.
         """
-        super(HttpServer, self).__init__(self._create_protocol, timeout)
-        self._application = application
-        self._server_name = server_name
-
-    def _create_protocol(self):
-        return HttpProtocol(True, self._application, server_name=self._server_name,
-                            timeout=self._timeout)
+        protocol_factory = functools.partial(HttpProtocol, application,
+                                             server_side=True, server_name=server_name)
+        super(HttpServer, self).__init__(protocol_factory, timeout)

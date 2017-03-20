@@ -54,6 +54,7 @@ import os
 import struct
 import binascii
 import codecs
+import functools
 import six
 import pyuv
 
@@ -223,7 +224,7 @@ class DbusProtocol(MessageProtocol):
 
     S_CREDS_BYTE, S_AUTHENTICATE, S_MESSAGE_HEADER, S_MESSAGE = range(4)
 
-    def __init__(self, server_side, message_handler=None, server_guid=None, timeout=None):
+    def __init__(self, message_handler=None, server_side=False, server_guid=None, timeout=None):
         super(DbusProtocol, self).__init__(callable(message_handler), timeout=timeout)
         self._message_handler = message_handler
         self._server_side = server_side
@@ -493,8 +494,8 @@ class DbusClient(Client):
         The optional *timeout* argument specifies a default timeout for
         protocol operations in seconds.
         """
-        super(DbusClient, self).__init__(self._create_protocol, timeout)
-        self._message_handler = message_handler
+        protocol_factory = functools.partial(DbusProtocol, message_handler)
+        super(DbusClient, self).__init__(protocol_factory, timeout)
 
     @switchpoint
     def connect(self, address='session'):
@@ -520,9 +521,6 @@ class DbusClient(Client):
         # Wait for authentication to complete
         self.get_unique_name()
 
-    def _create_protocol(self):
-        return DbusProtocol(False, self._message_handler, self._timeout)
-
     protocol = Client.protocol
 
     delegate_method(protocol, DbusProtocol.get_unique_name)
@@ -540,8 +538,9 @@ class DbusServer(Server):
         The optional *timeout* argument specifies a default timeout for
         protocol operations in seconds.
         """
-        super(DbusServer, self).__init__(self._create_protocol, timeout)
-        self._message_handler = message_handler
+        protocol_factory = functools.partial(DbusProtocol, message_handler,
+                                             server_side=True)
+        super(DbusServer, self).__init__(protocol_factory, timeout)
 
     @switchpoint
     def listen(self, address='session'):
@@ -561,7 +560,3 @@ class DbusServer(Server):
                 super(DbusServer, self).listen(addr)
             except pyuv.error.UVError:
                 self._log.error('skipping address {}', saddr(addr))
-
-    def _create_protocol(self):
-        # Protocol factory
-        return DbusProtocol(True, self._message_handler, timeout=self._timeout)

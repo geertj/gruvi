@@ -436,17 +436,15 @@ class StreamServer(Server):
 
         See :ref:`example-stream-server` for an example.
         """
-        super(StreamServer, self).__init__(self._create_protocol, timeout=timeout)
+        super(StreamServer, self).__init__(StreamProtocol, timeout=timeout)
         self._stream_handler = stream_handler
         self._dispatchers = {}
 
-    def _create_protocol(self):
-        return StreamProtocol(timeout=self._timeout)
-
     def connection_made(self, transport, protocol):
-        self._dispatchers[protocol] = spawn(self._dispatch_stream, transport, protocol)
+        self._dispatchers[transport] = spawn(self._dispatch_stream, transport, protocol)
 
     def _dispatch_stream(self, transport, protocol):
+        # Stream dispatcher, runs in a separate Fiber.
         self._log.debug('stream handler started')
         try:
             self._stream_handler(protocol.stream, transport, protocol)
@@ -458,5 +456,5 @@ class StreamServer(Server):
         self._log.debug('stream handler exiting')
 
     def connection_lost(self, transport, protocol, exc=None):
-        dispatcher = self._dispatchers.pop(protocol)
+        dispatcher = self._dispatchers.pop(transport)
         dispatcher.cancel()
