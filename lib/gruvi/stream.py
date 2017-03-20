@@ -350,7 +350,6 @@ class StreamProtocol(Protocol):
 
     def data_received(self, data):
         # Protocol callback
-        assert self._reading is True
         self._reader.feed(data)
 
     def eof_received(self):

@@ -220,14 +220,14 @@ class TestJsonRpcProtocol(UnitTest):
     def test_flow_control(self):
         # Write more bytes than the protocol buffers. Flow control should kick
         # in and alternate scheduling of the producer and the consumer.
-        proto = self.protocol
+        proto, trans = self.protocol, self.transport
         proto.read_buffer_size = 100
         message = b'{ "id": 1, "method": "foo"}'
         for i in range(1000):
             proto.data_received(message)
-            if not proto._reading:
+            if not trans.reading:
                 gruvi.sleep(0)  # run dispatcher
-            self.assertTrue(proto._reading)
+            self.assertTrue(trans.reading)
         mm = self.get_messages()
         self.assertEqual(len(mm), 1000)
         message = json.loads(message.decode('utf8'))

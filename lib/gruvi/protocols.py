@@ -41,12 +41,10 @@ class BaseProtocol(object):
         self._may_write = Event()
         self._may_write.set()
         self._closed = Event()
-        self._reading = False
 
     def connection_made(self, transport):
         """Called when a connection is made."""
         self._transport = transport
-        self._reading = True
 
     def connection_lost(self, exc):
         """Called when a connection is lost."""
@@ -87,12 +85,10 @@ class BaseProtocol(object):
         if self._transport is None:
             return
         bufsize = self.get_read_buffer_size()
-        if bufsize >= self._read_buffer_high and self._reading:
+        if bufsize >= self._read_buffer_high:
             self._transport.pause_reading()
-            self._reading = False
-        elif bufsize <= self._read_buffer_low and not self._reading:
+        elif bufsize <= self._read_buffer_low:
             self._transport.resume_reading()
-            self._reading = True
 
 
 class Protocol(BaseProtocol):

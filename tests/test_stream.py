@@ -384,7 +384,7 @@ class TestStreamProtocol(UnitTest):
         interrupted = 0
         for i in range(100):
             protocol.data_received(buf)
-            if protocol._reading:
+            if transport.reading:
                 continue
             interrupted += 1
             self.assertGreater(protocol._read_buffer_size, 0)
@@ -393,7 +393,7 @@ class TestStreamProtocol(UnitTest):
             gruvi.sleep(0)
             # The transport write buffer should be full but the protocol read
             # buffer should still contain something.
-            self.assertTrue(protocol._reading)
+            self.assertTrue(transport.reading)
             self.assertGreater(protocol._read_buffer_size, 0)
             self.assertFalse(protocol._may_write.is_set())
             # Drain write buffer and resume writing

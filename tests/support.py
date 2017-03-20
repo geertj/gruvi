@@ -343,13 +343,9 @@ class MockTransport(object):
         return len(self.buffer.getvalue())
 
     def pause_reading(self):
-        if not self.reading:
-            raise RuntimeError('not reading')
         self.reading = False
 
     def resume_reading(self):
-        if self.reading:
-            raise RuntimeError('already reading')
         self.reading = True
 
     def write(self, buf):

@@ -185,7 +185,13 @@ class Transport(BaseTransport):
             self._protocol.data_received(data)
 
     def pause_reading(self):
-        """Pause calling callbacks on the protocol."""
+        """Pause calling callbacks on the protocol.
+
+        This method may be called even if reading was already paused. This
+        simplifies protocol design, especially in combination with SSL where
+        reading may need to be enabled by the transport itself without
+        knowledge of the protocol.
+        """
         # Note: pause_reading() and resume_reading() are allowed when _closing
         # is true (unlike e.g. write()). This makes it easier for our child
         # class SslTransport to enable reading when it is closing down.
@@ -195,23 +201,25 @@ class Transport(BaseTransport):
             raise compat.saved_exc(self._error)
         elif self._protocol is None:
             raise TransportError('transport not started')
-        elif not self._reading:
-            raise TransportError('not currently reading')
-        self._handle.stop_read()
-        self._reading = False
+        elif self._reading:
+            self._handle.stop_read()
+            self._reading = False
 
     def resume_reading(self):
-        """Resume calling callbacks on the protocol."""
+        """Resume calling callbacks on the protocol.
+
+        This method may be called even if reading was already resumed. See the
+        note in :meth:`pause_reading`.
+        """
         if not self._readable:
             raise TransportError('transport is not readable')
         elif self._error:
             raise compat.saved_exc(self._error)
         elif self._protocol is None:
             raise TransportError('transport not started')
-        elif self._reading:
-            raise TransportError('already reading')
-        self._handle.start_read(self._read_callback)
-        self._reading = True
+        elif not self._reading:
+            self._handle.start_read(self._read_callback)
+            self._reading = True
 
     def _on_write_complete(self, datalen, handle, error):
         # Callback used with handle.write().

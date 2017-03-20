@@ -264,7 +264,7 @@ class TestDbusProtocol(UnitTest):
             message = txdbus.SignalMessage('/my/path', 'Signal', 'my.iface',
                                            signature='s', body=['x'*100])
             protocol.data_received(message.rawMessage)
-            if protocol._reading:
+            if transport.reading:
                 continue
             interrupted += 1
             self.assertGreater(protocol._queue.qsize(), 0)
@@ -272,7 +272,7 @@ class TestDbusProtocol(UnitTest):
             gruvi.sleep(0)
             # Now the write buffer is full and the read buffer still contains
             # some entries because it is larger.
-            self.assertTrue(protocol._reading)
+            self.assertTrue(transport.reading)
             self.assertGreater(protocol._queue.qsize(), 0)
             self.assertFalse(protocol._may_write.is_set())
             # Drain write buffer and resume writing
