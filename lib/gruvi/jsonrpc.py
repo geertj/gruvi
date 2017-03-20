@@ -63,7 +63,7 @@ from .protocols import ProtocolError, MessageProtocol
 from .stream import Stream
 from .endpoints import Client, Server
 from .address import saddr
-from .jsonrpc_ffi import lib as _lib, ffi as _ffi
+from .jsonrpc_ffi import lib, ffi
 
 __all__ = ['JsonRpcError', 'JsonRpcMethodCallError', 'JsonRpcProtocol',
            'JsonRpcClient', 'JsonRpcServer']
@@ -252,7 +252,7 @@ class JsonRpcProtocol(MessageProtocol):
         super(JsonRpcProtocol, self).__init__(message_handler, timeout=timeout)
         self._version = version
         self._buffer = bytearray()
-        self._context = _ffi.new('struct split_context *')
+        self._context = ffi.new('struct split_context *')
         self._method_calls = {}
 
     def connection_made(self, transport):
@@ -267,29 +267,24 @@ class JsonRpcProtocol(MessageProtocol):
             switcher.throw(TransportError('connection lost'))
         self._method_calls.clear()
 
-    def _set_buffer(self, data):
-        # Note: "struct split_context" does not keep a reference to its fields!
-        # Therefore use a Python variable to keep the cdata object alive
-        self._keepalive = self._context.buf = _ffi.new('char[]', data)
-        self._context.buflen = len(data)
-        self._context.offset = 0
-
     def data_received(self, data):
         # Protocol callback
-        self._set_buffer(data)
         offset = 0
+        self._context.buf = ffi.from_buffer(data)
+        self._context.buflen = len(data)
+        self._context.offset = 0
         # Use the CFFI JSON splitter to delineate JSON messages in the input
         # stream. Then decode, parse and check it.
         while offset != len(data):
-            error = _lib.json_split(self._context)
-            if error and error != _lib.INCOMPLETE:
+            error = lib.json_split(self._context)
+            if error and error != lib.INCOMPLETE:
                 self._error = JsonRpcError('json_split() error: {}'.format(error))
                 break
             size = len(self._buffer) + self._context.offset - offset
             if size > self.max_message_size:
                 self._error = JsonRpcError('message too large')
                 break
-            if error == _lib.INCOMPLETE:
+            if error == lib.INCOMPLETE:
                 self._buffer.extend(data[offset:])
                 break
             chunk = data[offset:self._context.offset]
@@ -323,8 +318,6 @@ class JsonRpcProtocol(MessageProtocol):
             else:
                 self._log.warning('inbound {} but no message handler', mtype)
             offset = self._context.offset
-        if self._queue.qsize() >= self.max_queue_size:
-            self._transport.pause_reading()
         if self._error:
             self._transport.close()
             return
