@@ -258,7 +258,6 @@ class JsonRpcProtocol(MessageProtocol):
         self._buffer = bytearray()
         self._context = _ffi.new('struct split_context *')
         self._method_calls = {}
-        self._tracefile = None
 
     def connection_made(self, transport):
         # Protocol callback
@@ -270,9 +269,6 @@ class JsonRpcProtocol(MessageProtocol):
         for switcher in self._method_calls.values():
             switcher.throw(TransportError('connection lost'))
         self._method_calls.clear()
-        if self._tracefile:
-            self._tracefile.close()
-            self._tracefile = None
 
     def _set_buffer(self, data):
         # Note: "struct split_context" does not keep a reference to its fields!
@@ -315,13 +311,9 @@ class JsonRpcProtocol(MessageProtocol):
                 self._error = JsonRpcError('Illegal JSON-RPC message: {!s}'.format(e))
                 break
             mtype = message_type(message)
-            if self._tracefile:
-                peername = self._transport.get_extra_info('peername', '(n/a)')
-                self._tracefile.write('\n\n/* <- {} ({}; version {}) */\n'
-                                       .format(peername, mtype, version))
-                self._tracefile.write(json.dumps(message, indent=2, sort_keys=True))
-                self._tracefile.write('\n')
-                self._tracefile.flush()
+            peername = self._transport.get_extra_info('peername', '(n/a)')
+            self._log.debug('incoming {} (v{}) from peer {}', mtype, version, peername)
+            self._log.trace('\n\n{}\n', chunk)
             # Now route the message to its correct destination
             if mtype in ('response', 'error') and message['id'] in self._method_calls:
                 # Response to a method call issues through call_method()
@@ -345,12 +337,6 @@ class JsonRpcProtocol(MessageProtocol):
             self._transport.resume_reading()
         self._message_handler(message, self._transport, self)
 
-    def _set_tracefile(self, tracefile):
-        """Log protocol exchanges to *tracefile*."""
-        if isinstance(tracefile, six.string_types):
-            tracefile = open(tracefile, 'w')
-        self._tracefile = tracefile
-
     @switchpoint
     def send_message(self, message):
         """Send a JSON-RPC message.
@@ -364,14 +350,6 @@ class JsonRpcProtocol(MessageProtocol):
             raise JsonRpcError('not connected')
         version = check_message(message)
         serialized = json.dumps(message, indent=2)
-        if self._tracefile:
-            mtype = message_type(message)
-            peername = self._transport.get_extra_info('peername', '(peer n/a)')
-            self._tracefile.write('\n\n/* -> {} ({}; version {}) */\n'
-                                    .format(saddr(peername), mtype, version))
-            self._tracefile.write(serialized)
-            self._tracefile.write('\n')
-            self._tracefile.flush()
         self._writer.write(serialized.encode('utf-8'))
 
     @switchpoint
