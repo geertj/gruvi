@@ -820,7 +820,7 @@ class HttpProtocol(MessageProtocol):
         m.message_type = lib.http_message_type(parser)
         m.version = '{}.{}'.format(parser.http_major, parser.http_minor)
         if self._server_side:
-            m.method = _http_methods.get(parser.method, '<unknown>')
+            m.method = _http_methods.get(lib.http_method(parser), '<unknown>')
             m.url = _ba2s(self._url)
             try:
                 m.parsed_url = urlsplit(m.url)
@@ -829,7 +829,7 @@ class HttpProtocol(MessageProtocol):
                 return 2  # error
             m.is_upgrade = lib.http_is_upgrade(parser)
         else:
-            m.status_code = parser.status_code
+            m.status_code = lib.http_status_code(parser)
         m.should_keep_alive = lib.http_should_keep_alive(parser)
         m.body = Stream(self._transport, 'r')
         m.body.buffer.set_buffer_limits(self.max_buffer_size)

@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2015 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -23,6 +23,8 @@ ffi.set_source('http_ffi', """
     #include "src/http_parser.c"
 
     unsigned char http_message_type(http_parser *p) { return p->type; }
+    unsigned int http_status_code(http_parser *p) { return p->status_code; }
+    unsigned int http_method(http_parser *p) { return p->method; }
     unsigned char http_errno(http_parser *p) { return p->http_errno; }
     unsigned char http_is_upgrade(http_parser *p) { return p->upgrade; }
 """, include_dirs=[topdir])
@@ -39,8 +41,6 @@ ffi.cdef("""
     struct http_parser {
       unsigned short http_major;
       unsigned short http_minor;
-      unsigned short status_code;
-      unsigned char method;
       void *data;
       ...;
     };
@@ -48,7 +48,7 @@ ffi.cdef("""
     struct http_parser_settings {
       http_cb      on_message_begin;
       http_data_cb on_url;
-      http_cb      on_status_complete;
+      http_data_cb on_status;
       http_data_cb on_header_field;
       http_data_cb on_header_value;
       http_cb      on_headers_complete;
@@ -69,6 +69,8 @@ ffi.cdef("""
 
     /* Extra functions to extract bitfields not supported by cffi */
     unsigned char http_message_type(http_parser *parser);
+    unsigned int http_status_code(http_parser *parser);
+    unsigned int http_method(http_parser *parser);
     unsigned char http_errno(http_parser *parser);
     unsigned char http_is_upgrade(http_parser *parser);
 
