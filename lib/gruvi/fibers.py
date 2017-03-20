@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -95,11 +95,11 @@ class Fiber(fibers.Fiber):
             return
         return super(Fiber, self).switch(value)
 
-    def throw(self, *exc_info):
+    def throw(self, typ, val=None, tb=None):
         # Only the hub may call this.
         if self.current() is not self._hub:
             raise RuntimeError('only the Hub may throw() into a fiber')
-        return super(Fiber, self).throw(*exc_info)
+        return super(Fiber, self).throw(typ, val, tb)
 
     def cancel(self, message=None):
         """Schedule the fiber to be cancelled in the next iteration of the

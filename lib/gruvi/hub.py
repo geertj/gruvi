@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -148,7 +148,7 @@ class switch_back(object):
         self._hub.run_callback(self._fiber.switch, value)
         self._hub = self._fiber = None  # switch back at most once!
 
-    def throw(self, *exc_info):
+    def throw(self, typ, val=None, tb=None):
         """Throw an exception into the origin fiber. The exception is thrown
         the next time the event loop runs."""
         # The might seem redundant with self._fiber.cancel(exc), but it isn't
@@ -156,7 +156,7 @@ class switch_back(object):
         # cancel() method.
         if self._hub is None or not self._fiber.is_alive():
             return
-        self._hub.run_callback(self._fiber.throw, *exc_info)
+        self._hub.run_callback(self._fiber.throw, typ, val, tb)
         self._hub = self._fiber = None  # switch back at most once!
 
     def add_cleanup(self, callback, *args):
