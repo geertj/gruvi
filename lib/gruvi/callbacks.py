@@ -240,44 +240,35 @@ def clear_callbacks(obj):
     obj._callbacks = None
 
 
-def walk_callbacks(obj, func, n=-1, log=None):
+def walk_callbacks(obj, func, log=None):
     """Call func(callback, args) for all callbacks and keep only those
     callbacks for which the function returns True."""
     callbacks = obj._callbacks
-    count = 0
-    if n == 0 or not callbacks:
-        return count
     if isinstance(callbacks, Node):
         node = callbacks
         try:
             if not func(node.callback, node.args):
                 obj._callbacks = None
-                count += 1
         except Exception:
             if log is None:
                 log = logging.get_logger()
             log.exception('uncaught exception in callback')
     elif isinstance(callbacks, dllist):
-        count = 0
         for node in callbacks:
             try:
                 if func(node.callback, node.args):
                     continue
                 callbacks.remove(node)
-                count += 1
-                if n == count:
-                    break
             except Exception:
                 if log is None:
                     log = logging.get_logger()
                 log.exception('uncaught exception in callback')
         if not callbacks:
             obj._callbacks = None
-    return count
 
 
-def run_callbacks(obj, n=-1, log=None):
+def run_callbacks(obj, log=None):
     """Run callbacks."""
     def run_callback(callback, args):
         callback(*args)
-    return walk_callbacks(obj, run_callback, n, log)
+    return walk_callbacks(obj, run_callback, log)

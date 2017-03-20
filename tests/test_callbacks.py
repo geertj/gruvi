@@ -257,8 +257,6 @@ class TestCallbacks(UnitTest):
             cbargs.append(args)
         for i in range(5):
             add_callback(obj, callback, (obj,))
-        run_callbacks(obj, n=2)
-        self.assertEqual(cbargs, [(obj,)]*2)
         run_callbacks(obj)
         self.assertEqual(cbargs, [(obj,)]*5)
 
@@ -292,18 +290,12 @@ class TestCallbacks(UnitTest):
         def walker(callback, args):
             walk.append((callback, args))
             return result
-        count = walk_callbacks(obj, walker)
-        self.assertEqual(count, 0)
+        walk_callbacks(obj, walker)
         self.assertEqual(walk, ref)
         self.assertEqual(len(obj._callbacks), 5)
         walk = []
         result = False
-        count = walk_callbacks(obj, walker, n=2)
-        self.assertEqual(count, 2)
-        self.assertEqual(walk, ref[:2])
-        self.assertEqual(len(obj._callbacks), 3)
-        count = walk_callbacks(obj, walker)
-        self.assertEqual(count, 3)
+        walk_callbacks(obj, walker)
         self.assertEqual(walk, ref)
         self.assertFalse(obj._callbacks)
 
