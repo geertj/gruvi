@@ -128,7 +128,7 @@ class Fiber(fibers.Fiber):
             self._target(*args, **kwargs)
         except Cancelled as e:
             self._log.debug('fiber was cancelled ({!s})', e)
-        except Exception:
+        except BaseException:
             self._log.exception('uncaught exception in fiber')
         self._done.set()
         run_callbacks(self)

@@ -78,7 +78,7 @@ class _Lock(object):
                 # the fiber that it passed the lock.
                 assert self._locked > 0
                 assert self._owner is fibers.current()
-        except Exception as e:
+        except BaseException as e:
             # Likely a Timeout but could also be e.g. Cancelled
             with self._lock:
                 # Clean up the callback. It might have been popped by
@@ -241,7 +241,7 @@ class Event(object):
                 # See note in Lock.acquire() why we can call to hub.switch()
                 # outside the lock.
                 hub.switch()
-        except Exception as e:
+        except BaseException as e:
             with self._lock:
                 remove_callback(self, handle)
             if e is switcher.timeout:
@@ -395,7 +395,7 @@ class Condition(object):
                 # Also if this is a reentrant lock make sure it is fully released.
                 state = release_save(self._lock)
                 hub.switch()
-        except Exception as e:
+        except BaseException as e:
             with self._lock:
                 remove_callback(self, handle)
             if e is switcher.timeout:

@@ -17,5 +17,5 @@ class Error(Exception):
 class Timeout(Error):
     """A timeout has occurred."""
 
-class Cancelled(Error):
+class Cancelled(BaseException):
     """A fiber or calback was cancelled."""
