@@ -426,7 +426,7 @@ def add_method(template, method, globs=None, depth=1):
     classdict = frame.f_locals
     wrapped = util.wrap(template, method, globs, depth+1, True)
     if getattr(method, 'switchpoint', False):
-        wrapped = switchpoint(wrapped, update_doc=False)
+        wrapped = switchpoint(wrapped)
     classdict[method.__name__] = wrapped
 
 

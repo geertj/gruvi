@@ -14,6 +14,7 @@ import threading
 import textwrap
 import itertools
 import traceback
+import functools
 
 import pyuv
 import fibers
@@ -27,22 +28,7 @@ __all__ = ['switchpoint', 'assert_no_switchpoints', 'switch_back', 'get_hub',
            'Hub', 'sleep']
 
 
-# The @switchpoint decorator dynamically compiles the wrapping code at import
-# time. The more obvious way of using a closure would result in Sphinx
-# documenting the function as having the signature of func(*args, **kwargs).
-
-_switchpoint_template = textwrap.dedent("""\
-    def {name}{signature}:
-        '''{docstring}'''
-        hub = get_hub()
-        if getcurrent() is hub:
-            raise RuntimeError('cannot call switchpoint "{name}" from the Hub')
-        if hub._noswitch_depth:
-            raise AssertionError('switchpoint called from no-switch section')
-        return _{name}{arglist}
-""")
-
-def switchpoint(func, update_doc=True):
+def switchpoint(func):
     """Mark *func* as a switchpoint.
 
     In Gruvi, all methods and functions that call :meth:`Hub.switch` directly,
@@ -54,18 +40,15 @@ def switchpoint(func, update_doc=True):
       def myfunc():
           # may call Hub.switch() here
     """
-    name = func.__name__
-    doc = func.__doc__ or ''
-    if update_doc and not doc.endswith('*This method is a switchpoint.*\n'):
-        indent = [len(list(itertools.takewhile(str.isspace, line)))
-                  for line in doc.splitlines() if line and not line.isspace()]
-        indent = indent[0] if len(indent) == 1 else min(indent[1:] or [0])
-        doc += '\n\n' + ' ' * indent + '*This method is a switchpoint.*\n'
-        func.__doc__ = doc
-    globs = {'get_hub': get_hub, 'getcurrent': fibers.current, '_{}'.format(name): func}
-    wrapped = util.wrap(_switchpoint_template, func, globs, 2)
-    wrapped.func = func
-    wrapped.switchpoint = True
+    @functools.wraps(func)
+    def wrapped(*args, **kwargs):
+        hub = get_hub()
+        if fibers.current() is hub:
+            raise RuntimeError('cannot call switchpoint from the Hub')
+        if hub._noswitch_depth:
+            raise AssertionError('switchpoint called from no-switch section')
+        return func(*args, **kwargs)
+    wrapped.__switchpoint__ = True
     return wrapped
 
 

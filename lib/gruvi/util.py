@@ -73,6 +73,8 @@ def wrap(template, func, globs=None, depth=1, ismethod=False):
     generated function appears to be in the file and on the (single) line
     of the frame at this depth.
     """
+    while hasattr(func, '__wrapped__'):
+        func = func.__wrapped__
     name = func.__name__
     doc = func.__doc__ or ''
     if globs is None:

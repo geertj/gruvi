@@ -33,8 +33,10 @@ class TestHub(UnitTest):
             """Foo bar."""
             return (foo, bar, baz, args, kwargs)
         wrapper = gruvi.switchpoint(func)
+        self.assertTrue(wrapper.__switchpoint__)
+        while hasattr(wrapper, '__wrapped__'):
+            wrapper = wrapper.__wrapped__
         self.assertEqual(wrapper.__name__, 'func')
-        self.assertTrue(wrapper.__doc__.endswith('switchpoint.*\n'))
         argspec = inspect.getargspec(wrapper)
         self.assertEqual(argspec.args, ['foo', 'bar', 'baz'])
         self.assertEqual(argspec.varargs, 'args')
