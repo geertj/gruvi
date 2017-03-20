@@ -257,6 +257,9 @@ class Hub(fibers.Fiber):
         self._loop.excepthook = self._uncaught_exception
         self._data = {}
         self._noswitch_depth = 0
+        # Use a deque() instead of our dllist from gruvi.callbacks because we
+        # need a thread-safe append, and we don't need to remove things from
+        # the middle.
         self._callbacks = collections.deque()
         # Thread IDs may be recycled when a thread exits. But as long as the
         # hub is alive, it won't be recycled so in that case we can use just
@@ -413,7 +416,7 @@ class Hub(fibers.Fiber):
             raise RuntimeError('hub is closed')
         elif not callable(callback):
             raise TypeError('"callback": expecting a callable')
-        self._callbacks.append((callback, args))  # atomic
+        self._callbacks.append((callback, args))  # thread-safe
         self._stop_loop()
 
 
