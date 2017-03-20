@@ -29,29 +29,15 @@ from gruvi.sync import Event
 __all__ = []
 
 
-def get_log_level():
-    """Return the log level to be used when running tests.
-
-    The log level is determined by $DEBUG and $VERBOSE.
-    """
-    debug = int(os.environ.get('DEBUG', '0'))
-    verbose = int(os.environ.get('VERBOSE', '1'))
-    if debug:
-        return logging.DEBUG
-    # 1 -> CRITICAL, 6 -> DEBUG
-    return 10 * max(0, 6 - verbose)
-
-
 def setup_logging():
     """Configure a logger to output to stdout."""
     logger = logging.getLogger()
     if logger.handlers:
         return
-    logger.setLevel(get_log_level())
-    if int(os.environ.get('LOG_DEVNULL', '0')):
-        handler = logging.StreamHandler(open(os.devnull, 'w'))
-    else:
-        handler = logging.StreamHandler(sys.stdout)
+    debug = int(os.environ.get('DEBUG', '0'))
+    # Smarty-pants way to say 0 = no logs (60), 1 = CRITICAL (50), ... 6 = TRACE (5)
+    level = int(os.environ.get('VERBOSE', '5' if debug else '2'))
+    logger.setLevel(level)
     template = '%(levelname)s %(message)s'
     handler.setFormatter(logging.Formatter(template))
     logger.addHandler(handler)
