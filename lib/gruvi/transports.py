@@ -165,6 +165,10 @@ class Transport(BaseTransport):
             self._reading = True
         return events
 
+    def get_write_buffer_size(self):
+        """Return the current write buffer size."""
+        return self._handle.write_queue_size
+
     def _read_callback(self, handle, data, error):
         # Callback used with handle.start_read().
         assert handle is self._handle
@@ -221,10 +225,10 @@ class Transport(BaseTransport):
             self._handle.start_read(self._read_callback)
             self._reading = True
 
-    def _on_write_complete(self, datalen, handle, error):
+    def _on_write_complete(self, handle, error):
         # Callback used with handle.write().
         assert handle is self._handle
-        self._write_buffer_size -= datalen
+        self._write_buffer_size -= 1
         assert self._write_buffer_size >= 0
         if self._error:
             self._log.debug('write status {} after close', error)
@@ -233,7 +237,7 @@ class Transport(BaseTransport):
             self._error = TransportError.from_errno(error)
             self.abort()
         if not self._closing and not handle.closed and not self._writing \
-                    and self._write_buffer_size <= self._write_buffer_low:
+                    and self.get_write_buffer_size() <= self._write_buffer_low:
             self._protocol.resume_writing()
             self._writing = True
         if self._closing and self._write_buffer_size == 0:
@@ -256,17 +260,20 @@ class Transport(BaseTransport):
             raise TransportError('transport not started')
         elif len(data) == 0:
             return
-        if self._write_buffer_size > self._write_buffer_high:
+        if self.get_write_buffer_size() > self._write_buffer_high:
             self._protocol.pause_writing()
             self._writing = False
-        callback = functools.partial(self._on_write_complete, len(data))
         try:
-            self._handle.write(data, callback)
+            self._handle.write(data, self._on_write_complete)
         except pyuv.error.UVError as e:
             self._error = TransportError.from_errno(e.args[0])
             self.abort()
             raise compat.saved_exc(self._error)
-        self._write_buffer_size += len(data)
+        # For stream transports (and datagram transports below), we only keep
+        # track of the number of outstanding writes, as the number of
+        # outstanding bytes is available from libuv. (For SSL transports we do
+        # need to keep track.)
+        self._write_buffer_size += 1
 
     def writelines(self, seq):
         """Write all elements from *seq* to the transport."""
@@ -283,9 +290,8 @@ class Transport(BaseTransport):
             raise TransportError('transport is closing/closed')
         elif self._protocol is None:
             raise RuntimeError('transport not started')
-        callback = functools.partial(self._on_write_complete, 1)
         try:
-            self._handle.shutdown(callback)
+            self._handle.shutdown(self._on_write_complete)
         except pyuv.error.UVError as e:
             self._error = TransportError.from_errno(e.args[0])
             self.abort()
@@ -351,6 +357,10 @@ class DatagramTransport(BaseTransport):
             self._handle.start_recv(self._recv_callback)
         return events
 
+    def get_write_buffer_size(self):
+        """Return the current write buffer size."""
+        return getattr(self._handle, 'send_queue_size', 0)
+
     def _recv_callback(self, handle, addr, flags, data, error):
         """Callback used with handle.start_recv()."""
         assert handle is self._handle
@@ -363,16 +373,16 @@ class DatagramTransport(BaseTransport):
         elif data and not self._closing:
             self._protocol.datagram_received(data, addr)
 
-    def _on_send_complete(self, datalen, handle, error):
+    def _on_send_complete(self, handle, error):
         """Callback used with handle.send()."""
         assert handle is self._handle
-        self._write_buffer_size -= datalen
+        self._write_buffer_size -= 1
         assert self._write_buffer_size >= 0
         if error and error != pyuv.errno.UV_ECANCELED:
             self._log.warning('pyuv error {} in sendto callback', error)
             self._protocol.error_received(TransportError.from_errno(error))
         if not self._closing and not self._writing and \
-                    self._write_buffer_size <= self._write_buffer_low:
+                    self.get_write_buffer_size() <= self._write_buffer_low:
             self._protocol.resume_writing()
             self._writing = True
         if self._closing and self._write_buffer_size == 0:
@@ -395,9 +405,8 @@ class DatagramTransport(BaseTransport):
             raise TransportError('transport is closing/closed')
         elif len(data) == 0:
             return
-        self._write_buffer_size += len(data)
-        if self._write_buffer_size > self._write_buffer_high:
+        self._write_buffer_size += 1
+        if self.get_write_buffer_size() > self._write_buffer_high:
             self._protocol.pause_writing()
             self._writing = False
-        callback = functools.partial(self._on_send_complete, len(data))
-        self._handle.send(addr, data, callback)
+        self._handle.send(addr, data, self._on_send_complete)
