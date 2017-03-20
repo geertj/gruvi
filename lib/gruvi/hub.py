@@ -41,15 +41,15 @@ def switchpoint(func):
           # may call Hub.switch() here
     """
     @functools.wraps(func)
-    def wrapped(*args, **kwargs):
+    def switchpoint(*args, **kwargs):
         hub = get_hub()
         if fibers.current() is hub:
             raise RuntimeError('cannot call switchpoint from the Hub')
         if hub._noswitch_depth:
             raise AssertionError('switchpoint called from no-switch section')
         return func(*args, **kwargs)
-    wrapped.__switchpoint__ = True
-    return wrapped
+    switchpoint.__switchpoint__ = True
+    return switchpoint
 
 
 class assert_no_switchpoints(object):
