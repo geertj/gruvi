@@ -45,9 +45,9 @@ class TestLogging(UnitTest):
     def test_get_logger(self):
         # Ensure that get_logger() returns the correct logger.
         logger = get_logger(name='gruvi_test')
-        self.assertIs(logger.logger, self.logger)
+        self.assertIs(logger._logger, self.logger)
         logger = get_logger()
-        self.assertIsNot(logger.logger, self.logger)
+        self.assertIsNot(logger._logger, self.logger)
 
     def test_get_logger_context(self):
         # Ensure that a different logger is returned for different contexts.
@@ -173,25 +173,6 @@ class TestLogging(UnitTest):
         self.assertEqual(len(messages), 1)
         self.assertNotIn('fooctx', messages[0])
         self.assertIn('barctx', messages[0])
-        self.assertIn('foo bar', messages[0])
-
-    def test_fiber_context(self):
-        # Ensure that both a logging context and a fiber context are added.
-        self.logger.setLevel(logging.DEBUG)
-        gruvi.current_fiber().context = 'fibctx'
-        logger = get_logger('logctx', name='gruvi_test')
-        logger.debug('foo bar')
-        messages = self.get_messages()
-        self.assertEqual(len(messages), 1)
-        self.assertIn('fibctx', messages[0])
-        self.assertIn('logctx', messages[0])
-        self.assertIn('foo bar', messages[0])
-        logger = get_logger(name='gruvi_test')
-        logger.debug('foo bar')
-        messages = self.get_messages()
-        self.assertEqual(len(messages), 1)
-        self.assertIn('fibctx', messages[0])
-        self.assertNotIn('logctx', messages[0])
         self.assertIn('foo bar', messages[0])
 
 

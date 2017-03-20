@@ -61,17 +61,23 @@ class ContextLogger(object):
     It also supports passing arguments via '{}' format operations.
     """
 
-    __slots__ = ('logger', 'context')
+    __slots__ = ('_logger', '_context')
 
     # This is not based on logging.LoggingAdapter because the 2.x and 3.x
     # implementations differ quite a bit, which means we would need to
     # reimplement almost the entire thing anyway.
 
-    def __init__(self, logger, context=''):
-        self.logger = logger
-        self.context = context
+    def __init__(self, logger, context=None):
+        self._logger = logger
+        self._context = context or ''
+
+    @property
+    def context(self):
+        """Return the logging context."""
+        return self._context
 
     def thread_info(self):
+        """Return a string identifying the current thread and fiber."""
         tid = threading.current_thread().name
         if tid == 'MainThread':
             tid = 'Main'
@@ -79,28 +85,22 @@ class ContextLogger(object):
         fid = getattr(current, 'name', util.objref(current)) if current.parent else 'Root'
         return '{}/{}'.format(tid, fid)
 
-    def context_info(self):
-        log_context = self.context
-        fiber_context = getattr(fibers.current(), 'context', '')
-        if not fiber_context:
-            return log_context or '@'
-        return '{}:{}'.format(log_context, fiber_context)
-
-    def stack_info(self):
-        if not self.logger.isEnabledFor(logging.DEBUG):
+    def frame_info(self):
+        """Return a string identifying the current frame."""
+        if not self._logger.isEnabledFor(logging.DEBUG):
             return ''
         f = sys._getframe(3)
         fname = os.path.split(f.f_code.co_filename)[1]
         return '{}:{}'.format(fname, f.f_lineno)
 
     def log(self, level, msg, *args, **kwargs):
-        if not self.logger.isEnabledFor(level):
+        if not self._logger.isEnabledFor(level):
             return
-        prefix = '{}|{}|{}'.format(self.thread_info(), self.context_info(), self.stack_info())
+        prefix = '{}|{}|{}'.format(self.thread_info(), self.context, self.frame_info())
         if args:
             msg = msg.format(*args)
         msg = '[{}] {}'.format(prefix, msg)
-        self.logger._log(level, msg, (), **kwargs)
+        self._logger._log(level, msg, (), **kwargs)
 
     def trace(self, msg, *args, **kwargs):
         self.log(logging.TRACE, msg, *args, **kwargs)

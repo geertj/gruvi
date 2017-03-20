@@ -63,7 +63,6 @@ class Fiber(fibers.Fiber):
             name = 'Fiber-{}'.format(fid)
             self._hub.data['gruvi:next_fiber'] += 1
         self._name = name
-        self.context = ''  # for logging
         self._target = target
         self._log = logging.get_logger()
         self._done = Event()
