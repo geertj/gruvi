@@ -103,43 +103,41 @@ class Process(Endpoint):
             return
         return self._process.pid
 
-    def _create_stdio(self, name, loop, handle, fd):
+    def _create_stdio(self, loop, spec, childfd):
         # Create a pyuv.StdIO container
-        if handle is None:
-            stdio = pyuv.StdIO(fd=fd, flags=pyuv.UV_INHERIT_FD)
-        elif handle == PIPE:
+        if spec is None:
+            stdio = pyuv.StdIO(fd=childfd, flags=pyuv.UV_INHERIT_FD)
+        elif spec == PIPE:
             stdio = pyuv.StdIO(stream=pyuv.Pipe(loop), flags=CREATE_PIPE)
-        elif handle == DEVNULL:
+        elif spec == DEVNULL:
             stdio = pyuv.StdIO(flags=pyuv.UV_IGNORE)
-        elif isinstance(handle, pyuv.Stream):
-            stdio = pyuv.StdIO(stream=handle, flags=CREATE_PIPE)
-        elif isinstance(handle, int) and handle >= 0:
-            stdio = pyuv.StdIO(fd=handle, flags=pyuv.UV_INHERIT_FD)
-        elif hasattr(handle, 'fileno'):
-            stdio = pyuv.StdIO(fd=handle.fileno(), flags=CREATE_PIPE)
+        elif isinstance(spec, pyuv.Stream):
+            stdio = pyuv.StdIO(stream=spec, flags=CREATE_PIPE)
+        elif isinstance(spec, int) and spec >= 0:
+            stdio = pyuv.StdIO(fd=spec, flags=pyuv.UV_INHERIT_FD)
+        elif hasattr(spec, 'fileno'):
+            stdio = pyuv.StdIO(fd=spec.fileno(), flags=CREATE_PIPE)
         else:
-            raise TypeError('{}: must be PIPE, an fd, a Stream, or a file-like object'
-                            ' (got {!r})'.format(name, type(handle).__name__))
+            raise TypeError('stdio[{}]: spec must be PIPE, an fd, a Stream, or a file-like object'
+                            ' (got {!r})'.format(childfd, type(spec).__name__))
         return stdio
 
-    def _get_stdio_handles(self, loop, stdin, stdout, stderr, extra_handles):
+    def _get_child_handles(self, loop, stdin, stdout, stderr, extra_handles):
         # Return a list of StdIO containers that are passed to our child
         handles = []
-        handles.append(self._create_stdio('stdin', loop, stdin, 0))
-        handles.append(self._create_stdio('stdout', loop, stdout, 1))
-        handles.append(self._create_stdio('stderr', loop, stderr, 2))
-        if extra_handles:
-            for ix, handle in enumerate(extra_handles):
-                name = 'handles[{}]'.format(ix)
-                if handle is None or handle == PIPE:
-                    raise TypeError('{}: cannot be None or PIPE'.format(name))
-                handles.append(self._create_stdio(name, loop, handle, None))
+        handles.append(self._create_stdio(loop, stdin, 0))
+        handles.append(self._create_stdio(loop, stdout, 1))
+        handles.append(self._create_stdio(loop, stderr, 2))
+        for ix, spec in enumerate(extra_handles or []):
+            if spec is None or spec == PIPE:
+                raise TypeError('extra_handles[{}]: cannot be None or PIPE'.format(ix))
+            handles.append(self._create_stdio(loop, spec, ix+3))
         return handles
 
-    def _connect_stdio(self, stdio):
+    def _connect_child_handle(self, stdio):
         # Connect a StdIO container to a StreamProtocol. Return the (possibly
         # textio wrapped) Stream
-        transport, protocol = create_connection(self._protocol_factory, stdio.stream,
+        transport, protocol = create_connection(StreamProtocol, stdio.stream,
                                                 timeout=self._timeout)
         if self._encoding:
             stream = TextIOWrapper(protocol.stream, self._encoding, **self._textio_args)
@@ -230,17 +228,17 @@ class Process(Endpoint):
         if cwd is not None:
             kwargs['cwd'] = cwd
         kwargs['flags'] = flags
-        stdio = self._get_stdio_handles(hub.loop, stdin, stdout, stderr, extra_handles)
-        kwargs['stdio'] = stdio
+        handles = self._get_child_handles(hub.loop, stdin, stdout, stderr, extra_handles)
+        kwargs['stdio'] = handles
         process = pyuv.Process.spawn(hub.loop, args, executable,
                                      exit_callback=self._on_child_exit, **kwargs)
         # Create stdin/stdout/stderr transports/protocols.
-        if stdio[0].stream:
-            self._stdin = self._connect_stdio(stdio[0])
-        if stdio[1].stream:
-            self._stdout = self._connect_stdio(stdio[1])
-        if stdio[2].stream:
-            self._stderr = self._connect_stdio(stdio[2])
+        if handles[0].stream:
+            self._stdin = self._connect_child_handle(handles[0])
+        if handles[1].stream:
+            self._stdout = self._connect_child_handle(handles[1])
+        if handles[2].stream:
+            self._stderr = self._connect_child_handle(handles[2])
         self._process = process
 
     def _on_child_exit(self, handle, exit_status, term_signal):
