@@ -109,79 +109,55 @@ class JsonRpcMethodCallError(JsonRpcError):
         return self._error
 
 
-_request_keys = frozenset(('jsonrpc', 'id', 'method', 'params'))
-_response_keys = frozenset(('jsonrpc', 'id', 'result', 'error'))
+Absent = object()
 
-def check_message(message):
-    """Validate a JSON-RPC message.
+def check_message_v1(message):
+    """Validate a JSON-RPC v1 message."""
+    msgid = message.get('id', Absent)
+    if msgid is Absent:
+        return
+    method = message.get('method', Absent)
+    if method is Absent:
+        result = message.get('result', Absent)
+        error = message.get('error', Absent)
+        if result is Absent or error is Absent or \
+                error is not None and not isinstance(error, dict) or \
+                result is not None and error is not None or \
+                len(message) != 3:
+            return
+        return 'response' if error is None else 'error'
+    elif isinstance(method, six.string_types):
+        params = message.get('params', Absent)
+        if params is Absent or not isinstance(params, list) or \
+                len(message) != 3:
+            return
+        return 'notification' if msgid is None else 'methodcall'
 
-    The message must be a dictionary. Return the detected version number, or
-    raise an exception on error.
-    """
-    if not isinstance(message, dict):
-        raise ValueError('message must be an object')
-    version = message.get('jsonrpc', '1.0')
-    if version not in ('1.0', '2.0'):
-        raise ValueError('illegal version: {!r}'.format(version))
-    method = message.get('method')
-    if method is not None:
-        # Request or notification
-        if not isinstance(method, six.string_types):
-            raise ValueError('method must be str, got {!r}'.format(type(method).__name__))
-        params = message.get('params')
-        # There's annoying differences between v1.0 and v2.0. v2.0 allows
-        # params to be absent while v1.0 doesn't. Also v2.0 allows keyword
-        # params. Be lenient and allow both absent and none in both cases (but
-        # never allow keyword arguments in v1.0).
-        if version == '1.0':
-            if not isinstance(params, (list, tuple)) and params is not None:
-                raise ValueError('params must be list, got {!r}'
-                                    .format(type(params).__name__))
-        elif version == '2.0':
-            if not isinstance(params, (dict, list, tuple)) and params is not None:
-                raise ValueError('params must be dict/list, got {!r}'
-                                    .format(type(params).__name__))
-        allowed_keys = _request_keys
-    else:
-        # Success or error response
-        if message.get('id') is None:
-            raise ValueError('null or absent id not allowed in response')
-        # There's again annoying differences between v1.0 and v2.0.
-        # v2.0 insists on absent result/error memmbers while v1.0 wants null.
-        # Be lenient again and allow both for both versions.
-        if message.get('result') and message.get('error'):
-            raise ValueError('both result and error cannot be not-null')
-        allowed_keys = _response_keys
-    extra = set(message) - allowed_keys
-    if extra:
-        raise ValueError('extra keys: {}', ', '.join(extra))
-    return version
-
-
-def message_type(message):
-    """Return the type of *message*.
-
-    The message must be valid, i.e. it should pass :func:`check_message`.
-
-    This function will return a string containing one of "methodcall",
-    "notification", "error" or "response".
-    """
-    version = message.get('jsonrpc', '1.0')
-    # JSON-RPC version 2.0 allows (but discourages) a "null" id for request...
-    # It's pretty silly especially because null means a notification in version
-    # 1.0. But we support it..
-    if message.get('method') and 'id' in message and \
-                (message['id'] is not None or version == '2.0'):
-        return 'methodcall'
-    elif message.get('method'):
-        return 'notification'
-    elif message.get('error'):
-        return 'error'
-    # Result may be null and it's not an error unless error is not-null
-    elif 'result' in message:
-        return 'response'
-    else:
-        raise ValueError('illegal message')
+def check_message_v2(message):
+    """Validate a JSON-RPC v2 message."""
+    version = message.get('jsonrpc')
+    if version != '2.0':
+        return
+    msgid = message.get('id', Absent)
+    if msgid is not Absent and not isinstance(msgid, six.string_types) and \
+                not isinstance(msgid, (int, float)):
+        return
+    method = message.get('method', Absent)
+    if method is Absent:
+        result = message.get('result', Absent)
+        error = message.get('error', Absent)
+        if msgid is Absent or \
+                error is not Absent and not isinstance(error, dict) or \
+                (result is Absent) == (error is Absent) or \
+                len(message) != 3:
+            return
+        return 'response' if result else 'error'
+    elif isinstance(method, six.string_types):
+        params = message.get('params', Absent)
+        if params is not Absent and not isinstance(params, (dict, list)) or \
+                len(message) != 2 + (msgid is not Absent) + (params is not Absent):
+            return
+        return 'methodcall' if msgid is Absent else 'notification'
 
 
 _last_request_id = 0
@@ -191,7 +167,6 @@ def _get_request_id():
     _last_request_id += 1
     reqid = 'gruvi.{}'.format(_last_request_id)
     return reqid
-
 
 def create_request(method, args=[], version='2.0'):
     """Create a JSON-RPC request."""
@@ -254,6 +229,10 @@ class JsonRpcProtocol(MessageProtocol):
         self._buffer = bytearray()
         self._context = ffi.new('struct split_context *')
         self._method_calls = {}
+        if version == '1.0':
+            self._check_message = check_message_v1
+        else:
+            self._check_message = check_message_v2
 
     def connection_made(self, transport):
         # Protocol callback
@@ -295,16 +274,18 @@ class JsonRpcProtocol(MessageProtocol):
             try:
                 chunk = chunk.decode('utf8')
                 message = json.loads(chunk)
-                version = check_message(message)
             except UnicodeDecodeError as e:
                 self._error = JsonRpcError('UTF-8 decoding error: {!s}'.format(e))
                 break
             except ValueError as e:
                 self._error = JsonRpcError('Illegal JSON-RPC message: {!s}'.format(e))
                 break
-            mtype = message_type(message)
+            mtype = self._check_message(message)
+            if not mtype:
+                self._error = JsonRpcError('Invalid JSON-RPC message')
+                break
             peername = self._transport.get_extra_info('peername', '(n/a)')
-            self._log.debug('incoming {} (v{}) from peer {}', mtype, version, peername)
+            self._log.debug('incoming {} from peer {}', mtype, peername)
             self._log.trace('\n\n{}\n', chunk)
             # Now route the message to its correct destination
             if mtype in ('response', 'error') and message['id'] in self._method_calls:
@@ -333,7 +314,7 @@ class JsonRpcProtocol(MessageProtocol):
             raise compat.saved_exc(self._error)
         elif self._transport is None:
             raise JsonRpcError('not connected')
-        version = check_message(message)
+        self._check_message(message)
         serialized = json.dumps(message, indent=2)
         self._writer.write(serialized.encode('utf-8'))
 

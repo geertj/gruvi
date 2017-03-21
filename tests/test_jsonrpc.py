@@ -132,43 +132,43 @@ class TestJsonRpcProtocol(UnitTest):
         return self.messages
 
     def test_simple(self):
-        m = b'{ "id": "1", "method": "foo" }'
+        m = b'{ "jsonrpc": "2.0", "id": "1", "method": "foo" }'
         proto = self.protocol
         proto.data_received(m)
         mm = self.get_messages()
         self.assertEqual(len(mm), 1)
         self.assertIsInstance(mm[0], dict)
-        self.assertEqual(mm[0], {'id': '1', 'method': 'foo'})
+        self.assertEqual(mm[0], {'jsonrpc': '2.0', 'id': '1', 'method': 'foo'})
         pp = self.protocols
         self.assertEqual(len(pp), 1)
         self.assertIs(pp[0], proto)
 
     def test_multiple(self):
-        m = b'{ "id": "1", "method": "foo" }' \
-            b'{ "id": "2", "method": "bar" }'
+        m = b'{ "jsonrpc": "2.0", "id": "1", "method": "foo" }' \
+            b'{ "jsonrpc": "2.0", "id": "2", "method": "bar" }'
         proto = self.protocol
         proto.data_received(m)
         mm = self.get_messages()
         self.assertEqual(len(mm), 2)
-        self.assertEqual(mm[0], {'id': '1', 'method': 'foo'})
-        self.assertEqual(mm[1], {'id': '2', 'method': 'bar'})
+        self.assertEqual(mm[0], {'jsonrpc': '2.0', 'id': '1', 'method': 'foo'})
+        self.assertEqual(mm[1], {'jsonrpc': '2.0', 'id': '2', 'method': 'bar'})
         pp = self.protocols
         self.assertEqual(len(pp), 2)
         self.assertIs(pp[0], proto)
         self.assertIs(pp[1], proto)
 
     def test_whitespace(self):
-        m = b'  { "id": "1", "method": "foo" }' \
-            b'  { "id": "2", "method": "bar" }'
+        m = b'  { "jsonrpc": "2.0", "id": "1", "method": "foo" }' \
+            b'  { "jsonrpc": "2.0", "id": "2", "method": "bar" }'
         proto = self.protocol
         proto.data_received(m)
         mm = self.get_messages()
         self.assertEqual(len(mm), 2)
-        self.assertEqual(mm[0], {'id': '1', 'method': 'foo'})
-        self.assertEqual(mm[1], {'id': '2', 'method': 'bar'})
+        self.assertEqual(mm[0], {'jsonrpc': '2.0', 'id': '1', 'method': 'foo'})
+        self.assertEqual(mm[1], {'jsonrpc': '2.0', 'id': '2', 'method': 'bar'})
 
     def test_incremental(self):
-        m = b'{ "id": "1", "method": "foo" }'
+        m = b'{ "jsonrpc": "2.0", "id": "1", "method": "foo" }'
         proto = self.protocol
         for i in range(len(m)-1):
             proto.data_received(m[i:i+1])
@@ -176,7 +176,7 @@ class TestJsonRpcProtocol(UnitTest):
         proto.data_received(m[-1:])
         mm = self.get_messages()
         self.assertEqual(len(mm), 1)
-        self.assertEqual(mm[0], {'id': '1', 'method': 'foo'})
+        self.assertEqual(mm[0], {'jsonrpc': '2.0', 'id': '1', 'method': 'foo'})
 
     def test_framing_error(self):
         m = b'xxx'
@@ -209,8 +209,7 @@ class TestJsonRpcProtocol(UnitTest):
     def test_maximum_message_size_exceeded(self):
         proto = self.protocol
         proto.max_message_size = 100
-        message = {'id': 1, 'method': 'foo', 'params': ['x'*100]}
-        self.assertEqual(jsonrpc.check_message(message), '1.0')
+        message = {'jsonrpc': '2.0', 'id': 1, 'method': 'foo', 'params': ['x'*100]}
         message = json.dumps(message).encode('utf8')
         self.assertGreater(len(message), proto.max_message_size)
         proto.data_received(message)
@@ -224,7 +223,7 @@ class TestJsonRpcProtocol(UnitTest):
         proto, trans = self.protocol, self.transport
         self.assertTrue(trans._reading)
         proto.max_pipeline_size = 10
-        message = b'{ "id": 1, "method": "foo"}'
+        message = b'{ "jsonrpc": "2.0", "id": 1, "method": "foo" }'
         interrupted = 0
         for i in range(1000):
             proto.data_received(message)
