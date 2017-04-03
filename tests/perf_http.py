@@ -19,7 +19,7 @@ class PerfHttp(PerformanceTest):
 
     def perf_parsing_speed(self):
         transport = MockTransport()
-        protocol = HttpProtocol(False)
+        protocol = HttpProtocol()
         transport.start(protocol)
         r = b'HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\n'
         r += b'x' * 10000

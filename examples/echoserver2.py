@@ -5,7 +5,7 @@ import gruvi
 class EchoProtocol(gruvi.Protocol):
 
     def connection_made(self, transport):
-        super(EchoProtocol, self).connection_made(transport)
+        self._transport = transport
         peer = transport.get_extra_info('peername')
         print('New connection from {0}'.format(gruvi.saddr(peer)))
 

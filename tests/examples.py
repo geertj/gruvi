@@ -60,7 +60,7 @@ class TestExamples(TestCase):
         client.close()
         proc.send_signal(signal.SIGINT)
         proc.wait(timeout=2)
-        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.returncode, 0)
         proc.close()
 
     def test_echoserver2(self):
@@ -78,7 +78,7 @@ class TestExamples(TestCase):
         client.close()
         proc.send_signal(signal.SIGINT)
         proc.wait(timeout=1)
-        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.returncode, 0)
         proc.close()
 
     def test_fortune(self):
