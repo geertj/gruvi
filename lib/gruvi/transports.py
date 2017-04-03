@@ -387,7 +387,9 @@ class DatagramTransport(BaseTransport):
     def get_write_buffer_size(self):
         # Return the size of the write buffer. See the note for the same method
         # in Transport.
-        return self._handle.send_queue_size
+        # This was recently added to pyuv, so don't put a hard dependency on
+        # it. UDP buffering in the write direction very OS dependent anyway.
+        return getattr(self._handle, 'send_queue_size', 0)
 
     def _on_recv_complete(self, handle, addr, flags, data, error):
         """Callback used with handle.start_recv()."""
