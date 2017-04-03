@@ -407,6 +407,6 @@ class Server(Endpoint):
         """Run the event loop and start serving requests.
 
         This method is a shortcut for scripts that run only one server. In more
-        complicated applications you normally call :meth:`~Hub.run` explicitly.
+        complicated applications you normally call :meth:`~Hub.switch` explicitly.
         """
         get_hub().switch()

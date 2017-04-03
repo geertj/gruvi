@@ -158,7 +158,7 @@ class Stream(BufferedIOBase):
 
         The *autoclose* argument controls whether the transport will be closed
         in the :meth:`close` method. Be careful with this as this the close
-        method is called from the :class:`BufferedIOBase` destructor.
+        method is called from the :class:`io.BufferedIOBase` destructor.
         """
         self._transport = transport
         self._readable = 'r' in mode
