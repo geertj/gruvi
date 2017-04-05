@@ -219,7 +219,10 @@ def create_server(protocol_factory, address=None, ssl=False, ssl_args={},
 
 
 class Endpoint(object):
-    """A communications endpoint."""
+    """A communications endpoint.
+
+    There is no public constructor.
+    """
 
     def __init__(self, protocol_factory, timeout=None):
         self._protocol_factory = protocol_factory
@@ -406,7 +409,8 @@ class Server(Endpoint):
     def run(self):
         """Run the event loop and start serving requests.
 
-        This method is a shortcut for scripts that run only one server. In more
-        complicated applications you normally call :meth:`~Hub.switch` explicitly.
+        This method is useful in scripts that run only one server instance. In
+        more complicated applications you normally call :meth:`Hub.switch`
+        explicitly.
         """
         get_hub().switch()
