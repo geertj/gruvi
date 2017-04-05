@@ -21,6 +21,26 @@ from weakref import WeakKeyDictionary
 __all__ = []
 
 
+class AbsentType(object):
+    """A type that represents the absence of a value.
+
+    Useful in parsing protocols where there's a difference between a NULL
+    value, and an absent value.
+    """
+
+    def __nonzero__(self):
+        return False
+
+    __bool__ = __nonzero__
+
+    def __repr__(self):
+        return 'Absent'
+
+    __str__ = __repr__
+
+Absent = AbsentType()
+
+
 def docfrom(base):
     """Decorator to set a function's docstring from another function."""
     def setdoc(func):

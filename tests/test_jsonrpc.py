@@ -11,10 +11,11 @@ from __future__ import absolute_import, print_function
 import os
 import json
 import unittest
+import six
 
 import gruvi
 from gruvi import jsonrpc
-from gruvi.jsonrpc import JsonRpcError, JsonRpcMethodCallError
+from gruvi.jsonrpc import JsonRpcError, JsonRpcError, JsonRpcVersion
 from gruvi.jsonrpc import JsonRpcProtocol, JsonRpcClient, JsonRpcServer
 from gruvi.jsonrpc_ffi import ffi as _ffi, lib as _lib
 from gruvi.transports import TransportError
@@ -25,7 +26,7 @@ _keepalive = None
 
 def set_buffer(ctx, buf):
     global _keepalive  # See note in JsonRpcProtocol
-    _keepalive = ctx.buf = _ffi.new('char[]', buf)
+    _keepalive = ctx.buf = _ffi.from_buffer(buf)
     ctx.buflen = len(buf)
     ctx.offset = 0
 
@@ -34,6 +35,9 @@ def split_string(s):
     set_buffer(ctx, s)
     _lib.json_split(ctx)
     return ctx
+
+
+JsonRpcProtocol.default_version = '1.0'
 
 
 class TestJsonSplitter(UnitTest):
@@ -112,6 +116,328 @@ class TestJsonSplitter(UnitTest):
         self.assertEqual(ctx.offset, 1)
 
 
+class TestJsonRpcV1(UnitTest):
+
+    def setUp(self):
+        super(TestJsonRpcV1, self).setUp()
+        self.version = JsonRpcVersion.create('1.0')
+
+    def test_check_request(self):
+        v = self.version
+        msg = {'id': 1, 'method': 'foo', 'params': []}
+        self.assertEqual(v.check_message(msg), jsonrpc.REQUEST)
+        msg = {'id': None, 'method': 'foo', 'params': []}
+        self.assertEqual(v.check_message(msg), jsonrpc.REQUEST)
+
+    def test_check_request_missing_id(self):
+        v = self.version
+        msg = {'method': 'foo', 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_request_missing_method(self):
+        v = self.version
+        msg = {'id': 1, 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_request_illegal_method(self):
+        v = self.version
+        msg = {'id': 1, 'method': None, 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'id': 1, 'method': 1, 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'id': 1, 'method': {}, 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'id': 1, 'method': [], 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'id': 1, 'method': [1], 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_request_missing_params(self):
+        v = self.version
+        msg = {'id': 1, 'method': 'foo'}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_request_illegal_params(self):
+        v = self.version
+        msg = {'id': 1, 'method': 'foo', 'params': None}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'id': 1, 'method': 'foo', 'params': 1}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'id': 1, 'method': 'foo', 'params': 'foo'}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'id': 1, 'method': 'foo', 'params': {}}
+
+    def test_check_request_extraneous_fields(self):
+        v = self.version
+        msg = {'id': 1, 'method': 'foo', 'params': [], 'bar': 'baz'}
+        self.assertRaises(ValueError, v.check_message, msg)
+ 
+    def test_check_response(self):
+        v = self.version
+        msg = {'id': 1, 'result': 'foo', 'error': None}
+        self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
+
+    def test_check_response_null_result(self):
+        v = self.version
+        msg = {'id': 1, 'result': None, 'error': None}
+        self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
+ 
+    def test_check_response_error(self):
+        v = self.version
+        msg = {'id': 1, 'result': None, 'error': {'code': 1}}
+        self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
+
+    def test_check_response_missing_id(self):
+        v = self.version
+        msg = {'result': 'foo', 'error': None}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_response_missing_result(self):
+        v = self.version
+        msg = {'id': 1, 'error': None}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_response_missing_error(self):
+        v = self.version
+        msg = {'id': 1, 'result': None}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_response_illegal_error(self):
+        v = self.version
+        msg = {'id': 1, 'result': None, 'error': 1}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'id': 1, 'result': None, 'error': 'foo'}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'id': 1, 'result': None, 'error': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_response_result_error_both_set(self):
+        v = self.version
+        msg = {'id': 1, 'result': 1, 'error': 0}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_response_extraneous_fields(self):
+        v = self.version
+        msg = {'id': 1, 'result': 1, 'error': None, 'bar': 'baz'}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_create_request(self):
+        v = self.version
+        msg = v.create_request('foo', [])
+        self.assertIsInstance(msg['id'], six.string_types)
+        self.assertEqual(msg['method'], 'foo')
+        self.assertEqual(msg['params'], [])
+        self.assertEqual(len(msg), 3)
+
+    def test_create_request_notification(self):
+        v = self.version
+        msg = v.create_request('foo', [], notification=True)
+        self.assertIsNone(msg['id'])
+        self.assertEqual(msg['method'], 'foo')
+        self.assertEqual(msg['params'], [])
+        self.assertEqual(len(msg), 3)
+
+    def test_create_response(self):
+        v = self.version
+        req = {'id': 'gruvi.0'}
+        msg = v.create_response(req, 1)
+        self.assertEqual(msg['id'], req['id'])
+        self.assertEqual(msg['result'], 1)
+        self.assertIsNone(msg['error'])
+        self.assertEqual(len(msg), 3)
+
+    def test_create_response_null_result(self):
+        v = self.version
+        req = {'id': 'gruvi.0'}
+        msg = v.create_response(req, None)
+        self.assertEqual(msg['id'], req['id'])
+        self.assertIsNone(msg['result'])
+        self.assertIsNone(msg['error'])
+        self.assertEqual(len(msg), 3)
+
+    def test_create_response_error(self):
+        v = self.version
+        req = {'id': 'gruvi.0'}
+        msg = v.create_response(req, error={'code': 1})
+        self.assertEqual(msg['id'], req['id'])
+        self.assertIsNone(msg['result'])
+        self.assertEqual(msg['error'], {'code': 1})
+        self.assertEqual(len(msg), 3)
+
+
+class TestJsonRpcV2(UnitTest):
+
+    def setUp(self):
+        super(TestJsonRpcV2, self).setUp()
+        self.version = JsonRpcVersion.create('2.0')
+
+    def test_check_request(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': 'foo', 'params': []}
+        self.assertEqual(v.check_message(msg), jsonrpc.REQUEST)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': 'foo', 'params': {}}
+        self.assertEqual(v.check_message(msg), jsonrpc.REQUEST)
+
+    def test_check_request_notification(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'method': 'foo', 'params': []}
+        self.assertEqual(v.check_message(msg), jsonrpc.REQUEST)
+        msg = {'jsonrpc': '2.0', 'method': 'foo', 'params': {}}
+        self.assertEqual(v.check_message(msg), jsonrpc.REQUEST)
+
+    def test_check_request_missing_version(self):
+        v = self.version
+        msg = {'id': 1, 'method': 'foo', 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_request_missing_method(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_request_illegal_method(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': None, 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': 1, 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': {}, 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': [], 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': [1], 'params': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_request_missing_params(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': 'foo'}
+        self.assertEqual(v.check_message(msg), jsonrpc.REQUEST)
+
+    def test_check_request_illegal_params(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': 'foo', 'params': None}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': 'foo', 'params': 1}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': 'foo', 'params': 'foo'}
+
+    def test_check_request_extraneous_fields(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'method': 'foo', 'params': [], 'bar': 'baz'}
+        self.assertRaises(ValueError, v.check_message, msg)
+ 
+    def test_check_response(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'result': 'foo'}
+        self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
+
+    def test_check_response_null_result(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'result': None}
+        self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
+ 
+    def test_check_response_error(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'error': {'code': 1}}
+        self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
+
+    def test_check_response_missing_id(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'result': 'foo'}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_response_null_id(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': None, 'result': 'foo'}
+        self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
+
+    def test_check_response_error_missing_id(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'error': {'code': 10}}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_response_error_null_id(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': None, 'error': {'code': 1}}
+        self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
+ 
+    def test_check_response_missing_result_and_error(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_response_illegal_error(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'error': 1}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'error': 'foo'}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'error': []}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_response_result_error_both_present(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'result': None, 'error': None}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'result': 1, 'error': None}
+        self.assertRaises(ValueError, v.check_message, msg)
+        msg = {'jsonrpc': '2.0', 'id': 1, 'result': None, 'error': {'code': 10}}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_check_response_extraneous_fields(self):
+        v = self.version
+        msg = {'jsonrpc': '2.0', 'id': 1, 'result': 1, 'error': None, 'bar': 'baz'}
+        self.assertRaises(ValueError, v.check_message, msg)
+
+    def test_create_request(self):
+        v = self.version
+        msg = v.create_request('foo', [])
+        self.assertEqual(msg['jsonrpc'], '2.0')
+        self.assertIsInstance(msg['id'], six.string_types)
+        self.assertEqual(msg['method'], 'foo')
+        self.assertEqual(msg['params'], [])
+        self.assertEqual(len(msg), 4)
+
+    def test_create_request_notification(self):
+        v = self.version
+        msg = v.create_request('foo', [], notification=True)
+        self.assertEqual(msg['jsonrpc'], '2.0')
+        self.assertNotIn('id', msg)
+        self.assertEqual(msg['method'], 'foo')
+        self.assertEqual(msg['params'], [])
+        self.assertEqual(len(msg), 3)
+
+    def test_create_response(self):
+        v = self.version
+        req = {'id': 'gruvi.0'}
+        msg = v.create_response(req, 1)
+        self.assertEqual(msg['jsonrpc'], '2.0')
+        self.assertEqual(msg['id'], req['id'])
+        self.assertEqual(msg['result'], 1)
+        self.assertNotIn('error', msg)
+        self.assertEqual(len(msg), 3)
+
+    def test_create_response_null_result(self):
+        v = self.version
+        req = {'id': 'gruvi.0'}
+        msg = v.create_response(req, None)
+        self.assertEqual(msg['jsonrpc'], '2.0')
+        self.assertEqual(msg['id'], req['id'])
+        self.assertIsNone(msg['result'])
+        self.assertNotIn('error', msg)
+        self.assertEqual(len(msg), 3)
+
+    def test_create_response_error(self):
+        v = self.version
+        req = {'id': 'gruvi.0'}
+        msg = v.create_response(req, error={'code': 1})
+        self.assertEqual(msg['jsonrpc'], '2.0')
+        self.assertEqual(msg['id'], req['id'])
+        self.assertNotIn('result', msg)
+        self.assertEqual(msg['error'], {'code': 1})
+        self.assertEqual(len(msg), 3)
+
+
 class TestJsonRpcProtocol(UnitTest):
 
     def setUp(self):
@@ -132,43 +458,43 @@ class TestJsonRpcProtocol(UnitTest):
         return self.messages
 
     def test_simple(self):
-        m = b'{ "jsonrpc": "2.0", "id": "1", "method": "foo" }'
+        m = b'{ "id": "1", "method": "foo", "params": [] }'
         proto = self.protocol
         proto.data_received(m)
         mm = self.get_messages()
         self.assertEqual(len(mm), 1)
         self.assertIsInstance(mm[0], dict)
-        self.assertEqual(mm[0], {'jsonrpc': '2.0', 'id': '1', 'method': 'foo'})
+        self.assertEqual(mm[0], {'id': '1', 'method': 'foo', 'params': []})
         pp = self.protocols
         self.assertEqual(len(pp), 1)
         self.assertIs(pp[0], proto)
 
     def test_multiple(self):
-        m = b'{ "jsonrpc": "2.0", "id": "1", "method": "foo" }' \
-            b'{ "jsonrpc": "2.0", "id": "2", "method": "bar" }'
+        m = b'{ "id": "1", "method": "foo", "params": [] }' \
+            b'{ "id": "2", "method": "bar", "params": [] }'
         proto = self.protocol
         proto.data_received(m)
         mm = self.get_messages()
         self.assertEqual(len(mm), 2)
-        self.assertEqual(mm[0], {'jsonrpc': '2.0', 'id': '1', 'method': 'foo'})
-        self.assertEqual(mm[1], {'jsonrpc': '2.0', 'id': '2', 'method': 'bar'})
+        self.assertEqual(mm[0], {'id': '1', 'method': 'foo', 'params': []})
+        self.assertEqual(mm[1], {'id': '2', 'method': 'bar', 'params': []})
         pp = self.protocols
         self.assertEqual(len(pp), 2)
         self.assertIs(pp[0], proto)
         self.assertIs(pp[1], proto)
 
     def test_whitespace(self):
-        m = b'  { "jsonrpc": "2.0", "id": "1", "method": "foo" }' \
-            b'  { "jsonrpc": "2.0", "id": "2", "method": "bar" }'
+        m = b'  { "id": "1", "method": "foo", "params": [] }' \
+            b'  { "id": "2", "method": "bar", "params": [] }'
         proto = self.protocol
         proto.data_received(m)
         mm = self.get_messages()
         self.assertEqual(len(mm), 2)
-        self.assertEqual(mm[0], {'jsonrpc': '2.0', 'id': '1', 'method': 'foo'})
-        self.assertEqual(mm[1], {'jsonrpc': '2.0', 'id': '2', 'method': 'bar'})
+        self.assertEqual(mm[0], {'id': '1', 'method': 'foo', 'params': []})
+        self.assertEqual(mm[1], {'id': '2', 'method': 'bar', 'params': []})
 
     def test_incremental(self):
-        m = b'{ "jsonrpc": "2.0", "id": "1", "method": "foo" }'
+        m = b'{ "id": "1", "method": "foo", "params": [] }'
         proto = self.protocol
         for i in range(len(m)-1):
             proto.data_received(m[i:i+1])
@@ -176,7 +502,7 @@ class TestJsonRpcProtocol(UnitTest):
         proto.data_received(m[-1:])
         mm = self.get_messages()
         self.assertEqual(len(mm), 1)
-        self.assertEqual(mm[0], {'jsonrpc': '2.0', 'id': '1', 'method': 'foo'})
+        self.assertEqual(mm[0], {'id': '1', 'method': 'foo', "params": []})
 
     def test_framing_error(self):
         m = b'xxx'
@@ -209,7 +535,7 @@ class TestJsonRpcProtocol(UnitTest):
     def test_maximum_message_size_exceeded(self):
         proto = self.protocol
         proto.max_message_size = 100
-        message = {'jsonrpc': '2.0', 'id': 1, 'method': 'foo', 'params': ['x'*100]}
+        message = {'id': 1, 'method': 'foo', 'params': ['x'*100]}
         message = json.dumps(message).encode('utf8')
         self.assertGreater(len(message), proto.max_message_size)
         proto.data_received(message)
@@ -223,7 +549,7 @@ class TestJsonRpcProtocol(UnitTest):
         proto, trans = self.protocol, self.transport
         self.assertTrue(trans._reading)
         proto.max_pipeline_size = 10
-        message = b'{ "jsonrpc": "2.0", "id": 1, "method": "foo" }'
+        message = b'{ "id": 1, "method": "foo", "params": [] }'
         interrupted = 0
         for i in range(1000):
             proto.data_received(message)
@@ -241,17 +567,15 @@ class TestJsonRpcProtocol(UnitTest):
 
 def echo_app(message, transport, protocol):
     if message.get('method') != 'echo':
-        message = jsonrpc.create_error(message, jsonrpc.METHOD_NOT_FOUND)
+        protocol.send_response(message, error={'code': jsonrpc.METHOD_NOT_FOUND})
     else:
-        message = jsonrpc.create_response(message, message['params'])
-    protocol.send_message(message)
+        protocol.send_response(message, message['params'])
 
 def reflect_app(message, transport, protocol):
     if message.get('method') != 'echo':
         return
     value = protocol.call_method('echo', *message['params'])
-    message = jsonrpc.create_response(message, value)
-    protocol.send_message(message)
+    protocol.send_response(message, value)
 
 def notification_app():
     notifications = []
@@ -259,8 +583,7 @@ def notification_app():
         if message.get('id') is None:
             notifications.append((message['method'], message['params']))
         elif message['method'] == 'get_notifications':
-            message = jsonrpc.create_response(message, notifications)
-            protocol.send_message(message)
+            protocol.send_response(message, notifications)
     return application
 
 
@@ -338,7 +661,7 @@ class TestJsonRpc(UnitTest):
         client = JsonRpcClient()
         client.connect(addr)
         exc = self.assertRaises(JsonRpcError, client.call_method, 'echo2')
-        self.assertIsInstance(exc, JsonRpcMethodCallError)
+        self.assertIsInstance(exc, JsonRpcError)
         self.assertIsInstance(exc.error, dict)
         self.assertEqual(exc.error['code'], jsonrpc.METHOD_NOT_FOUND)
         server.close()
@@ -436,7 +759,7 @@ class TestJsonRpc(UnitTest):
                 clients.append(client)
         except Exception as e:
             exc = e
-        #self.assertIsInstance(exc, TransportError)
+        self.assertIsInstance(exc, TransportError)
         self.assertEqual(len(server.connections), server.max_connections)
         for client in clients:
             client.close()

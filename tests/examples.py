@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -116,6 +116,15 @@ class TestExamples(TestCase):
         proc.stdin.write(b'GET / HTTP/1.1\r\nHost: www.python.org\r\nConnection: close\r\n\r\n')
         result = proc.stdout.read()
         self.assertTrue(b'<html' in result)
+        proc.wait(timeout=1)
+        self.assertEqual(proc.returncode, 0)
+        proc.close()
+
+    def test_jsonrpc(self):
+        proc = Process(encoding='utf-8')
+        proc.spawn([sys.executable, 'jsonrpc.py'], stdout=PIPE)
+        result = proc.stdout.read()
+        self.assertEqual(result, 'result = pong\n')
         proc.wait(timeout=1)
         self.assertEqual(proc.returncode, 0)
         proc.close()
