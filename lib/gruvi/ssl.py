@@ -237,6 +237,13 @@ class SslTransport(Transport):
     def __init__(self, handle, context, server_side, server_hostname=None,
                  do_handshake_on_connect=True, close_on_unwrap=True):
         """
+        The *handle* argument is the pyuv handle on top of which to layer the
+        SSL transport. It must be a ``pyuv.Stream`` instance, so either a
+        :class:`pyuv.TCP`, :class:`pyuv.Pipe` or a :class:`pyuv.TTY`.
+
+        SSL transports are always read-write, so the handle provided needs
+        to support that.
+
         The *context* argument specifies the :class:`ssl.SSLContext` to use.
         You can use :func:`create_ssl_context` to create a new context which
         also works on Python 2.x where :class:`ssl.SSLContext` does not exist.
