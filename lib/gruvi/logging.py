@@ -96,7 +96,7 @@ class ContextLogger(object):
     def log(self, level, msg, *args, **kwargs):
         if not self._logger.isEnabledFor(level):
             return
-        prefix = '{}|{}|{}'.format(self.thread_info(), self.context, self.frame_info())
+        prefix = '{}|{}|{}'.format(self.thread_info(), self.context or '-', self.frame_info())
         if args:
             msg = msg.format(*args)
         msg = '[{}] {}'.format(prefix, msg)
