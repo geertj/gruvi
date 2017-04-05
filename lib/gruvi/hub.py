@@ -399,7 +399,7 @@ class Hub(fibers.Fiber):
         will be called in the order that you added them. The callback will run
         in the Hub's fiber.
 
-        This method is thread-safe. It is allowed to queue a callback from a
+        This method is thread-safe: it is allowed to queue a callback from a
         different thread than the one running the Hub.
         """
         if self._loop is None:
