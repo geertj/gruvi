@@ -1024,7 +1024,7 @@ class HttpServer(Server):
     """A HTTP server."""
 
     def __init__(self, application, server_name=None, timeout=None):
-        """The constructor takes the following arguments.  The *wsgi_handler*
+        """The constructor takes the following arguments.  The *application*
         argument must be a WSGI callable. See :pep:`333`.
 
         The optional *server_name* argument can be used to specify a server
