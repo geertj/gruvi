@@ -10,6 +10,7 @@ from __future__ import absolute_import, print_function
 
 import pyuv
 import functools
+import contextlib
 import socket
 import struct
 
@@ -347,21 +348,38 @@ class Transport(BaseTransport):
         ==================  ===================================================
         """
         if name == 'sockname':
-            return self._handle.getsockname()
-        elif name == 'peername':
-            return self._handle.getpeername()
-        elif name == 'winsize':
-            if not isinstance(self._handle, pyuv.TTY):
+            if not hasattr(self._handle, 'getsockname'):
                 return default
-            return self._handle.get_winsize()
+            try:
+                return self._handle.getsockname()
+            except pyuv.error.UVError:
+                return default
+        elif name == 'peername':
+            if not hasattr(self._handle, 'getpeername'):
+                return default
+            try:
+                return self._handle.getpeername()
+            except pyuv.error.UVError:
+                return default
+        elif name == 'winsize':
+            if not hasattr(self._handle, 'get_winsize'):
+                return default
+            try:
+                return self._handle.get_winsize()
+            except pyuv.error.UVError:
+                return default
         elif name == 'unix_creds':
             # In case you're wondering, DBUS needs this.
             if not isinstance(self._handle, pyuv.Pipe) or not hasattr(socket, 'SO_PEERCRED'):
                 return default
-            fd = self._handle.fileno()
-            sock = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_DGRAM)  # will dup()
-            creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i'))
-            sock.close()
+            try:
+                fd = self._handle.fileno()
+                sock = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_DGRAM)  # will dup()
+                with contextlib.closing(sock):
+                    creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                            struct.calcsize('3i'))
+            except socket.error:
+                return default
             return struct.unpack('3i', creds)
         else:
             return super(Transport, self).get_extra_info(name, default)
