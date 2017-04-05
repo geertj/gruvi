@@ -34,11 +34,9 @@ The following transport classes are available:
 
 .. autoclass:: Transport
     :members:
-    :show-inheritance:
 
 .. autoclass:: DatagramTransport
     :members:
-    :show-inheritance:
 
 SSL/TLS support
 ===============
@@ -48,7 +46,6 @@ transport:
 
 .. autoclass:: SslTransport
     :members:
-    :show-inheritance:
 
 .. attribute:: HAVE_SSL_BACKPORTS
 
@@ -86,18 +83,15 @@ The following protocol classes are available:
 
 .. autoclass:: Protocol
     :members:
-    :show-inheritance:
 
 .. autoclass:: DatagramProtocol
     :members:
-    :show-inheritance:
 
 The following class does not exist in :pep:`3156` but is a useful base class
 for most protocols:
 
 .. autoclass:: MessageProtocol
     :members:
-    :show-inheritance:
 
 Creating transports and protocols
 =================================
@@ -116,16 +110,14 @@ Endpoints
 Endpoints wrap transports and protocols for client and server side connections,
 and provide a more object-oriented way of working with them.
 
-.. autoclass:: gruvi.Endpoint
+.. autoclass:: gruvi.Endpoint()
     :members:
 
 .. autoclass:: gruvi.Client
     :members:
-    :show-inheritance:
 
 .. autoclass:: gruvi.Server
     :members:
-    :show-inheritance:
 
 
 .. _libuv: https://github.com/joyent/libuv

@@ -39,47 +39,42 @@ mock_c_modules()
 # Naming conflict with sphinx.
 import setup as gruvi_setup
 
-# -- Tweaks ----
+# Add support for documenting our @switchpoint annotation.
 
-# We implement the :show-inheritance: directive ourselves so that we can show
-# the class name in the "gruvi" package rather than the one in the "gruvi.xxxx"
-# submodule implementing the class.
-#
-# The code below is certain quite fragile. It depends on the fact that
-# autodoc-process-signature is raised *before* autodoc adds the base classes
-# itself. We use this hook to turn off the "show_inheritance" option so that
-# this doesn't happen. Note that autodoc-process-docstring is run after the
-# base classes are already added so this is too large to turn the automatic
-# processing off.
+from sphinx.ext.autodoc import MethodDocumenter, FunctionDocumenter
+from sphinx.domains.python import PythonDomain, PyClassmember
 
-def process_signature(app, what, name, obj, options, sig, retann):
-    if 'my-show-inheritance' not in options:
-        options['my-show-inheritance'] = options.get('show-inheritance')
-        options['show-inheritance'] = False
+class GruviSwitchpoint(PyClassmember):
 
-done = set()
+    def needs_arglist(self):
+        return True
 
-def process_docstring(app, what, name, obj, options, lines):
-    if what != 'class' or not options.get('my-show-inheritance') or name in done:
-        return
-    bases = []
-    for base in getattr(obj, '__bases__', []):
-        if base is object:
-            continue
-        modname = getattr(base, '__module__')
-        if modname == '__builtin__':
-            modname = ''
-        elif modname.startswith('gruvi.') and \
-                    modname not in ('gruvi.http', 'gruvi.jsonrpc', 'gruvi.dbus'):
-            modname = 'gruvi'
-        bases.append(u':class:`%s.%s`' % (modname, base.__name__))
-    if bases:
-        lines[:0] = [u'Bases: %s' % ', '.join(bases), '']
-    done.add(name)
+    def get_signature_prefix(self, sig):
+        return 'switchpoint '
+
+
+PythonDomain.directives['switchpoint'] = GruviSwitchpoint
+PythonDomain.object_types['switchpoint'] = PythonDomain.object_types['method']
+
+class GruviFunctionDocumenter(FunctionDocumenter):
+
+    def import_object(self, *args, **kwargs):
+        result = super(GruviFunctionDocumenter, self).import_object(*args, **kwargs)
+        if getattr(self.object, '__switchpoint__', False):
+            self.directivetype = 'switchpoint'
+        return result
+
+class GruviMethodDocumenter(MethodDocumenter):
+
+    def import_object(self, *args, **kwargs):
+        result = super(GruviMethodDocumenter, self).import_object(*args, **kwargs)
+        if getattr(self.object, '__switchpoint__', False):
+            self.directivetype = 'switchpoint'
+        return result
 
 def setup(app):
-    app.connect('autodoc-process-signature', process_signature)
-    app.connect('autodoc-process-docstring', process_docstring)
+    app.add_autodocumenter(GruviFunctionDocumenter)
+    app.add_autodocumenter(GruviMethodDocumenter)
 
 # -- General configuration -----------------------------------------------------
 
@@ -137,7 +132,7 @@ exclude_patterns = ['_build']
 
 # If true, the current module name will be prepended to all description
 # unit titles (such as .. function::).
-#add_module_names = True
+add_module_names = False
 
 # If true, sectionauthor and moduleauthor directives will be shown in the
 # output. They are ignored by default.
