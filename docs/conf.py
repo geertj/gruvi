@@ -24,21 +24,6 @@ sys.path.insert(0, os.path.abspath('..'))
 # Import Gruvi's setup file and prevent naming conflict with Sphinx setup
 import setup as gruvi_setup
 
-# Mock out the C modules the documentation build depends on. That way we can
-# build the docs on readthedocs, which doesn't have a full C development
-# environment.
-#
-# See the RTD FAQ at: # http://docs.readthedocs.org/en/latest/faq.html
-# "I get import errors on libraries that depend on C modules"
-
-try:
-    from unittest.mock import MagicMock
-except ImportError:
-    from mock import MagicMock
-
-for mod in gruvi_setup.rtd_mock_modules:
-    sys.modules[mod] = MagicMock()
-
 # Add support for documenting our @switchpoint annotation.
 
 from sphinx.ext.autodoc import MethodDocumenter, FunctionDocumenter

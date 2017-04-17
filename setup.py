@@ -37,16 +37,11 @@ version_info = {
 topdir, _ = os.path.split(os.path.abspath(__file__))
 
 
-rtd_mock_modules = ('pyuv',)
-
 def get_requirements():
     """Parse a requirements.txt file and return as a list."""
     with open(os.path.join(topdir, 'requirements.txt')) as fin:
         lines = fin.readlines()
     lines = [line.strip() for line in lines]
-    if os.environ.get('READTHEDOCS'):
-        lines = [line for line in lines
-                 if not line.partition(' ')[0] in rtd_mock_modules]
     return lines
 
 
