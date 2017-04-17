@@ -13,10 +13,16 @@
 
 import sys, os
 
+# Expose the fact that we're running under Sphinx.
+os.environ['SPHINX'] = '1'
+
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 sys.path.insert(0, os.path.abspath('..'))
+
+# Import Gruvi's setup file and prevent naming conflict with Sphinx setup
+import setup as gruvi_setup
 
 # Mock out the C modules the documentation build depends on. That way we can
 # build the docs on readthedocs, which doesn't have a full C development
@@ -30,14 +36,8 @@ try:
 except ImportError:
     from mock import MagicMock
 
-def mock_c_modules():
-    for mod in ('pyuv',):
-        sys.modules[mod] = MagicMock()
-
-mock_c_modules()
-
-# Naming conflict with sphinx.
-import setup as gruvi_setup
+for mod in gruvi_setup.rtd_mock_modules:
+    sys.modules[mod] = MagicMock()
 
 # Add support for documenting our @switchpoint annotation.
 
@@ -99,7 +99,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Gruvi'
-copyright = u'2012-2014, Geert Jansen'
+copyright = u'2012-2017, Geert Jansen'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
