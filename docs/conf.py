@@ -292,7 +292,7 @@ autoclass_content = 'both'
 autodoc_member_order = 'bysource'
 
 intersphinx_mapping = {
-    'pyuv': ('http://pyuv.readthedocs.org/en/latest', None),
-    'fibers': ('http://python-fibers.readthedocs.org/en/latest', None),
-    'python': ('http://docs.python.org/3.4', None)
+    'pyuv': ('https://pyuv.readthedocs.io/en/latest', None),
+    'fibers': ('https://python-fibers.readthedocs.io/en/latest', None),
+    'python': ('https://docs.python.org/3.5', None)
 }
