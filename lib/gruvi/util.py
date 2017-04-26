@@ -10,11 +10,7 @@ from __future__ import absolute_import, print_function
 
 import sys
 import re
-import inspect
-import ast
-import six
 import functools
-import textwrap
 
 from weakref import WeakKeyDictionary
 

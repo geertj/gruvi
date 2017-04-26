@@ -9,7 +9,6 @@
 from __future__ import absolute_import, print_function
 
 import pyuv
-import functools
 import contextlib
 import socket
 import struct

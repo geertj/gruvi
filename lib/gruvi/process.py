@@ -370,4 +370,4 @@ class Process(Endpoint):
         return add_callback(self._child_exited, callback, args)
 
     def remove_done_callback(self, handle):
-        remove_callback(self_child_exited, handle)
+        remove_callback(self._child_exited, handle)

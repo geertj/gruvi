@@ -474,7 +474,7 @@ class JsonRpcClient(Client):
         ``handler(message, transport, protocol)``.
 
         The *version* and *timeout* argument can be used to override the
-        default protocol version and timeout, respectively. 
+        default protocol version and timeout, respectively.
         """
         protocol_factory = functools.partial(JsonRpcProtocol, handler, version)
         super(JsonRpcClient, self).__init__(protocol_factory, timeout)
@@ -499,7 +499,7 @@ class JsonRpcServer(Server):
         connection).
 
         The *version* and *timeout* argument can be used to override the
-        default protocol version and timeout, respectively. 
+        default protocol version and timeout, respectively.
         """
         protocol_factory = functools.partial(JsonRpcProtocol, handler, version)
         super(JsonRpcServer, self).__init__(protocol_factory, timeout=timeout)

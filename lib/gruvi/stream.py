@@ -14,7 +14,6 @@ from . import compat
 from .util import delegate_method
 from .sync import Event
 from .errors import Error, Timeout, Cancelled
-from .transports import TransportError
 from .protocols import Protocol, ProtocolError
 from .endpoints import Client, Server
 from .hub import switchpoint

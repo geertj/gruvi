@@ -15,7 +15,7 @@ import six
 
 import gruvi
 from gruvi import jsonrpc
-from gruvi.jsonrpc import JsonRpcError, JsonRpcError, JsonRpcVersion
+from gruvi.jsonrpc import JsonRpcError, JsonRpcVersion
 from gruvi.jsonrpc import JsonRpcProtocol, JsonRpcClient, JsonRpcServer
 from gruvi.jsonrpc_ffi import ffi as _ffi, lib as _lib
 from gruvi.transports import TransportError
@@ -171,7 +171,7 @@ class TestJsonRpcV1(UnitTest):
         v = self.version
         msg = {'id': 1, 'method': 'foo', 'params': [], 'bar': 'baz'}
         self.assertRaises(ValueError, v.check_message, msg)
- 
+
     def test_check_response(self):
         v = self.version
         msg = {'id': 1, 'result': 'foo', 'error': None}
@@ -181,7 +181,7 @@ class TestJsonRpcV1(UnitTest):
         v = self.version
         msg = {'id': 1, 'result': None, 'error': None}
         self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
- 
+
     def test_check_response_error(self):
         v = self.version
         msg = {'id': 1, 'result': None, 'error': {'code': 1}}
@@ -325,7 +325,7 @@ class TestJsonRpcV2(UnitTest):
         v = self.version
         msg = {'jsonrpc': '2.0', 'id': 1, 'method': 'foo', 'params': [], 'bar': 'baz'}
         self.assertRaises(ValueError, v.check_message, msg)
- 
+
     def test_check_response(self):
         v = self.version
         msg = {'jsonrpc': '2.0', 'id': 1, 'result': 'foo'}
@@ -335,7 +335,7 @@ class TestJsonRpcV2(UnitTest):
         v = self.version
         msg = {'jsonrpc': '2.0', 'id': 1, 'result': None}
         self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
- 
+
     def test_check_response_error(self):
         v = self.version
         msg = {'jsonrpc': '2.0', 'id': 1, 'error': {'code': 1}}
@@ -360,7 +360,7 @@ class TestJsonRpcV2(UnitTest):
         v = self.version
         msg = {'jsonrpc': '2.0', 'id': None, 'error': {'code': 1}}
         self.assertEqual(v.check_message(msg), jsonrpc.RESPONSE)
- 
+
     def test_check_response_missing_result_and_error(self):
         v = self.version
         msg = {'jsonrpc': '2.0', 'id': 1}

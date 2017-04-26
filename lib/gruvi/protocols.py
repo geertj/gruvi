@@ -8,9 +8,9 @@
 
 from __future__ import absolute_import, print_function
 
-from . import logging, util
-from .sync import Event, Queue
-from .errors import Error, Cancelled
+from . import logging
+from .sync import Queue
+from .errors import Error
 from .hub import get_hub
 from .fibers import spawn
 

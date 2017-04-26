@@ -13,7 +13,6 @@ import logging
 import unittest
 import six
 
-import gruvi
 from support import UnitTest
 from gruvi.logging import get_logger
 

@@ -16,7 +16,7 @@ import pyuv
 import six
 import errno
 
-from . import logging, util
+from . import logging
 from .hub import get_hub, switchpoint, switch_back
 from .sync import Event
 from .errors import Timeout

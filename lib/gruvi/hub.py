@@ -11,15 +11,13 @@ from __future__ import absolute_import, print_function
 import signal
 import collections
 import threading
-import textwrap
-import itertools
 import traceback
 import functools
 
 import pyuv
 import fibers
 
-from . import logging, compat, util
+from . import logging, compat
 from .errors import Timeout
 from .callbacks import add_callback, run_callbacks
 from .poll import Poller
