@@ -58,6 +58,10 @@ class GruviMethodDocumenter(MethodDocumenter):
         return result
 
 def setup(app):
+    # Remove previously registered directives to prevent warning.
+    from docutils.parsers.rst import directives
+    del directives._directives['autofunction']
+    del directives._directives['automethod']
     app.add_autodocumenter(GruviFunctionDocumenter)
     app.add_autodocumenter(GruviMethodDocumenter)
 
