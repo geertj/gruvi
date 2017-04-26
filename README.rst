@@ -54,7 +54,7 @@ An simple echo server, using a StreamServer_::
 
   server = gruvi.StreamServer(echo_handler)
   server.listen(('localhost', 7777))
-  gruvi.get_hub().switch()
+  server.run()
 
 
 Requirements
