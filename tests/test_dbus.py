@@ -15,7 +15,7 @@ import unittest
 from unittest import SkipTest
 
 import gruvi
-from gruvi import txdbus
+from gruvi.vendor import txdbus
 from gruvi.dbus import DbusError, DbusMethodCallError
 from gruvi.dbus import DbusProtocol, DbusClient, DbusServer
 from gruvi.dbus import parse_dbus_header, TxdbusAuthenticator

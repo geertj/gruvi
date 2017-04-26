@@ -55,8 +55,8 @@ def main():
         ext_modules.append(Extension('_sslcompat', ['src/sslcompat.c'],
                                      libraries=['ssl', 'crypto']))
     setup(
-        packages=['gruvi', 'gruvi.txdbus'],
-        package_dir={'': 'lib'},
+        packages=['gruvi', 'gruvi_vendor.txdbus'],
+        package_dir={'': 'lib', 'gruvi_vendor': 'vendor'},
         setup_requires=['cffi >= 1.0.0'],
         install_requires=get_requirements(),
         cffi_modules=['src/build_http.py:ffi', 'src/build_jsonrpc.py:ffi'],

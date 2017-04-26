@@ -58,7 +58,7 @@ import functools
 import six
 import pyuv
 
-from . import txdbus, compat
+from . import compat
 from .hub import switchpoint, switch_back
 from .util import delegate_method
 from .sync import Event
@@ -67,6 +67,7 @@ from .protocols import ProtocolError, MessageProtocol
 from .stream import Stream
 from .endpoints import Client, Server
 from .address import saddr
+from .vendor import txdbus
 
 __all__ = ['DbusError', 'DbusMethodCallError', 'DbusProtocol', 'DbusClient', 'DbusServer']
 

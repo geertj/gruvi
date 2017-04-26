@@ -2,7 +2,8 @@ include setup.py runtests.py tasks.py
 include setup.cfg tox.ini
 include AUTHORS LICENSE README.rst MANIFEST.in TODO
 include *requirements.txt
-include lib/gruvi/*.py lib/gruvi/txdbus/*.py
+include lib/gruvi/*.py
+include vendor/txdbus/*.py
 include src/*.py src/*.[ch]
 include tests/*.py
 include tests/bin/*
