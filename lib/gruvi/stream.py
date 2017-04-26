@@ -156,9 +156,11 @@ class Stream(BufferedIOBase):
         The *mode* argument can be ``'r'`` for a read-only stream, ``'w'`` for
         a write-only stream, or ``'rw'`` for a read-write stream.
 
-        The *autoclose* argument controls whether the transport will be closed
-        in the :meth:`close` method. Be careful with this as this the close
-        method is called from the :class:`io.BufferedIOBase` destructor.
+        The *autoclose* argument controls whether the underlying transport will
+        be closed in the :meth:`close` method. Be careful with this as the
+        close method is called from the :class:`io.BufferedIOBase` destructor,
+        which may lead to unexpected closing of the transport when the stream
+        goes out of scope.
         """
         self._transport = transport
         self._readable = 'r' in mode

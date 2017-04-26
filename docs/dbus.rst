@@ -4,4 +4,3 @@
 
 .. automodule:: gruvi.dbus
    :members:
-   :show-inheritance:

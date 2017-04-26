@@ -219,12 +219,15 @@ def create_server(protocol_factory, address=None, ssl=False, ssl_args={},
 
 
 class Endpoint(object):
-    """A communications endpoint.
-
-    There is no public constructor.
-    """
+    """A communications endpoint."""
 
     def __init__(self, protocol_factory, timeout=None):
+        """
+        The *protocol_factory* argument constructs a new protocol instance.
+        Normally you would pass a :class:`~gruvi.Protocol` subclass.
+
+        The *timeout* argument specifies a timeout for various network operations.
+        """
         self._protocol_factory = protocol_factory
         self._timeout = timeout
         self._hub = get_hub()
@@ -232,9 +235,11 @@ class Endpoint(object):
 
     @property
     def timeout(self):
+        """The network timeout."""
         return self._timeout
 
     def close(self):
+        """Close the endpoint."""
         raise NotImplementedError
 
 
@@ -260,8 +265,8 @@ class Client(Endpoint):
     def connect(self, address, **kwargs):
         """Connect to *address* and wait for the connection to be established.
 
-        See :func:`create_connection` for a description of *address* and the
-        supported keyword arguments.
+        See :func:`~gruvi.create_connection` for a description of *address*
+        and the supported keyword arguments.
         """
         if self._transport:
             raise RuntimeError('already connected')

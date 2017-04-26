@@ -110,7 +110,7 @@ Endpoints
 Endpoints wrap transports and protocols for client and server side connections,
 and provide a more object-oriented way of working with them.
 
-.. autoclass:: gruvi.Endpoint()
+.. autoclass:: gruvi.Endpoint
     :members:
 
 .. autoclass:: gruvi.Client

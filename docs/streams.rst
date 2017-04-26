@@ -15,22 +15,18 @@ Utility classes
 
 .. autoclass:: gruvi.Stream
     :members:
-    :show-inheritance:
 
 Stream Protocol
 ===============
 
 .. autoclass:: gruvi.StreamProtocol
     :members:
-    :show-inheritance:
 
 Stream Client and Server
 ========================
 
 .. autoclass:: gruvi.StreamClient
     :members:
-    :show-inheritance:
 
 .. autoclass:: gruvi.StreamServer
     :members:
-    :show-inheritance:

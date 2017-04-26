@@ -3,5 +3,4 @@
 *******************************************
 
 .. automodule:: gruvi.http
-    :members:
-    :show-inheritance:
+   :members:

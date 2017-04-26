@@ -16,10 +16,8 @@ standard library.
     :members:
 
 .. autoclass:: gruvi.FiberPool
-    :show-inheritance:
 
 .. autoclass:: gruvi.ThreadPool
-    :show-inheritance:
 
 .. autofunction:: gruvi.get_io_pool
 
