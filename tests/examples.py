@@ -90,8 +90,8 @@ class TestExamples(TestCase):
         client = HttpClient()
         client.connect(addr)
         client.request('GET', '/')
-        response = client.getresponse()
-        fortune = response.read().decode('ascii')
+        resp = client.getresponse()
+        fortune = resp.body.read().decode('ascii')
         client.close()
         self.assertTrue('Albert Einstein' in fortune)
         proc.send_signal(signal.SIGINT)
@@ -123,6 +123,15 @@ class TestExamples(TestCase):
     def test_jsonrpc(self):
         proc = Process(encoding='utf-8')
         proc.spawn([sys.executable, 'jsonrpc.py'], stdout=PIPE)
+        result = proc.stdout.read()
+        self.assertEqual(result, 'result = pong\n')
+        proc.wait(timeout=1)
+        self.assertEqual(proc.returncode, 0)
+        proc.close()
+
+    def test_http_cs(self):
+        proc = Process(encoding='utf-8')
+        proc.spawn([sys.executable, 'httpcs.py'], stdout=PIPE)
         result = proc.stdout.read()
         self.assertEqual(result, 'result = pong\n')
         proc.wait(timeout=1)

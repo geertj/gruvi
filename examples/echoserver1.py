@@ -16,4 +16,5 @@ server = gruvi.StreamServer(echo_handler)
 server.listen(('localhost', 0))
 for addr in server.addresses:
     print('Listen on {0}'.format(gruvi.saddr(addr)))
+
 server.run()

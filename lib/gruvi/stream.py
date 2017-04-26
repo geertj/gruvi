@@ -51,11 +51,11 @@ class StreamBuffer(object):
 
     @property
     def eof(self):
-        return self._eof
+        return self._buffer_size == 0 and self._eof
 
     @property
     def error(self):
-        return self._error
+        return self._buffer_size == 0 and self._error
 
     def get_buffer_size(self):
         """Return the size of the buffer."""

@@ -71,15 +71,16 @@ def split_cap_words(s):
     return re_lu.findall(s)
 
 
-def delegate_method(other, method):
+def delegate_method(other, method, name=None):
     """Add a method to the current class that delegates to another method.
 
     The *other* argument must be a property that returns the instance to
     delegate to. Due to an implementation detail, the property must be defined
-    in the current class. The *method* argument specifies the method to
-    delegate to.
+    in the current class. The *method* argument specifies a method to delegate
+    to. It can be any callable as long as it takes the instances as its first
+    argument.
 
-    It is a common paragigm in Gruvi to expose protocol methods onto clients.
+    It is a common paradigm in Gruvi to expose protocol methods onto clients.
     This keeps most of the logic into the protocol, but prevents the user from
     having to type ``'client.protocol.*methodname*'`` all the time.
 
@@ -95,20 +96,28 @@ def delegate_method(other, method):
     classdict = frame.f_locals
 
     @functools.wraps(method)
-    def delegate_method(self, *args, **kwargs):
+    def delegate(self, *args, **kwargs):
         other_self = other.__get__(self)
         return method(other_self, *args, **kwargs)
 
     if getattr(method, '__switchpoint__', False):
-        delegate_method.__switchpoint__ = True
+        delegate.__switchpoint__ = True
+
+    if name is None:
+        name = method.__name__
     propname = None
     for key in classdict:
         if classdict[key] is other:
             propname = key
             break
     # If we know the property name, replace the docstring with a small
-    # reference instead of copying the method docstring.
+    # reference instead of copying the function docstring.
     if propname:
-        delegate_method.__doc__ = 'A shorthand for ``self.{propname}.{name}()``.' \
-                                .format(propname=propname, name=method.__name__)
-    classdict[method.__name__] = delegate_method
+        qname = getattr(method, '__qualname__', method.__name__)
+        if '.' in qname:
+            delegate.__doc__ = 'A shorthand for ``self.{propname}.{name}()``.' \
+                               .format(name=name, propname=propname)
+        else:
+            delegate.__doc__ = 'A shorthand for ``{name}({propname}, ...)``.' \
+                               .format(name=name, propname=propname)
+    classdict[name] = delegate

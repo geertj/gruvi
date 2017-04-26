@@ -57,6 +57,20 @@ ffi.cdef("""
       ...;
     };
 
+    enum http_parser_url_fields { UF_SCHEMA, UF_HOST, UF_PORT, UF_PATH,
+            UF_QUERY, UF_FRAGMENT, UF_USERINFO, UF_MAX };
+
+    struct http_parser_url {
+        uint16_t field_set;
+        uint16_t port;
+
+        struct {
+            uint16_t off;
+            uint16_t len;
+        } field_data[UF_MAX];
+        ...;
+    };
+
     void http_parser_init(http_parser *parser, enum http_parser_type type);
     size_t http_parser_execute(http_parser *parser,
                                const http_parser_settings *settings,
@@ -66,6 +80,10 @@ ffi.cdef("""
     int http_should_keep_alive(const http_parser *parser);
     const char *http_method_str(enum http_method m);
     const char *http_errno_name(enum http_errno err);
+
+    void http_parser_url_init(struct http_parser_url *u);
+    int http_parser_parse_url(const char *buf, size_t buflen,
+                              int is_connect, struct http_parser_url *u);
 
     /* Extra functions to extract bitfields not supported by cffi */
     unsigned char http_message_type(http_parser *parser);

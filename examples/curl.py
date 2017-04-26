@@ -2,31 +2,27 @@
 
 import sys
 import argparse
-from six.moves.urllib_parse import urlsplit
-from gruvi.http import HttpClient
+from gruvi.http import HttpClient, parse_url
 
 parser = argparse.ArgumentParser()
 parser.add_argument('url')
 args = parser.parse_args()
 
-url = urlsplit(args.url)
-if not url.scheme:
-    url = urlsplit('http://{0}'.format(args.url))
-is_ssl = url.scheme == 'https'
-port = url.port if url.port else 443 if is_ssl else 80
+url = parse_url(args.url)
 
 client = HttpClient()
-client.connect((url.hostname, port), ssl=is_ssl)
-client.request('GET', url.path or '/')
+client.connect(url.addr, ssl=url.ssl)
+client.request('GET', url.target)
 
-response = client.getresponse()
-if not 200 <= response.status <= 399:
-    sys.stderr.write('Error: got status {}\n'.format(response.status))
+resp = client.getresponse()
+if not 200 <= resp.status_code <= 399:
+    sys.stderr.write('Error: got status {}\n'.format(resp.status_code))
     sys.exit(1)
 
-stdout = getattr(sys.stdout, 'buffer', sys.stdout)
+charset = resp.charset or 'iso8859-1'
+
 while True:
-    buf = response.body.read(4096)
+    buf = resp.body.read(4096)
     if not buf:
         break
-    stdout.write(buf)
+    sys.stdout.write(buf.decode(charset))

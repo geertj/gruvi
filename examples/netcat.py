@@ -41,7 +41,4 @@ def remote_reader():
 gruvi.spawn(stdin_reader)
 gruvi.spawn(remote_reader)
 
-try:
-    done.wait()
-except KeyboardInterrupt:
-    print('Exiting on CTRL-C')
+done.wait()
