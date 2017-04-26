@@ -10,30 +10,24 @@ library. The short and simple answer is that I didn't agree with some of the
 decision decision that went into these other projects, and thought it would be
 good to have a library based on different assumptions.
 
-These are the design requirements that I had before creating Gruvi:
+These are the design requirements that I had when creating Gruvi:
 
-* I wanted something that is based on libuv_. In my view, libuv represents the
-  current state of the art with respect to asynchronous I/O libraries. It is
-  used by a few prominent open source projects including node.js_and Julia_.
-  Libuv offers for very good performance, low memory use, and excellent
-  platform support. The latter includes Windows, which is the weak point of all
-  the other I/O libraries due its completely different IO model.
+* I wanted to use green threads. Compared to Posix threads, green threads are
+  very light weight and scalable. Compared to a generator-based ``yield from``
+  approach, they provide better ergonomics where there is just one type of
+  function, rather than two that cannot easily call into each other.
 
-* I wanted something based on green threads. Green threads are lighter weight
-  versions of normal threads that are cooperatively scheduled. The cooperative
-  scheduling is a killer feature, because, with a little bit of care, it allows
-  you to create multi-threaded applications that require only minimal locking.
-  Also, green threads are still "threads" in the sense that each one has
-  its own stack and they don't require special language support for switching.
+* I wanted to use libuv_, which is a very high performance asynchronous I/O
+  library famous from node.js_, and has excellent cross-platform support
+  including Windows.
 
-* I wanted something that does not do monkey patching of blocking functions in
-  the standard library, but instead offers a separate :pep:`3156#transports`
-  style Transport / Protocol API for creating asynchronous protocol
-  implementations.
-
-* I wanted something that comes with *batteries included*. The most common
-  protocols, notably HTTP, should have a high performance, efficient
-  implementation included as part of Gruvi itself.
+* I wanted to use a :pep:`3156` style internal API based on transports and
+  protocols. This model matches very well with libuv's completion based model.
+  Compared to a socket based interface, a transport/completion based interface
+  forces a strict separation between "network facing" and "user facing" code.
+  In a socket based interface it is easy to make mistakes such as putting a
+  socket read deep in some protocol code, and it incentives hacks such as
+  monkey patching.
 
 Comparison to other frameworks
 ******************************
@@ -136,8 +130,8 @@ balance tips in favor of implicit switching. Some people have come to the same
 conclusion, others to a different one. Both approached are valid and as an
 programmer you should pick the approach you like most.
 
-Motivations for lack of Monkey patching
-***************************************
+Motivations for not doing Monkey patching
+*****************************************
 
 One other important design decision in Gruvi that I decided early on is not to
 implement *monkey patching*. Monkey patching is an approach employed by e.g.

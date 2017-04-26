@@ -13,7 +13,7 @@ Welcome to Gruvi
 Gruvi is an IO library for Python. It uses libuv_ (via pyuv_) as the underlying
 high-performance event-based I/O layer, and coroutines based on fibers_ to
 create a traditional sequential programming model on top of the libuv_
-event-based callback model.
+completion/callback based model.
 
 Gruvi is similar in concept to asyncio_, gevent_, and eventlet_. For a
 rationale on why I've created a new library, see the Rationale_ section in the
@@ -25,18 +25,18 @@ Features
 Gruvi has the following features:
 
 * Excellent platform support (mostly thanks to libuv). Linux, Mac OSX and
-  Windows are all first-class citizens. On Windows IOCP is used meaning that
-  you don't run into the scalability limitations of ``select()`` there.
+  Windows are all first-class citizens.
+* PEP-3156 compatible transport/protocol interface.
+* A traditional, sequential programming model based on green threads, where
+  there is no distinction between asynchronous and normal functions.
+* Great SSL/TLS support, also on Windows. The `asynchronous SSL`_ support in the
+  Python standard library came from Gruvi before it was included into the stdlib.
+* SSL backports module that makes certain 3.x SSL/TLS features available on Python 2.7.
 * Small core and focus on low memory usage and fast performance. This makes
   Gruvi very suitable for mobile applications and embedded web servers.
-* Great support for SSL, also on Windows. Includes an SSL backports module
-  that makes certain 3.x features available on Python 2.7.
-* Built-in client/server support for HTTP, JSON-RPC and D-BUS.
-* PEP-3156 compatible transport/protocol interface.
-* Transparent concurrency support. Thanks to fibers, calling into a blocking
-  function is just like calling into a regular function.
-* Thread synchronization primitives including locks, conditions and queues.
+* A full suite of synchronization primitives including locks, conditions and queues.
 * Thread and fiber pools with a ``concurrent.futures`` interface.
+* Batteries includes: built-in client/server support for HTTP, JSON-RPC and D-BUS.
 
 Example
 -------
@@ -62,11 +62,11 @@ Requirements
 
 You need Python 2.7 or 3.3+.
 
-The following operating systems are currently tested:
+The following operating systems are currently supported:
 
-* Posix (Only Linux is currently tested)
-* Mac OSX
-* Windows
+* Linux (might work on other Posix OSs)
+* macOS (not currently tested via CI)
+* Windows (not currently tested via CI)
 
 Installation
 ------------
@@ -93,7 +93,7 @@ The documentation is available on readthedocs_.
 License
 -------
 
-Gruvi is free software, available under the MIT license.
+Gruvi is free software, provided under the MIT license.
 
 Contact
 -------
@@ -108,6 +108,7 @@ tickets or suggestions for improvements on Github_.
 .. _gevent: http://gevent.org/
 .. _eventlet: http://eventlet.net/
 .. _Rationale: http://gruvi.readthedocs.org/en/latest/rationale.html
+.. _asynchronous SSL: https://docs.python.org/3/library/ssl.html#ssl.SSLObject
 .. _Installation: http://gruvi.readthedocs.org/en/latest/install.html
 .. _StreamServer: http://gruvi.readthedocs.org/en/latest/streams.html
 .. _readthedocs: https://gruvi.readthedocs.org/
