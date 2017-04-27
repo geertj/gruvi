@@ -1171,7 +1171,8 @@ class HttpServer(Server):
         network and protocol operations.
         """
         adapter = self.default_adapter if adapter is None else adapter
-        handler = adapter(application)
+        def handler(*args):
+            return adapter(application)(*args)
         protocol_factory = functools.partial(HttpProtocol, handler,
                                              server_side=True, server_name=server_name)
         super(HttpServer, self).__init__(protocol_factory, timeout)
