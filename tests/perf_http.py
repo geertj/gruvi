@@ -11,8 +11,14 @@ from __future__ import absolute_import, print_function, division
 import time
 import unittest
 
-from gruvi.http import HttpProtocol
+from gruvi.http import HttpProtocol, HttpServer, HttpClient
 from support import PerformanceTest, MockTransport
+
+
+def hello_app(environ, start_response):
+    headers = [('Content-Type', 'text/plain')]
+    start_response('200 OK', headers)
+    return [b'Hello!']
 
 
 class PerfHttp(PerformanceTest):
@@ -33,6 +39,25 @@ class PerfHttp(PerformanceTest):
             t1 = time.time()
         speed = nbytes / (t1 - t0) / (1024 * 1024)
         self.add_result(speed)
+
+    def perf_server_throughput(self):
+        server = HttpServer(hello_app)
+        server.listen(('localhost', 0))
+        addr = server.addresses[0]
+        client = HttpClient()
+        client.connect(addr)
+        nrequests = 0
+        t0 = t1 = time.time()
+        while t1 - t0 < 0.2:
+            client.request('GET', '/')
+            resp = client.getresponse()
+            self.assertEqual(resp.body.read(), b'Hello!')
+            nrequests += 1
+            t1 = time.time()
+        throughput = nrequests / (t1 - t0)
+        self.add_result(throughput)
+        server.close()
+        client.close()
 
 
 if __name__ == '__main__':
