@@ -73,7 +73,7 @@ are the hub and the root fiber. All other fibers should be created as instances
 of :class:`Fiber`.
 
 When a fiber is created it doesn't run yet. To switch to the fiber, call its
-:meth:`~Fiber.start` method and switch to the hub::
+:meth:`~Fiber.start` method and call a function that will switch to the hub::
 
   def say_hello():
       print('Hello, there!')
@@ -82,7 +82,7 @@ When a fiber is created it doesn't run yet. To switch to the fiber, call its
   fiber.start()
 
   print('Starting fiber')
-  get_hub().switch()
+  sleep(0)
   print('Back in root fiber')
 
 The output of this will be::
