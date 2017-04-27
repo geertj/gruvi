@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -16,8 +16,8 @@ from setuptools import setup, Extension
 
 version_info = {
     'name': 'gruvi',
-    'version': '0.10.2',
-    'description': 'Synchronous evented IO with pyuv and fibers',
+    'version': '0.10.3',
+    'description': 'Pythonic async IO with libuv and fibers',
     'author': 'Geert Jansen',
     'author_email': 'geertj@gmail.com',
     'url': 'https://github.com/geertj/gruvi',

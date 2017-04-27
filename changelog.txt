@@ -1,3 +1,10 @@
+Changes in version 0.10.3:
+
+* Refactoring and cleanups of many places in the code.
+* Refactored and simplified flow control.
+* Made @switchpoint return a closure.
+* Documentation improvements.
+
 Changes in version 0.10.2:
 
 * New infrastructure for polling FDs.
