@@ -1,4 +1,4 @@
 cffi >= 1.0
-fibers >= 0.4
+fibers >= 1.0
 pyuv >= 1.1
 six
