@@ -3,49 +3,25 @@
  * terms of the MIT license. See the file "LICENSE" that was provided
  * together with this source file for the licensing terms.
  *
- * Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+ * Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
  * complete list.
  */
 
 #include <Python.h>
 
-/* This module backports some useful SSL features on from later 3.x releases.
- * This module is only needed on Python 2.7, 3.3 and 3.4. From Python 3.5
- * onwards all functionality that we require is present.
- *
- * The following backports are available:
- *
- * - Functions for getting and enabling features on SSL protocol instances
- *   (e.g. tls_unique_cb(), load_dh_params(), set_tlsext_host_name())
- * - Memory BIO support (the MemoryBIO type, and the set_bio() function).
- *
- * The table below indicates which backports are needed for which Python
- * versions.
-
- * --------------   --------------  ------  ------  ------  ------
- * Python version   2.7.x (x <= 8)  2.7.9   3.3     3.4     3.5
- * --------------   --------------  ------  ------  ------  ------
- * SSL Features     Y               -       -       -       -
- * Memory BIO       Y               Y       Y       Y       -
- * --------------   --------------  ------  ------  ------  ------
+/*
+ * This module backports the async SSL support from Python 3.5 to earlier
+ * versions. It supports Python 2.7, 3.3 and 3.4.
  * */
 
-#if PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION < 7 \
-    || PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION < 3
-#  error "This module is for Python 2.7 and 3.3+ only."
+#if !(PY_MAJOR_VERSION == 2 && PY_MINOR_VERSION == 7) \
+    && !(PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 3) \
+    && !(PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION == 4)
+#  error "This module is for Python 2.7, 3.3 and 3.4 only."
 #endif
 
-#include <stdio.h>
 #include <string.h>
-
 #include <openssl/ssl.h>
-#include <openssl/ssl3.h>
-#include <openssl/err.h>
-#include <openssl/dh.h>
-#include <openssl/pem.h>
-#include <openssl/objects.h>
-#include <openssl/crypto.h>
-#include <openssl/bio.h>
 
 
 /* Some useful error handling macros. */
@@ -55,9 +31,6 @@
         if ((fmt) != NULL) PyErr_Format(SSLError, fmt, ## __VA_ARGS__); \
         goto error; \
     } while (0)
-
-#define RETURN_OPENSSL_ERROR \
-    RETURN_ERROR("%s", ERR_error_string(ERR_get_error(), NULL))
 
 #define RETURN_NONE(dest) \
     do { Py_INCREF(Py_None); dest = Py_None; goto error; } while (0)
@@ -86,16 +59,6 @@
 #  define BUF_FMT "s*"
 #endif
 
-
-/* OpenSSL compatibility */
-
-#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
-#  define HAVE_SNI 1
-#else
-#  define HAVE_SNI 0
-#endif
-
-#define MAX_CB_LEN 64
 
 /* Globals */
 
@@ -305,212 +268,23 @@ static PyTypeObject PySSLMemoryBIO_Type = {
 };
 
 
-/* sslcompat methods below */
+/* This method is where the money it. It replaces the BIO on the SSL
+ * structure that the PySSLSocket is managing, without any knowledge or
+ * cooperation from PySSLSocket itself.
+ *
+ * For this to work it is important that the socket is in non-blocking
+ * mode. Otherwise _ssl will attempt to select on it which would be
+ * meaningless.
+ * */
 
 static PyObject *
-sslcompat_compression(PyObject *self, PyObject *args)
-{
-    PyObject *Pret = NULL;
-    PySSLObject *sslob;
-    const COMP_METHOD *method;
-    const char *shortname;
-
-    if (!PyArg_ParseTuple(args, "O:compression", &sslob))
-        RETURN_ERROR(NULL);
-
-    CHECK_SSL_OBJ(sslob);
-
-    method = SSL_get_current_compression(sslob->ssl);
-    if (method == NULL || method->type == NID_undef)
-        RETURN_NONE(Pret);
-
-    if (!(shortname = OBJ_nid2sn(method->type)))
-        RETURN_OPENSSL_ERROR;
-
-    Pret = PyBytes_FromString(shortname);
-
-error:
-    return Pret;
-}
-
-
-static PyObject *
-sslcompat_get_options(PyObject *self, PyObject *args)
-{
-    PyObject *Pret = NULL;
-    PySSLObject *sslob;
-    SSL_CTX *ctx;
-    long opts;
-
-    if (!PyArg_ParseTuple(args, "O:get_options", &sslob))
-        RETURN_ERROR(NULL);
-
-    CHECK_SSL_OBJ(sslob);
-    ctx = SSL_get_SSL_CTX(sslob->ssl);
-
-    opts = SSL_CTX_get_options(ctx);
-    Pret = PyLong_FromLong(opts);
-
-error:
-    return Pret;
-}
-
-
-static PyObject *
-sslcompat_set_options(PyObject *self, PyObject *args)
-{
-    PyObject *Pret = NULL;
-    PySSLObject *sslob;
-    SSL_CTX *ctx;
-    long opts, current, add, remove;
-
-    if (!PyArg_ParseTuple(args, "Ol:set_options", &sslob, &opts))
-        RETURN_ERROR(NULL);
-
-    CHECK_SSL_OBJ(sslob);
-    ctx = SSL_get_SSL_CTX(sslob->ssl);
-
-    current = SSL_CTX_get_options(ctx);
-    remove = current & ~opts;
-    if (remove)
-#ifdef SSL_CTRL_CLEAR_OPTIONS
-        SSL_CTX_clear_options(ctx, remove);
-#else
-        RETURN_ERROR("this version of OpenSSL cannot remove options");
-#endif
-    add = ~current & opts;
-    if (add)
-        SSL_CTX_set_options(ctx, add);
-
-    opts = SSL_CTX_get_options(ctx);
-    Pret = PyLong_FromLong(opts);
-
-error:
-    return Pret;
-}
-
-
-static PyObject *
-sslcompat_load_dh_params(PyObject *self, PyObject *args)
-{
-    char *path;
-    PyObject *Pret = NULL;
-    PySSLObject *sslob;
-    DH *dh = NULL;
-    FILE *fpem = NULL;
-
-    if (!PyArg_ParseTuple(args, "Os:load_dh_params", &sslob, &path))
-        RETURN_ERROR(NULL);
-
-    CHECK_SSL_OBJ(sslob);
-
-    if (!(fpem = fopen(path, "rb")))
-        RETURN_ERROR("Could not open file %s", path);
-    if (!(dh = PEM_read_DHparams(fpem, NULL, NULL, NULL)))
-        RETURN_OPENSSL_ERROR;
-    if (!SSL_set_tmp_dh(sslob->ssl, dh))
-        RETURN_OPENSSL_ERROR;
-
-    RETURN_NONE(Pret);
-
-error:
-    if (dh) DH_free(dh);
-    if (fpem) fclose(fpem);
-    return Pret;
-}
-
-
-static PyObject *
-sslcompat_set_accept_state(PyObject *self, PyObject *args)
-{
-    PyObject *Pret = NULL;
-    PySSLObject *sslob;
-
-    if (!PyArg_ParseTuple(args, "O:set_accept_state", &sslob))
-        RETURN_ERROR(NULL);
-
-    CHECK_SSL_OBJ(sslob);
-
-    SSL_set_accept_state(sslob->ssl);
-
-    RETURN_NONE(Pret);
-
-error:
-    return Pret;
-}
-
-
-static PyObject *
-sslcompat_tls_unique_cb(PyObject *self, PyObject *args)
-{
-    PyObject *Pret = NULL;
-    PySSLObject *sslob;
-    char buf[MAX_CB_LEN];
-    int len;
-
-    if (!PyArg_ParseTuple(args, "O:get_channel_binding", &sslob))
-        RETURN_ERROR(NULL);
-
-    CHECK_SSL_OBJ(sslob);
-
-    if (SSL_session_reused(sslob->ssl) ^ !sslob->ssl->server)
-        len = SSL_get_finished(sslob->ssl, buf, MAX_CB_LEN);
-    else
-        len = SSL_get_peer_finished(sslob->ssl, buf, MAX_CB_LEN);
-
-    if (len == 0)
-        RETURN_NONE(Pret);
-
-    Pret = PyBytes_FromStringAndSize(buf, len);
-
-error:
-    return Pret;
-}
-
-
-static PyObject *
-sslcompat_set_tlsext_host_name(PyObject *self, PyObject *args)
-{
-    PyObject *Pret = NULL;
-    PySSLObject *sslob;
-    char *hostname;
-
-    if (!PyArg_ParseTuple(args, "Os:set_tlsext_host_name", &sslob, &hostname))
-        RETURN_ERROR(NULL);
-
-    CHECK_SSL_OBJ(sslob);
-
-#if HAVE_SNI
-    if (!SSL_set_tlsext_host_name(sslob->ssl, hostname))
-        RETURN_OPENSSL_ERROR;
-
-    RETURN_NONE(Pret);
-#else
-    RETURN_ERROR("SNI is not supported by your OpenSSL");
-#endif
-
-error:
-    return Pret;
-}
-
-
-static PyObject *
-sslcompat_set_bio(PyObject *self, PyObject *args)
+sslcompat_replace_bio(PyObject *self, PyObject *args)
 {
     PyObject *Pret = NULL;
     PySSLObject *sslob;
     PySSLMemoryBIO *inbio, *outbio;
 
-    /* The mode of operation of this function is to replace the BIO on the SSL
-     * structure that the PySSLSocket is managing, without any knowledge or
-     * cooperation from PySSLSocket itself.
-     *
-     * For this to work it is important that the socket is in non-blocking
-     * mode. Otherwise _ssl will attempt to select on it which would be
-     * meaningless.
-     * */
-
-    if (!PyArg_ParseTuple(args, "OO!O!:set_bio", &sslob, &PySSLMemoryBIO_Type,
+    if (!PyArg_ParseTuple(args, "OO!O!:replace_bio", &sslob, &PySSLMemoryBIO_Type,
                           &inbio, &PySSLMemoryBIO_Type, &outbio))
         RETURN_ERROR(NULL);
 
@@ -534,21 +308,14 @@ error:
 
 static PyMethodDef sslcompat_methods[] =
 {
-    {"compression", (PyCFunction) sslcompat_compression, METH_VARARGS},
-    {"get_options", (PyCFunction) sslcompat_get_options, METH_VARARGS},
-    {"set_options", (PyCFunction) sslcompat_set_options, METH_VARARGS},
-    {"load_dh_params", (PyCFunction) sslcompat_load_dh_params, METH_VARARGS},
-    {"set_accept_state", (PyCFunction) sslcompat_set_accept_state, METH_VARARGS},
-    {"tls_unique_cb", (PyCFunction) sslcompat_tls_unique_cb, METH_VARARGS},
-    {"set_tlsext_host_name", (PyCFunction) sslcompat_set_tlsext_host_name, METH_VARARGS},
-    {"set_bio", (PyCFunction) sslcompat_set_bio, METH_VARARGS},
+    {"replace_bio", (PyCFunction) sslcompat_replace_bio, METH_VARARGS},
     {NULL, NULL}
 };
 
 
 /* Main module */
 
-PyDoc_STRVAR(sslcompat_doc, "Backports of upstream ssl methods");
+PyDoc_STRVAR(sslcompat_doc, "Backport of Python 3.5+ async ssl support");
 
 MOD_INITFUNC(_sslcompat)
 {
@@ -567,40 +334,6 @@ MOD_INITFUNC(_sslcompat)
         return MOD_ERROR;
     if (PyDict_SetItemString(Pdict, "MemoryBIO", (PyObject *) &PySSLMemoryBIO_Type) < 0)
         return MOD_ERROR;
-
-    /* SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS disables a workaround against the
-     * BEAST attack on SSL and TLS < 1.1. The Python _ssl module removes it
-     * from OP_ALL (enabling the workaround) and for consistency and security
-     * we follow that lead. */
-    if (PyModule_AddIntConstant(Pmodule, "OP_ALL",
-                    SSL_OP_ALL & ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS) < 0)
-        return MOD_ERROR;
-    if (PyModule_AddIntConstant(Pmodule, "OP_NO_SSLv2", SSL_OP_NO_SSLv2) < 0)
-        return MOD_ERROR;
-    if (PyModule_AddIntConstant(Pmodule, "OP_NO_SSLv3", SSL_OP_NO_SSLv3) < 0)
-        return MOD_ERROR;
-    if (PyModule_AddIntConstant(Pmodule, "OP_NO_TLSv1", SSL_OP_NO_TLSv1) < 0)
-        return MOD_ERROR;
-#ifdef SSL_OP_NO_TLSv1_1
-    if (PyModule_AddIntConstant(Pmodule, "OP_NO_TLSv1_1", SSL_OP_NO_TLSv1_1) < 0)
-        return MOD_ERROR;
-#endif
-#ifdef SSL_OP_NO_TLSv1_2
-    if (PyModule_AddIntConstant(Pmodule, "OP_NO_TLSv1_2", SSL_OP_NO_TLSv1_2) < 0)
-        return MOD_ERROR;
-#endif
-    if (PyModule_AddIntConstant(Pmodule, "OP_CIPHER_SERVER_PREFERENCE",
-                    SSL_OP_CIPHER_SERVER_PREFERENCE) < 0)
-        return MOD_ERROR;
-    if (PyModule_AddIntConstant(Pmodule, "OP_SINGLE_DH_USE", SSL_OP_SINGLE_DH_USE) < 0)
-        return MOD_ERROR;
-#ifdef SSL_OP_NO_COMPRESSION
-    if (PyModule_AddIntConstant(Pmodule, "OP_NO_COMPRESSION", SSL_OP_NO_COMPRESSION) < 0)
-        return MOD_ERROR;
-#endif
-    if (PyModule_AddIntConstant(Pmodule, "HAS_SNI", HAVE_SNI) < 0)
-        return MOD_ERROR;
-    PyModule_AddIntConstant(Pmodule, "HAS_TLS_UNIQUE", 1);
 
     /* Expose error codes that are needed (just 1 for now). */
     if (!(Perrors = PyDict_New()))
