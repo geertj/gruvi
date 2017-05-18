@@ -11,13 +11,11 @@ from __future__ import absolute_import, print_function
 import pyuv
 import ssl
 
-from . import compat
+from . import compat, sslcompat
 from .transports import Transport, TransportError
 from .sync import Event
 
-from .sslcompat import SSLContext, MemoryBIO, get_reason, wrap_bio
-
-__all__ = ['SslTransport', 'create_ssl_context']
+__all__ = ['SslTransport']
 
 
 class SslPipe(object):
@@ -50,7 +48,7 @@ class SslPipe(object):
     def __init__(self, context, server_side, server_hostname=None):
         """
         The *context* argument specifies the :class:`ssl.SSLContext` to use.
-        It is recommended to use :func:`~gruvi.ssl.create_ssl_context` so that
+        It is recommended to use :func:`~gruvi.create_default_context` so that
         it will work on all supported Python versions.
 
         The *server_side* argument indicates whether this is a server side or
@@ -64,8 +62,8 @@ class SslPipe(object):
         self._server_side = server_side
         self._server_hostname = server_hostname
         self._state = self.S_UNWRAPPED
-        self._incoming = MemoryBIO()
-        self._outgoing = MemoryBIO()
+        self._incoming = sslcompat.MemoryBIO()
+        self._outgoing = sslcompat.MemoryBIO()
         self._sslobj = None
         self._need_ssldata = False
         self._handshake_cb = None
@@ -101,8 +99,8 @@ class SslPipe(object):
         """
         if self._state != self.S_UNWRAPPED:
             raise RuntimeError('handshake in progress or completed')
-        self._sslobj = wrap_bio(self._context, self._incoming, self._outgoing,
-                                self._server_side, self._server_hostname)
+        self._sslobj = sslcompat.wrap_bio(self._context, self._incoming, self._outgoing,
+                                          self._server_side, self._server_hostname)
         self._state = self.S_DO_HANDSHAKE
         self._handshake_cb = callback
         ssldata, appdata = self.feed_ssldata(b'')
@@ -180,9 +178,11 @@ class SslPipe(object):
             if self._state == self.S_UNWRAPPED:
                 # Drain possible plaintext data after close_notify.
                 appdata.append(self._incoming.read())
-        except ssl.SSLError as e:
-            if e.errno not in (ssl.SSL_ERROR_WANT_READ, ssl.SSL_ERROR_WANT_WRITE,
-                               ssl.SSL_ERROR_SYSCALL):
+        except (ssl.SSLError, sslcompat.CertificateError) as e:
+            if getattr(e, 'errno', None) not in (ssl.SSL_ERROR_WANT_READ,
+                        ssl.SSL_ERROR_WANT_WRITE, ssl.SSL_ERROR_SYSCALL):
+                if self._state == self.S_DO_HANDSHAKE and self._handshake_cb:
+                    self._handshake_cb(e)
                 raise
             self._need_ssldata = e.errno == ssl.SSL_ERROR_WANT_READ
         # Check for record level data that needs to be sent back.
@@ -220,7 +220,7 @@ class SslPipe(object):
                 # It is not allowed to call write() after unwrap() until the
                 # close_notify is acknowledged. We return the condition to the
                 # caller as a short write.
-                if get_reason(e) == 'PROTOCOL_IS_SHUTDOWN':
+                if sslcompat.get_reason(e) == 'PROTOCOL_IS_SHUTDOWN':
                     e.errno = ssl.SSL_ERROR_WANT_READ
                 if e.errno not in (ssl.SSL_ERROR_WANT_READ, ssl.SSL_ERROR_WANT_WRITE,
                                    ssl.SSL_ERROR_SYSCALL):
@@ -248,8 +248,9 @@ class SslTransport(Transport):
         to support that.
 
         The *context* argument specifies the :class:`ssl.SSLContext` to use.
-        You can use :func:`create_ssl_context` to create a new context which
-        also works on Python 2.x where :class:`ssl.SSLContext` does not exist.
+        You can use :func:`~gruvi.create_default_context` to create a new
+        context which also works on Python 2.x where :class:`ssl.SSLContext`
+        does not exist.
 
         The *server_side* argument specifies whether this is a server side or a
         client side transport.
@@ -358,7 +359,7 @@ class SslTransport(Transport):
                 del self._write_backlog[0]
         except ssl.SSLError as e:
             self._log.warning('SSL error {} (reason {})', e.errno, e.reason, exc_info=True)
-            self._error = e
+            self._error = TransportError(str(e))
             self.abort()
 
     def _on_read_complete(self, handle, data, error):
@@ -388,16 +389,16 @@ class SslTransport(Transport):
                     elif not chunk and self._close_on_unwrap:
                         # close_notify
                         self.close()
-        except ssl.SSLError as e:
-            self._log.warning('SSL error {} (reason {})', e.errno,
+        except (ssl.SSLError, sslcompat.CertificateError) as e:
+            self._log.warning('SSL error {} (reason {})', getattr(e, 'errno', 'unknown'),
                               getattr(e, 'reason', 'unknown'), exc_info=True)
-            self._error = e
+            self._error = TransportError(str(e))
             self.abort()
         # Process write backlog. A read could have unblocked a write.
         if not self._error:
             self._process_write_backlog()
 
-    def _on_handshake_complete(self):
+    def _on_handshake_complete(self, exc=None):
         # Called by the SslPipe when a handshake is complete.
         self._ssl_active.set()
 
@@ -489,18 +490,3 @@ class SslTransport(Transport):
         self._closing = True
         self._write_backlog.append([b'', False])
         self._process_write_backlog()
-
-
-def create_ssl_context(**sslargs):
-    """Create a new SSL context in a way that is compatible with different
-    Python versions."""
-    context = SSLContext(ssl.PROTOCOL_SSLv23)
-    if sslargs.get('certfile'):
-        context.load_cert_chain(sslargs['certfile'], sslargs.get('keyfile'))
-    if sslargs.get('ca_certs'):
-        context.load_verify_locations(sslargs['ca_certs'])
-    if sslargs.get('cert_reqs'):
-        context.verify_mode = sslargs['cert_reqs']
-    if sslargs.get('ciphers'):
-        context.set_ciphers(sslargs['ciphers'])
-    return context

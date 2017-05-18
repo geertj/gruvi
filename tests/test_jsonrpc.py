@@ -622,11 +622,10 @@ class TestJsonRpc(UnitTest):
 
     def test_call_method_ssl(self):
         server = JsonRpcServer(echo_app)
-        context = self.get_ssl_context()
-        server.listen(('localhost', 0), ssl=context)
+        server.listen(('localhost', 0), **self.ssl_s_args)
         addr = server.addresses[0]
         client = JsonRpcClient()
-        client.connect(addr, ssl=context)
+        client.connect(addr, **self.ssl_c_args)
         result = client.call_method('echo', 'foo')
         self.assertEqual(result, ['foo'])
         server.close()

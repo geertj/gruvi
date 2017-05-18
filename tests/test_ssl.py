@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2013 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import print_function, absolute_import
@@ -60,13 +60,11 @@ class TestSslPipe(UnitTest):
     """Test suite for the SslPipe class."""
 
     def setUp(self):
-        if not os.access(self.certname, os.R_OK):
+        if not os.access(self.cafile, os.R_OK):
             raise SkipTest('no certificate available')
         super(TestSslPipe, self).setUp()
-        context = SSLContext(ssl.PROTOCOL_SSLv23)
-        context.load_cert_chain(self.certname, self.certname)
-        self.client = SslPipe(context, False)
-        self.server = SslPipe(context, True)
+        self.client = SslPipe(self.client_context, False, server_hostname='localhost')
+        self.server = SslPipe(self.server_context, True)
 
     def test_wrapped(self):
         # Send a simple chunk of data over SSL from client to server.
@@ -183,14 +181,16 @@ class TestSslPipe(UnitTest):
 class SslTransportTest(TransportTest):
 
     def setUp(self):
-        if not os.access(self.certname, os.R_OK):
+        if not os.access(self.cafile, os.R_OK):
             raise SkipTest('no certificate available')
         super(SslTransportTest, self).setUp()
-        self.context = SSLContext(ssl.PROTOCOL_SSLv3)
-        self.context.load_cert_chain(self.certname, self.certname)
 
     def create_transport(self, handle, protocol, server_side):
-        transport = SslTransport(handle, self.context, server_side)
+        context = self.server_context if server_side else self.client_context
+        ssl_args = {}
+        if not server_side:
+            ssl_args['server_hostname'] = 'localhost'
+        transport = SslTransport(handle, context, server_side, **ssl_args)
         transport.start(protocol)
         return transport
 

@@ -27,6 +27,7 @@ from .fibers import *
 from .sync import *
 from .local import *
 from .ssl import *
+from .sslcompat import *
 from .futures import *
 from .transports import *
 from .protocols import *

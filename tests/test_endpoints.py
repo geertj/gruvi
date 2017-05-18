@@ -3,13 +3,15 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
 
+import ssl
 import socket
 import unittest
+from unittest import SkipTest
 
 import gruvi
 from gruvi.stream import StreamProtocol
@@ -54,10 +56,9 @@ class TestCreateConnection(UnitTest):
     def test_tcp_ssl(self):
         # Ensure that create_connection() and create_server() can be used to
         # connect to each other over TCP using SSL.
-        context = self.get_ssl_context()
-        server = create_server(StreamProtocol, ('localhost', 0), ssl=context)
+        server = create_server(StreamProtocol, ('localhost', 0), **self.ssl_s_args)
         addr = server.addresses[0]
-        ctrans, cproto = create_connection(StreamProtocol, addr, ssl=context)
+        ctrans, cproto = create_connection(StreamProtocol, addr, **self.ssl_c_args)
         # No need to sleep here because create_connection waits for the SSL
         # handshake to complete
         strans, sproto = list(server.connections)[0]
@@ -71,10 +72,9 @@ class TestCreateConnection(UnitTest):
     def test_pipe_ssl(self):
         # Ensure that create_connection() and create_server() can be used to
         # connect to each other over a pipe using SSL.
-        context = self.get_ssl_context()
         addr = self.pipename()
-        server = create_server(StreamProtocol, addr, ssl=context)
-        ctrans, cproto = create_connection(StreamProtocol, addr, ssl=context)
+        server = create_server(StreamProtocol, addr, **self.ssl_s_args)
+        ctrans, cproto = create_connection(StreamProtocol, addr, **self.ssl_cp_args)
         # No need to sleep here because create_connection waits for the SSL
         # handshake to complete
         strans, sproto = list(server.connections)[0]
@@ -88,10 +88,9 @@ class TestCreateConnection(UnitTest):
     def test_ssl_handshake_on_connect(self):
         # Ensure that when create_connection(ssl=True) returns, that the SSL
         # handshake has completed.
-        context = self.get_ssl_context()
-        server = create_server(StreamProtocol, ('localhost', 0), ssl=context)
+        server = create_server(StreamProtocol, ('localhost', 0), **self.ssl_s_args)
         addr = server.addresses[0]
-        ctrans, cproto = create_connection(StreamProtocol, addr, ssl=context)
+        ctrans, cproto = create_connection(StreamProtocol, addr, **self.ssl_c_args)
         # The SSL handshake should be completed at this point. This means that
         # there should be a channel binding.
         sslobj = ctrans.get_extra_info('ssl')
@@ -109,11 +108,12 @@ class TestCreateConnection(UnitTest):
     def test_ssl_no_handshake_on_connect(self):
         # Ensure that when create_connection(ssl=True) returns, that the SSL
         # handshake has completed.
-        context = self.get_ssl_context()
-        server = create_server(StreamProtocol, ('localhost', 0), ssl=context)
+        server = create_server(StreamProtocol, ('localhost', 0), **self.ssl_s_args)
         addr = server.addresses[0]
-        ssl_args = {'do_handshake_on_connect': False}
-        ctrans, cproto = create_connection(StreamProtocol, addr, ssl=context, ssl_args=ssl_args)
+        ssl_args = self.ssl_c_args.copy()
+        ssl_args['ssl_args'] = self.ssl_c_args.get('ssl_args', {}).copy()
+        ssl_args['ssl_args']['do_handshake_on_connect'] = False
+        ctrans, cproto = create_connection(StreamProtocol, addr, **ssl_args)
         # The SSL handshake has not been established at this point.
         sslobj = ctrans.get_extra_info('ssl')
         self.assertIsNone(sslobj)
@@ -146,6 +146,20 @@ class TestCreateConnection(UnitTest):
         # a Pipe that has no listener.
         addr = self.pipename()
         self.assertRaises(TransportError, create_connection, StreamProtocol, addr)
+
+    def test_tcp_ssl_certificate_error(self):
+        # Ensure that create_connection() raises a CertificateError if the
+        # certificate doesn't validate.
+        if not hasattr(ssl, 'CertificateError'):
+            raise SkipTest('Certificate validation not supported')
+        server = create_server(StreamProtocol, ('localhost', 0), **self.ssl_s_args)
+        addr = server.addresses[0]
+        ssl_args = self.ssl_c_args.copy()
+        ssl_args['ssl_args'] = self.ssl_c_args.get('ssl_args', {}).copy()
+        ssl_args['ssl_args']['server_hostname'] = 'foobar'
+        self.assertRaises(TransportError, create_connection, StreamProtocol,
+                          addr, **ssl_args)
+        server.close()
 
 
 class TestGetAddrInfo(UnitTest):

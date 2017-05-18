@@ -21,7 +21,8 @@ from .hub import get_hub, switchpoint, switch_back
 from .sync import Event
 from .errors import Timeout
 from .transports import TransportError, Transport
-from .ssl import SslTransport, create_ssl_context
+from .ssl import SslTransport
+from .sslcompat import create_default_context
 from .address import getaddrinfo, saddr
 
 __all__ = ['create_connection', 'create_server', 'Endpoint', 'Client', 'Server']
@@ -98,9 +99,9 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
     ``True`` or to an :class:`ssl.SSLContext` instance. In the former case a
     default SSL context is created. In the case of Python 2.x the :mod:`ssl`
     module does not define an SSL context object and you can use
-    :func:`create_ssl_context` instead which works across all supported Python
-    versions. The *ssl_args* argument may be used to pass keyword arguments to
-    :class:`SslTransport`.
+    :func:`~gruvi.create_default_context` instead which works across all
+    supported Python versions. The *ssl_args* argument may be used to pass
+    keyword arguments to :class:`SslTransport`.
 
     If an SSL connection was selected, the resulting transport will be a
     :class:`SslTransport` instance, otherwise it will be a :class:`Transport`
@@ -116,6 +117,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
     """
     hub = get_hub()
     log = logging.get_logger()
+    server_hostname = None
     if isinstance(address, (six.binary_type, six.text_type)):
         handle_type = pyuv.Pipe
         addresses = [address]
@@ -124,6 +126,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
         result = getaddrinfo(address[0], address[1], family, socket.SOCK_STREAM,
                              socket.IPPROTO_TCP, flags)
         addresses = [res[4] for res in result]
+        server_hostname = address[0]
     elif isinstance(address, int):
         if os.isatty(address):
             if mode not in ('r', 'w'):
@@ -166,7 +169,9 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
     protocol = protocol_factory()
     protocol._timeout = timeout
     if ssl:
-        context = ssl if hasattr(ssl, 'set_ciphers') else create_ssl_context()
+        context = ssl if hasattr(ssl, 'set_ciphers') else create_default_context(False)
+        if server_hostname and 'server_hostname' not in ssl_args:
+            ssl_args['server_hostname'] = server_hostname
         transport = SslTransport(handle, context, False, **ssl_args)
     else:
         transport = Transport(handle, mode)
@@ -174,6 +179,7 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
     if events:
         for event in events:
             event.wait()
+        transport._check_status()
     return (transport, protocol)
 
 
@@ -325,7 +331,7 @@ class Server(Endpoint):
             client.close()
             return
         if ssl:
-            context = ssl if hasattr(ssl, 'set_ciphers') else create_ssl_context()
+            context = ssl if hasattr(ssl, 'set_ciphers') else create_default_context(True)
             transport = SslTransport(client, context, True, **ssl_args)
         else:
             transport = Transport(client)

@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function, division
@@ -21,12 +21,11 @@ from test_ssl import communicate
 class PerfSsl(PerformanceTest):
 
     def setUp(self):
-        if not os.access(self.certname, os.R_OK):
+        if not os.access(self.cafile, os.R_OK):
             raise SkipTest('no certificate available')
         super(PerfSsl, self).setUp()
-        context = self.get_ssl_context()
-        self.client = SslPipe(context, False)
-        self.server = SslPipe(context, True)
+        self.client = SslPipe(self.client_context, False, server_hostname='localhost')
+        self.server = SslPipe(self.server_context, True)
 
     def perf_throughput(self):
         client, server = self.client, self.server

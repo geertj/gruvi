@@ -14,11 +14,19 @@ import _ssl
 import ssl
 import six
 
-__all__ = []
-
 if sys.version_info[:2] < (3, 5):
     from . import _sslcompat
 
+__all__ = ['create_default_context']
+
+
+if hasattr(ssl, 'CertificateError'):
+    # Python 2.7.9+ and Python 3.3+
+    CertificateError = ssl.CertificateError
+
+else:
+    # Python 2.7.x, x <= 8
+    CertificateError = ValueError
 
 
 if hasattr(ssl, 'SSLContext'):
@@ -158,6 +166,25 @@ else:
         def version(self):
             if hasattr(self._sslobj, 'version'):
                 return self._sslobj.version()
+
+
+def create_default_context(purpose=None, **kwargs):
+    """Create a new SSL context in the most secure way available on the current
+    Python version. See :func:`ssl.create_default_context`."""
+    if hasattr(ssl, 'create_default_context'):
+        # Python 2.7.9+, Python 3.4+: take a server_side boolean or None, in
+        # addition to the ssl.Purpose.XX values. This allows a user to write
+        # code that works on all supported Python versions.
+        if purpose is None or purpose is False:
+            purpose = ssl.Purpose.SERVER_AUTH
+        elif purpose is True:
+            purpose = ssl.Purpose.CLIENT_AUTH
+        return ssl.create_default_context(purpose, **kwargs)
+    # Python 2.7.8, Python 3.3
+    context = SSLContext(ssl.PROTOCOL_SSLv23)
+    if kwargs.get('cafile'):
+        context.load_verify_locations(kwargs['cafile'])
+    return context
 
 
 def get_dummy_socket():

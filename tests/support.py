@@ -10,6 +10,7 @@ from __future__ import absolute_import, print_function
 
 import os
 import sys
+import time
 import shutil
 import socket
 import errno
@@ -23,7 +24,7 @@ import six
 
 import gruvi
 from gruvi.util import split_cap_words
-from gruvi.ssl import create_ssl_context
+from gruvi.sslcompat import create_default_context
 from gruvi.sync import Event
 
 __all__ = []
@@ -45,21 +46,21 @@ def setup_logging():
     logger.addHandler(handler)
 
 
-def create_ssl_certificate(fname):
+def create_ssl_certificate(cafile, keyfile):
     """Create a new SSL private key and self-signed certificate, and store
     them both in the file *fname*."""
     try:
-        openssl = subprocess.Popen(['openssl', 'req', '-new',
-                        '-newkey', 'rsa:1024', '-x509', '-subj', '/CN=test/',
-                        '-days', '365', '-nodes', '-batch',
-                        '-out', fname, '-keyout', fname],
+        openssl = subprocess.Popen(['openssl', 'req', '-config', 'openssl.cnf',
+                        '-new', '-newkey', 'rsa:1024', '-x509', '-days', '30',
+                        '-subj', '/CN=localhost/', '-nodes', '-batch',
+                        '-extensions', 'SAN', '-out', cafile, '-keyout', keyfile],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except OSError:
-        sys.stderr.write('Error: openssl not found. SSL tests disabled.\n')
+        sys.stderr.write('Error: openssl not found. Cannot generate certificate.\n')
         return
     stdout, stderr = openssl.communicate()
     if openssl.returncode:
-        sys.stderr.write('Error: key generation failed\n')
+        sys.stderr.write('Error: certificate creation failed\n')
         sys.stderr.write('openssl stdout: {0}\n'.format(stdout))
         sys.stderr.write('openssl stderr: {0}\n'.format(stderr))
 
@@ -159,10 +160,31 @@ class TestCase(unittest.TestCase):
         cls.testdir = os.path.abspath(os.path.split(__file__)[0])
         cls.topdir = os.path.split(cls.testdir)[0]
         os.chdir(cls.testdir)
-        certname = 'testcert.pem'
-        if not os.access(certname, os.R_OK):
-            create_ssl_certificate(certname)
-        cls.certname = certname
+        cafile = 'server.crt'
+        keyfile = 'server.key'
+        try:
+            st = os.stat(cafile)
+            age = time.time() - st.st_mtime
+        except OSError:
+            age = None
+        if age is None or age > 14*86400:
+            create_ssl_certificate(cafile, keyfile)
+        cls.cafile = cafile
+        cls.keyfile = keyfile
+        if os.access(cafile, os.R_OK):
+            cls.client_context = create_default_context(False, cafile=cafile)
+            cls.server_context = create_default_context(True, cafile=cafile)
+            cls.server_context.load_cert_chain(cafile, keyfile)
+            cls.ssl_c_args = {'ssl': cls.client_context}
+            # match_hostname() on Python < 3.5 does support IP addresses in
+            # subjectAltNames. Most of our tests connect to the IP address of
+            # localhost, so on these older versions pass the server_hostname
+            if sys.version_info[:2] < (3, 5):
+                cls.ssl_c_args['ssl_args'] = {'server_hostname': 'localhost'}
+            # For clients working over pipes we always need to pass the hostname.
+            cls.ssl_cp_args = {'ssl': cls.client_context,
+                               'ssl_args': {'server_hostname': 'localhost'}}
+            cls.ssl_s_args = {'ssl': cls.server_context}
         bindir = os.path.join(cls.testdir, 'bin')
         path = os.environ.get('PATH', '')
         if bindir not in path:
@@ -222,13 +244,6 @@ class TestCase(unittest.TestCase):
         else:
             prefix = '\x00' if sys.platform.startswith('linux') and abstract else ''
             return prefix + self.tempname(name)
-
-    def get_ssl_context(self):
-        context = create_ssl_context(certfile=self.certname, keyfile=self.certname)
-        if hasattr(context, 'check_hostname'):
-            context.check_hostname = None  # Python 3.4+
-        context.verify_mode = ssl.CERT_NONE
-        return context
 
     def assertRaises(self, exc, func, *args, **kwargs):
         # Like unittest.assertRaises, but returns the exception.

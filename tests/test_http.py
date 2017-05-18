@@ -605,11 +605,10 @@ class TestHttp(UnitTest):
 
     def test_simple_ssl(self):
         server = HttpServer(hello_app)
-        context = self.get_ssl_context()
-        server.listen(('localhost', 0), ssl=context)
+        server.listen(('localhost', 0), **self.ssl_s_args)
         addr = server.addresses[0]
         client = HttpClient()
-        client.connect(addr, ssl=context)
+        client.connect(addr, **self.ssl_c_args)
         client.request('GET', '/')
         resp = client.getresponse()
         self.assertEqual(resp.body.read(), b'Hello!')

@@ -458,10 +458,9 @@ class TestStreamEndpoints(UnitTest):
 
     def test_echo_pipe_ssl(self):
         server = StreamServer(echo_handler)
-        context = self.get_ssl_context()
-        server.listen(self.pipename(), ssl=context)
+        server.listen(self.pipename(), **self.ssl_s_args)
         client = StreamClient()
-        client.connect(server.addresses[0], ssl=context)
+        client.connect(server.addresses[0], **self.ssl_cp_args)
         client.write(b'foo\n')
         self.assertEqual(client.readline(), b'foo\n')
         server.close()
@@ -480,10 +479,9 @@ class TestStreamEndpoints(UnitTest):
 
     def test_echo_tcp_ssl(self):
         server = StreamServer(echo_handler)
-        context = self.get_ssl_context()
-        server.listen(('127.0.0.1', 0), ssl=context)
+        server.listen(('127.0.0.1', 0), **self.ssl_s_args)
         client = StreamClient()
-        client.connect(server.addresses[0], ssl=context)
+        client.connect(server.addresses[0], **self.ssl_c_args)
         client.write(b'foo\n')
         self.assertEqual(client.readline(), b'foo\n')
         server.close()
