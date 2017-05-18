@@ -64,9 +64,12 @@ class SslPipe(object):
         self._server_side = server_side
         self._server_hostname = server_hostname
         self._state = self.S_UNWRAPPED
-        self._bios = (MemoryBIO(), MemoryBIO())
+        self._incoming = MemoryBIO()
+        self._outgoing = MemoryBIO()
         self._sslobj = None
         self._need_ssldata = False
+        self._handshake_cb = None
+        self._shutdown_cb = None
 
     @property
     def context(self):
@@ -74,7 +77,7 @@ class SslPipe(object):
         return self._context
 
     @property
-    def ssl(self):
+    def ssl_object(self):
         """The internal :class:`ssl.SSLObject` instance."""
         return self._sslobj
 
@@ -98,10 +101,10 @@ class SslPipe(object):
         """
         if self._state != self.S_UNWRAPPED:
             raise RuntimeError('handshake in progress or completed')
-        wrapargs = (self._bios[0], self._bios[1], self._server_side, self._server_hostname)
-        self._sslobj = wrap_bio(self._context, *wrapargs)
+        self._sslobj = wrap_bio(self._context, self._incoming, self._outgoing,
+                                self._server_side, self._server_hostname)
         self._state = self.S_DO_HANDSHAKE
-        self._on_handshake_complete = callback
+        self._handshake_cb = callback
         ssldata, appdata = self.feed_ssldata(b'')
         assert len(appdata) == 0
         return ssldata
@@ -116,7 +119,7 @@ class SslPipe(object):
         if self._state == self.S_UNWRAPPED:
             raise RuntimeError('no security layer present')
         self._state = self.S_SHUTDOWN
-        self._on_handshake_complete = callback
+        self._shutdown_cb = callback
         ssldata, appdata = self.feed_ssldata(b'')
         assert appdata == [] or appdata == [b'']
         return ssldata
@@ -127,7 +130,7 @@ class SslPipe(object):
         This method will raise an SSL_ERROR_EOF exception if the EOF is
         unexpected.
         """
-        self._bios[0].write_eof()
+        self._incoming.write_eof()
         ssldata, appdata = self.feed_ssldata(b'')
         assert appdata == [] or appdata == [b'']
 
@@ -152,14 +155,14 @@ class SslPipe(object):
         ssldata = []; appdata = []
         self._need_ssldata = False
         if data:
-            self._bios[0].write(data)
+            self._incoming.write(data)
         try:
             if self._state == self.S_DO_HANDSHAKE:
                 # Call do_handshake() until it doesn't raise anymore.
                 self._sslobj.do_handshake()
                 self._state = self.S_WRAPPED
-                if self._on_handshake_complete:
-                    self._on_handshake_complete()
+                if self._handshake_cb:
+                    self._handshake_cb()
             if self._state == self.S_WRAPPED:
                 # Main state: read data from SSL until close_notify
                 while True:
@@ -172,11 +175,11 @@ class SslPipe(object):
                 self._sslobj.unwrap()
                 self._sslobj = None
                 self._state = self.S_UNWRAPPED
-                if self._on_handshake_complete:
-                    self._on_handshake_complete()
+                if self._shutdown_cb:
+                    self._shutdown_cb()
             if self._state == self.S_UNWRAPPED:
                 # Drain possible plaintext data after close_notify.
-                appdata.append(self._bios[0].read())
+                appdata.append(self._incoming.read())
         except ssl.SSLError as e:
             if e.errno not in (ssl.SSL_ERROR_WANT_READ, ssl.SSL_ERROR_WANT_WRITE,
                                ssl.SSL_ERROR_SYSCALL):
@@ -184,8 +187,8 @@ class SslPipe(object):
             self._need_ssldata = e.errno == ssl.SSL_ERROR_WANT_READ
         # Check for record level data that needs to be sent back.
         # Happens for the initial handshake and renegotiations.
-        if self._bios[1].pending:
-            ssldata.append(self._bios[1].read())
+        if self._outgoing.pending:
+            ssldata.append(self._outgoing.read())
         return (ssldata, appdata)
 
     def feed_appdata(self, data, offset=0):
@@ -224,8 +227,8 @@ class SslPipe(object):
                     raise
                 self._need_ssldata = e.errno == ssl.SSL_ERROR_WANT_READ
             # See if there's any record level data back for us.
-            if self._bios[1].pending:
-                ssldata.append(self._bios[1].read())
+            if self._outgoing.pending:
+                ssldata.append(self._outgoing.read())
             if offset == len(view) or self._need_ssldata:
                 break
         return (ssldata, offset)
@@ -298,7 +301,7 @@ class SslTransport(Transport):
         ======================  ===============================================
         """
         if name == 'ssl':
-            return self._sslpipe.ssl
+            return self._sslpipe.ssl_object
         elif name == 'sslctx':
             return self._sslpipe.context
         else:
@@ -326,9 +329,9 @@ class SslTransport(Transport):
                 if data:
                     ssldata, offset = self._sslpipe.feed_appdata(data, offset)
                 elif offset:
-                    ssldata, offset = self._sslpipe.do_handshake(self._ssl_active.set), 1
+                    ssldata, offset = self._sslpipe.do_handshake(self._on_handshake_complete), 1
                 else:
-                    ssldata, offset = self._sslpipe.shutdown(self._ssl_active.clear), 1
+                    ssldata, offset = self._sslpipe.shutdown(self._on_shutdown_complete), 1
                 # Temporarily set _closing to False to prevent Transport.write()
                 # from raising an error when we are doing a close_notify.
                 saved, self._closing = self._closing, False
@@ -393,6 +396,14 @@ class SslTransport(Transport):
         # Process write backlog. A read could have unblocked a write.
         if not self._error:
             self._process_write_backlog()
+
+    def _on_handshake_complete(self):
+        # Called by the SslPipe when a handshake is complete.
+        self._ssl_active.set()
+
+    def _on_shutdown_complete(self):
+        # Called by the SslPipe when a shutdown is complete.
+        self._ssl_active.clear()
 
     def pause_reading(self):
         """Stop reading data.
