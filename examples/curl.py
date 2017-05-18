@@ -19,10 +19,10 @@ if not 200 <= resp.status_code <= 399:
     sys.stderr.write('Error: got status {}\n'.format(resp.status_code))
     sys.exit(1)
 
-charset = resp.charset or 'iso8859-1'
+stdout = getattr(sys.stdout, 'buffer', sys.stdout)
 
 while True:
     buf = resp.body.read(4096)
     if not buf:
         break
-    sys.stdout.write(buf.decode(charset))
+    stdout.write(buf)
