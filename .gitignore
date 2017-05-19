@@ -15,8 +15,8 @@ docs/_build
 docs/html
 _version.py
 .tox
-tests/memory.txt
-tests/performance.txt
+tests/*.txt
+tests/server.*
 header
 .coverage
 htmlcov

@@ -1,14 +1,12 @@
 include setup.py runtests.py tasks.py
 include setup.cfg tox.ini
-include AUTHORS LICENSE README.rst MANIFEST.in TODO
+include AUTHORS CHANGELOG LICENSE README.rst MANIFEST.in TODO
 include *requirements.txt
 include lib/gruvi/*.py
 include vendor/txdbus/*.py
 include src/*.py src/*.[ch]
-include tests/*.py
-include tests/bin/*
+include tests/*.py tests/*.cnf tests/bin/*
 exclude tests/bin/*.*
-include changelog.txt
-include docs/Makefile docs/conf.py docs/*.rst
+include docs/Makefile docs/*.py docs/*.rst
 include examples/*.py
 exclude __pycache__/* *.so
