@@ -150,7 +150,7 @@ class TestCreateConnection(UnitTest):
     def test_tcp_ssl_certificate_error(self):
         # Ensure that create_connection() raises a CertificateError if the
         # certificate doesn't validate.
-        if not hasattr(ssl, 'CertificateError'):
+        if not hasattr(ssl, 'create_default_context'):
             raise SkipTest('Certificate validation not supported')
         server = create_server(StreamProtocol, ('localhost', 0), **self.ssl_s_args)
         addr = server.addresses[0]
