@@ -21,6 +21,8 @@ import pkg_resources
 import unittest
 import ssl
 import six
+import cProfile
+import pstats
 
 import gruvi
 from gruvi.util import split_cap_words
@@ -267,6 +269,23 @@ class PerformanceTest(TestCase):
 
     results_name = 'performance.txt'
     test_prefix = 'perf'
+
+    def setUp(self):
+        super(PerformanceTest, self).setUp()
+        if os.environ.get('PROFILE', '0') != '1':
+            self.profiler = None
+            return
+        self.profiler = cProfile.Profile()
+        self.profiler.enable()
+
+    def tearDown(self):
+        super(PerformanceTest, self).tearDown()
+        if not self.profiler:
+            return
+        self.profiler.disable()
+        stats = pstats.Stats(self.profiler)
+        stats = stats.strip_dirs().sort_stats('time')
+        stats.print_stats(20)
 
     def add_result(self, result, params={}, name=None):
         """Add a performance test result."""
