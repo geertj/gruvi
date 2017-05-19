@@ -46,6 +46,8 @@ transport:
 .. autoclass:: SslTransport
     :members:
 
+.. autofunction:: create_default_context
+
 Protocols
 =========
 
