@@ -20,7 +20,6 @@ protocol operations are part of their API that are switch points.
 As a programmer you will use transports and protocols occasionally, but you
 will mostly use the higher-level interface provided by Gruvi. The exception is
 when adding support for a new protocol.
-
  
 Transports
 ==========
@@ -46,26 +45,6 @@ transport:
 
 .. autoclass:: SslTransport
     :members:
-
-.. attribute:: HAVE_SSL_BACKPORTS
-
-    A boolean that indicates whether the certain Python 3.x SSL feature are
-    available on Python 2.x as well. This requires the presence of a C
-    extension module that is compiled when Gruvi is installed. This attribute
-    should be set to ``True`` on all platforms expect Windows where the C
-    extension is not normally compiled.
-
-    The features that require the SSL backports module are
-    
-    * Setting or quering the compression of an SSL connection.
-    * Setting the anonymous Diffie Hellman parameters.
-    * Querying the SSL channel bindings.
-
-    On Python 3.x this is always set to ``False`` as the SSL backports are not
-    needed there.
-
-.. autofunction:: create_ssl_context
-
 
 Protocols
 =========

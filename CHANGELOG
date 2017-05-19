@@ -1,3 +1,9 @@
+Changes since latest version:
+
+* Verify SSL certificates by default.
+* New function: sslcompat.create_default_context()
+* Limit SSL support for Python <= 2.7.8.
+
 Changes in version 0.10.3:
 
 * Refactoring and cleanups of many places in the code.

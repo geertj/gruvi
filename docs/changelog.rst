@@ -1,5 +1,5 @@
 *********
-Changelog
+CHANGELOG
 *********
 
-.. include:: ../changelog.txt
+.. include:: ../CHANGELOG

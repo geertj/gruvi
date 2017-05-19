@@ -86,6 +86,9 @@ source_suffix = '.rst'
 # The master toctree document.
 master_doc = 'index'
 
+# Warnings to suppress
+suppress_warnings = ['image.nonlocal_uri']
+
 # General information about the project.
 project = u'Gruvi'
 copyright = u'2012-2017, Geert Jansen'

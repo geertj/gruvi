@@ -1,0 +1,5 @@
+*******
+AUTHORS
+*******
+
+.. include:: ../AUTHORS
