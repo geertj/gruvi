@@ -1,0 +1,7 @@
+[req]
+distinguished_name = req_dn
+
+[req_dn]
+
+[SAN]
+subjectAltName = DNS:localhost, DNS:localhost6, IP:127.0.0.1, IP:::1
