@@ -1,5 +1,6 @@
+*******************************
 Async IO for Python, Simplified
-===============================
+*******************************
 
 .. image:: https://secure.travis-ci.org/geertj/gruvi.png
     :target: http://travis-ci.org/geertj/gruvi
