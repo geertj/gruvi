@@ -55,6 +55,7 @@ import re
 import time
 import functools
 import six
+import pyuv
 from collections import namedtuple
 
 from . import logging, compat
@@ -1012,6 +1013,9 @@ class HttpProtocol(MessageProtocol):
     def connection_made(self, transport):
         # Protocol callback
         super(HttpProtocol, self).connection_made(transport)
+        handle = transport.get_extra_info('handle')
+        if isinstance(handle, pyuv.TCP):
+            handle.nodelay(True)
         self._transport = transport
         self._writer = Stream(transport, 'w')
 
