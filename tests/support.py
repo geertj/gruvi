@@ -285,7 +285,7 @@ class PerformanceTest(TestCase):
         self.profiler.disable()
         stats = pstats.Stats(self.profiler)
         stats = stats.strip_dirs().sort_stats('time')
-        stats.print_stats(20)
+        stats.print_stats()
 
     def add_result(self, result, params={}, name=None):
         """Add a performance test result."""

@@ -32,7 +32,7 @@ class PerfHttp(PerformanceTest):
         reqs = 4 * r
         nbytes = 0
         t0 = t1 = time.time()
-        while t1 - t0 < 0.2:
+        while t1 - t0 < 1.0:
             protocol.data_received(reqs)
             del protocol._queue._heap[:]
             nbytes += len(reqs)
@@ -47,12 +47,15 @@ class PerfHttp(PerformanceTest):
         client = HttpClient()
         client.connect(addr)
         nrequests = 0
+        pipeline = 10
         t0 = t1 = time.time()
-        while t1 - t0 < 0.2:
-            client.request('GET', '/')
-            resp = client.getresponse()
-            self.assertEqual(resp.body.read(), b'Hello!')
-            nrequests += 1
+        while t1 - t0 < 1.0:
+            for i in range(pipeline):
+                client.request('GET', '/')
+            for i in range(pipeline):
+                resp = client.getresponse()
+                self.assertEqual(resp.body.read(), b'Hello!')
+            nrequests += pipeline
             t1 = time.time()
         throughput = nrequests / (t1 - t0)
         self.add_result(throughput)
