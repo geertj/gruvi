@@ -487,10 +487,9 @@ class Queue(object):
 
     def put_nowait(self, item, size=None):
         """"Equivalent of ``put(item, False)``."""
-        # Don't don't turn this method into a switchpoint as put() will never
-        # switch if block is False. This can be done by calling the function
-        # wrapped by the @switchpoint wrapper directly.
-        return self.put.__wrapped__(self, item, False, size=size)
+        # Don't mark this method into a switchpoint as put() will never switch
+        # if block is False.
+        return self.put(item, False, size=size)
 
     @switchpoint
     def get(self, block=True, timeout=None):
@@ -519,7 +518,7 @@ class Queue(object):
     def get_nowait(self):
         """"Equivalent of ``get(False)``."""
         # See note in put_nowait()
-        return self.get.__wrapped__(self, False)
+        return self.get(False)
 
     def task_done(self):
         """Mark a task as done."""

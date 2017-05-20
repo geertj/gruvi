@@ -38,21 +38,8 @@ def switchpoint(func):
       def myfunc():
           # may call Hub.switch() here
     """
-    @functools.wraps(func)
-    def switchpoint(*args, **kwargs):
-        hub = get_hub()
-        if fibers.current() is hub:
-            raise RuntimeError('cannot call switchpoint from the Hub')
-        if hub._noswitch_depth:
-            raise AssertionError('switchpoint called from no-switch section')
-        return func(*args, **kwargs)
-    switchpoint.__switchpoint__ = True
-    # The py27 version of functools.wraps() doesn't store the wrapped function
-    # under __wrapped__. We need it as some of our methods call it in certain
-    # cases if we are sure we're not going to block, e.g. Queue.put_nowait().
-    if not hasattr(switchpoint, '__wrapped__'):
-        switchpoint.__wrapped__ = func
-    return switchpoint
+    func.__switchpoint__ = True
+    return func
 
 
 class assert_no_switchpoints(object):

@@ -20,6 +20,7 @@ import unittest
 from unittest import SkipTest
 
 import gruvi
+from gruvi.fibers import Fiber
 from support import UnitTest
 
 
@@ -34,8 +35,6 @@ class TestHub(UnitTest):
             return (foo, bar, baz, args, kwargs)
         wrapper = gruvi.switchpoint(func)
         self.assertTrue(wrapper.__switchpoint__)
-        while hasattr(wrapper, '__wrapped__'):
-            wrapper = wrapper.__wrapped__
         self.assertEqual(wrapper.__name__, 'func')
         argspec = inspect.getargspec(wrapper)
         self.assertEqual(argspec.args, ['foo', 'bar', 'baz'])
@@ -165,8 +164,9 @@ class TestAssertNoSwitchpoints(UnitTest):
     def test_assert_no_switchpoints(self):
         # Calling a switchpoint while in an assert_no_switchpoints block should
         # raise an AssertionError.
+        fiber = Fiber(lambda: 'foo')
         with gruvi.assert_no_switchpoints():
-            self.assertRaises(AssertionError, gruvi.sleep, 0)
+            self.assertRaises(RuntimeError, fiber.switch)
 
 
 class TestSwitchBack(UnitTest):

@@ -89,6 +89,8 @@ class Fiber(fibers.Fiber):
         # Only the hub may call this.
         if self.current() is not self._hub:
             raise RuntimeError('only the Hub may switch() to a fiber')
+        if self._hub._noswitch_depth:
+            raise RuntimeError('attempt to switch from a no-switch section')
         if not self.is_alive():
             self._log.warning('attempt to switch to a dead Fiber')
             return
