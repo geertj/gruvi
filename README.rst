@@ -11,7 +11,7 @@ Gruvi: Async IO for Python, Simplified
 .. image:: https://badge.fury.io/py/gruvi.png
     :target: http://badge.fury.io/py/gruvi
 
-*Improved ergonomics for Python programmers using asynchronous IO.*
+*Improved ergonomics for Python programmers wanting to use asynchronous IO.*
 
 Gruvi is an asynchronous IO library for Python. It focuses on the following
 desirable properties:
