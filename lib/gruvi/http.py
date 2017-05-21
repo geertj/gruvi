@@ -221,15 +221,23 @@ months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 rfc1123_fmt = '%a, %d %b %Y %H:%M:%S GMT'
 
+_cached_timestamp = 0
+_cached_datestring = None
+
 def rfc1123_date(timestamp=None):
     """Create a RFC1123 style Date header for *timestamp*."""
     if timestamp is None:
-        timestamp = int(time.time())
-    # The time stamp must be GMT, and cannot be localized.
-    tm = time.gmtime(timestamp)
-    s = rfc1123_fmt.replace('%a', weekdays[tm.tm_wday]) \
-                   .replace('%b', months[tm.tm_mon-1])
-    return time.strftime(s, tm)
+        timestamp = time.time()
+    timestamp = int(timestamp)
+    global _cached_timestamp, _cached_datestring
+    if timestamp != _cached_timestamp:
+        # The time stamp must be GMT, and cannot be localized.
+        tm = time.gmtime(timestamp)
+        s = rfc1123_fmt.replace('%a', weekdays[tm.tm_wday]) \
+                       .replace('%b', months[tm.tm_mon-1])
+        _cached_datestring = time.strftime(s, tm)
+        _cached_timestamp = timestamp
+    return _cached_datestring
 
 
 # URL parser (using http-parser). Unlike Python's urlsplit() this doesn't do
@@ -322,25 +330,21 @@ def parse_url(url, default_scheme='http', is_connect=False):
 # String conversions. Note that ISO-8859-1 is the default encoding for HTTP
 # headers.
 
-def s2b(s):
-    """Convert a string *s* to bytes in the ISO-8859-1 encoding."""
-    if type(s) is not bytes:
-        s = s.encode('iso-8859-1')
-    return s
+if six.PY3:
 
-def ba2s(ba):
-    """Convert a byte-array to a "str" type."""
-    if six.PY3:
-        return ba.decode('iso-8859-1')
-    else:
-        return bytes(ba)
+    def s2b(s):
+        return s.encode('iso-8859-1')
 
-def cd2s(cd):
-    """Convert a cffi cdata('char *') to a str."""
-    s = ffi.string(cd)
-    if six.PY3:
-        s = s.decode('iso-8859-1')
-    return s
+    def b2s(b):
+        return b.decode('iso-8859-1')
+
+else:
+
+    def s2b(s):
+        return s
+
+    def b2s(b):
+        return b
 
 
 def get_header(headers, name, default=None):
@@ -374,22 +378,25 @@ def remove_headers(headers, name):
 
 def create_chunk(buf):
     """Create a chunk for the HTTP "chunked" transfer encoding."""
-    chunk = bytearray()
-    chunk.extend(s2b('{:X}\r\n'.format(len(buf))))
-    chunk.extend(s2b(buf))
-    chunk.extend(b'\r\n')
-    return chunk
+    chunk = []
+    chunk.append(s2b('{:X}\r\n'.format(len(buf))))
+    chunk.append(buf)
+    chunk.append(b'\r\n')
+    return b''.join(chunk)
 
 
 def create_chunked_body_end(trailers=None):
     """Create the ending that terminates a chunked body."""
-    ending = bytearray()
-    ending.extend(b'0\r\n')
+    chunk = []
+    chunk.append('0\r\n')
     if trailers:
         for name, value in trailers:
-            ending.extend(s2b('{}: {}\r\n'.format(name, value)))
-    ending.extend(b'\r\n')
-    return ending
+            chunk.append(name)
+            chunk.append(': ')
+            chunk.append(value)
+            chunk.append('\r\n')
+    chunk.append('\r\n')
+    return s2b(''.join(chunk))
 
 
 def create_request(version, method, url, headers):
@@ -397,21 +404,27 @@ def create_request(version, method, url, headers):
     # According to my measurements using b''.join is faster that constructing a
     # bytearray.
     message = []
-    message.append(s2b('{} {} HTTP/{}\r\n'.format(method, url, version)))
+    message.append('{} {} HTTP/{}\r\n'.format(method, url, version))
     for name, value in headers:
-        message.append(s2b('{}: {}\r\n'.format(name, value)))
-    message.append(b'\r\n')
-    return b''.join(message)
+        message.append(name)
+        message.append(': ')
+        message.append(value)
+        message.append('\r\n')
+    message.append('\r\n')
+    return s2b(''.join(message))
 
 
 def create_response(version, status, headers):
     """Create a HTTP response header."""
     message = []
-    message.append(s2b('HTTP/{} {}\r\n'.format(version, status)))
+    message.append('HTTP/{} {}\r\n'.format(version, status))
     for name, value in headers:
-        message.append(s2b('{}: {}\r\n'.format(name, value)))
-    message.append(b'\r\n')
-    return b''.join(message)
+        message.append(name)
+        message.append(': ')
+        message.append(value)
+        message.append('\r\n')
+    message.append('\r\n')
+    return s2b(''.join(message))
 
 
 class HttpMessage(object):
@@ -531,7 +544,7 @@ class HttpRequest(object):
                 self._charset = params.get('charset')
         version = self._protocol._version
         # The Host header is mandatory in 1.1. Add it if it's missing.
-        if host is None and version == '1.1':
+        if host is None and version == '1.1' and self._protocol._server_name:
             self._headers.append(('Host', self._protocol._server_name))
         # Identify ourselves.
         if agent is None:
@@ -637,7 +650,19 @@ class WsgiAdapter(object):
         #  - If we know the body length, don't use any TE.
         #  - Otherwise, if the protocol is HTTP/1.1, use "chunked".
         #  - Otherwise, close the connection after the body is sent.
-        clen = get_header(self._headers, 'Content-Length')
+        clen = trailer = te = date = server = None
+        for name, value in self._headers:
+            lname = name.lower()
+            if lname == 'content-length':
+                clen = value
+            elif lname == 'trailer':
+                trailer = value
+            elif lname == 'te':
+                te = value
+            elif lname == 'date':
+                date = value
+            elif lname == 'server':
+                server = value
         version = self._message.version
         # Keep the connection alive if the request wanted it kept alive AND we
         # can keep it alive because we don't need EOF to signal end of message.
@@ -656,8 +681,6 @@ class WsgiAdapter(object):
         elif clen is None and self._body_len is not None:
             self._headers.append(('Content-Length', str(self._body_len)))
         # Trailers..
-        trailer = get_header(self._headers, 'Trailer')
-        te = get_header(self._message.headers, 'TE')
         if version == '1.1' and trailer is not None and te is not None:
             tenames = [e[0].lower() for e in parse_te(te)]
             if 'trailers' in tenames:
@@ -666,10 +689,8 @@ class WsgiAdapter(object):
                 remove_headers(self._headers, 'Trailer')
         self._trailer = trailer
         # Add some informational headers.
-        server = get_header(self._headers, 'Server')
         if server is None:
             self._headers.append(('Server', self._protocol.identifier))
-        date = get_header(self._headers, 'Date')
         if date is None:
             self._headers.append(('Date', rfc1123_date()))
         header = create_response(version, self._status, self._headers)
@@ -734,16 +755,17 @@ class WsgiAdapter(object):
             self._protocol = protocol
             self._sockname = transport.get_extra_info('sockname')
             self._peername = transport.get_extra_info('peername')
+            self._environ = self.create_environ()
         self._status = None
         self._headers = None
         self._headers_sent = False
         self._chunked = False
         self._body_len = None
-        self.create_environ()
+        env = self.update_environ(message)
         self._log.debug('request: {} {}', message.method, message.url)
         result = None
         try:
-            result = self._application(self._environ, self.start_response)
+            result = self._application(env, self.start_response)
             # Prevent chunking in this common case:
             if isinstance(result, list) and len(result) == 1:
                 self._body_len = len(result[0])
@@ -755,13 +777,13 @@ class WsgiAdapter(object):
                 result.close()
         ctype = get_header(self._headers, 'Content-Type', 'unknown')
         clen = get_header(self._headers, 'Content-Length', 'unknown')
-        self._log.debug('response: {} ({}; {} bytes)'.format(self._status, ctype, clen))
+        self._log.debug('response: {} ({}; {} bytes)', self._status, ctype, clen)
 
     def create_environ(self):
-        # Initialize the environment with per connection variables.
-        m = self._message
-        env = self._environ = {}
+        # Create the basic environment that is the same for every request on a
+        # connection. For performance reasons this is done separately.
         # CGI variables
+        env = {}
         env['SCRIPT_NAME'] = ''
         if isinstance(self._sockname, tuple):
             env['SERVER_NAME'] = self._protocol._server_name or self._sockname[0]
@@ -770,6 +792,29 @@ class WsgiAdapter(object):
             env['SERVER_NAME'] = self._protocol._server_name or self._sockname
             env['SERVER_PORT'] = ''
         env['SERVER_SOFTWARE'] = self._protocol.identifier
+        # SSL information
+        sslobj = self._transport.get_extra_info('ssl')
+        cipherinfo = sslobj.cipher() if sslobj else None
+        if sslobj and cipherinfo:
+            env['HTTPS'] = '1'
+            env['SSL_CIPHER'] = cipherinfo[0]
+            env['SSL_PROTOCOL'] = cipherinfo[1]
+            env['SSL_CIPHER_USEKEYSIZE'] = int(cipherinfo[2])
+        # WSGI specific variables
+        env['wsgi.version'] = (1, 0)
+        env['wsgi.errors'] = ErrorStream(self._log)
+        env['wsgi.multithread'] = True
+        env['wsgi.multiprocess'] = True
+        env['wsgi.run_once'] = False
+        # Gruvi specific variables
+        env['gruvi.sockname'] = self._sockname
+        env['gruvi.peername'] = self._peername
+        return env
+
+    def update_environ(self, m):
+        # Update the environment with per-request variables.
+        env = self._environ.copy()
+        # CGI variables
         env['SERVER_PROTOCOL'] = 'HTTP/' + m.version
         env['REQUEST_METHOD'] = m.method
         env['PATH_INFO'] = m.parsed_url[2]
@@ -782,34 +827,19 @@ class WsgiAdapter(object):
             if name not in ('CONTENT_LENGTH', 'CONTENT_TYPE'):
                 name = 'HTTP_' + name
             env[name] = value
-        # SSL information
-        sslobj = self._transport.get_extra_info('ssl')
-        cipherinfo = sslobj.cipher() if sslobj else None
-        if sslobj and cipherinfo:
-            env['HTTPS'] = '1'
-            env['SSL_CIPHER'] = cipherinfo[0]
-            env['SSL_PROTOCOL'] = cipherinfo[1]
-            env['SSL_CIPHER_USEKEYSIZE'] = int(cipherinfo[2])
         # Support the de-facto X-Forwarded-For and X-Forwarded-Proto headers
         # that are added by reverse proxies.
-        peername = self._transport.get_extra_info('peername')
+        peername = self._peername
         remote = env.get('HTTP_X_FORWARDED_FOR')
         env['REMOTE_ADDR'] = remote if remote else peername[0] \
                                         if isinstance(peername, tuple) else ''
         proto = env.get('HTTP_X_FORWARDED_PROTO')
-        env['REQUEST_SCHEME'] = proto if proto else 'https' if sslobj else 'http'
+        env['REQUEST_SCHEME'] = proto if proto else 'https' if env.get('HTTPS') else 'http'
         # WSGI specific variables
-        env['wsgi.version'] = (1, 0)
         env['wsgi.url_scheme'] = env['REQUEST_SCHEME']
         env['wsgi.input'] = m.body
-        env['wsgi.errors'] = ErrorStream(self._log)
-        env['wsgi.multithread'] = True
-        env['wsgi.multiprocess'] = True
-        env['wsgi.run_once'] = False
         env['wsgi.charset'] = m.charset
-        # Gruvi specific variables
-        env['gruvi.sockname'] = self._sockname
-        env['gruvi.peername'] = self._peername
+        return env
 
 
 class HttpProtocol(MessageProtocol):
@@ -870,25 +900,20 @@ class HttpProtocol(MessageProtocol):
         lib.http_parser_init(self._parser, kind)
         self._urlparser = ffi.new('struct http_parser_url *')
 
-    def _append_header_name(self, buf):
-        # Add a chunk to a header name.
-        if self._header_value:
-            # This starts a new header: stash away the previous one.
-            # The header might be part of the http headers or trailers.
-            header = (ba2s(self._header_name), ba2s(self._header_value))
-            self._message.headers.append(header)
-            # Try to capture the charset for text bodies.
-            if header[0].lower() == 'content-type':
-                ctype, params = parse_content_type(header[1])
-                if ctype.startswith('text/'):
-                    self._message._charset = params.get('charset')
-            del self._header_name[:]
-            del self._header_value[:]
-        self._header_name.extend(buf)
-
-    def _append_header_value(self, buf):
-        # Add a chunk to a header value.
-        self._header_value.extend(buf)
+    def _save_header(self):
+        # Save the current in-progress header and start a new one.
+        header = (b2s(self._header_name), b2s(self._header_value))
+        self._message.headers.append(header)
+        # Try to capture the charset for text bodies. The check on the length
+        # of the string and the use of strcasecmp on the binary data are
+        # optimizations. Profiling has indicated this is a hot path.
+        if len(self._header_name) == 12 and \
+                    not lib.strcasecmp(self._header_name, b'Content-Type'):
+            ctype, params = parse_content_type(header[1])
+            if ctype.startswith('text/'):
+                self._message._charset = params.get('charset')
+        self._header_name = b''
+        self._header_value = b''
 
     # Parser callbacks. These are Python methods called by http-parser C code
     # via CFFI. Callbacks are run in the hub fiber, and we only do parsing
@@ -904,10 +929,9 @@ class HttpProtocol(MessageProtocol):
     def on_message_begin(parser):
         # http-parser callback: prepare for a new message
         self = ffi.from_handle(parser.data)
-        self._url = bytearray()
-        self._header = bytearray()
-        self._header_name = bytearray()
-        self._header_value = bytearray()
+        self._url = b''
+        self._header_name = b''
+        self._header_value = b''
         self._header_size = 0
         self._message = HttpMessage()
         lib.http_parser_url_init(self._urlparser)
@@ -921,7 +945,7 @@ class HttpProtocol(MessageProtocol):
         if self._header_size > self.max_header_size:
             self._error = HttpError('HTTP header too large')
             return 1
-        self._url.extend(ffi.buffer(at, length))
+        self._url += ffi.string(at, length)
         return 0
 
     @ffi.callback('http_data_cb')
@@ -932,8 +956,9 @@ class HttpProtocol(MessageProtocol):
         if self._header_size > self.max_header_size:
             self._error = HttpError('HTTP header too large')
             return 1
-        buf = ffi.buffer(at, length)
-        self._append_header_name(buf)
+        if self._header_value:
+            self._save_header()
+        self._header_name += ffi.string(at, length)
         return 0
 
     @ffi.callback('http_data_cb')
@@ -944,8 +969,7 @@ class HttpProtocol(MessageProtocol):
         if self._header_size > self.max_header_size:
             self._error = HttpError('HTTP header too large')
             return 1
-        buf = ffi.buffer(at, length)
-        self._append_header_value(buf)
+        self._header_value += ffi.string(at, length)
         return 0
 
     @ffi.callback('http_cb')
@@ -954,14 +978,20 @@ class HttpProtocol(MessageProtocol):
         # where we hand off the message to our consumer. Going forward,
         # on_body() will continue to write chunks of the body to message.body.
         self = ffi.from_handle(parser.data)
-        self._append_header_name(b'')
+        if self._header_value:
+            self._save_header()
         m = self._message
         m._message_type = lib.http_message_type(parser)
-        m._version = '{}.{}'.format(parser.http_major, parser.http_minor)
+        # Prevent a format() call in the common case.
+        if parser.http_major == 1 and parser.http_minor == 1:
+            m._version = '1.1'
+        else:
+            m._version = '{}.{}'.format(parser.http_major, parser.http_minor)
         if self._server_side:
             m._method = _http_methods.get(lib.http_method(parser), '<unknown>')
-            m._url = ba2s(self._url)
-            res = lib.http_parser_parse_url(ffi.from_buffer(self._url), len(self._url),
+            m._url = b2s(self._url)
+            # Parse the bytes form of the URL and use the indices to split up the string.
+            res = lib.http_parser_parse_url(self._url, len(self._url),
                                             m._method == 'CONNECT', self._urlparser)
             assert res == 0   # URL was already validated by http-parser
             m._parsed_url = ParsedUrl.from_parser(self._urlparser, m._url)
@@ -994,7 +1024,8 @@ class HttpProtocol(MessageProtocol):
         # http-parser callback: the http request or response ended
         # complete any trailers that might be present
         self = ffi.from_handle(parser.data)
-        self._append_header_name(b'')
+        if self._header_value:
+            self._save_header()
         self._message.body.buffer.feed_eof()
         self._maybe_pause_transport()
         return 0
@@ -1023,8 +1054,8 @@ class HttpProtocol(MessageProtocol):
         # Protocol callback
         nbytes = lib.http_parser_execute(self._parser, self._settings, data, len(data))
         if nbytes != len(data):
-            msg = cd2s(lib.http_errno_name(lib.http_errno(self._parser)))
-            self._log.debug('http_parser_execute(): {}'.format(msg))
+            msg = b2s(ffi.string(lib.http_errno_name(lib.http_errno(self._parser))))
+            self._log.debug('http_parser_execute(): {}', msg)
             self._error = HttpError('parse error: {}'.format(msg))
             if self._message:
                 self._message.body.buffer.feed_error(self._error)
@@ -1036,8 +1067,8 @@ class HttpProtocol(MessageProtocol):
         super(HttpProtocol, self).connection_lost(exc)
         nbytes = lib.http_parser_execute(self._parser, self._settings, b'', 0)
         if nbytes != 0:
-            msg = cd2s(lib.http_errno_name(lib.http_errno(self._parser)))
-            self._log.debug('http_parser_execute(): {}'.format(msg))
+            msg = b2s(ffi.string(lib.http_errno_name(lib.http_errno(self._parser))))
+            self._log.debug('http_parser_execute(): {}', msg)
             if exc is None:
                 exc = HttpError('parse error: {}'.format(msg))
             if self._message:
@@ -1175,8 +1206,7 @@ class HttpServer(Server):
         network and protocol operations.
         """
         adapter = self.default_adapter if adapter is None else adapter
-        def handler(*args):
-            return adapter(application)(*args)
+        handler = adapter(application)
         protocol_factory = functools.partial(HttpProtocol, handler,
                                              server_side=True, server_name=server_name)
         super(HttpServer, self).__init__(protocol_factory, timeout)

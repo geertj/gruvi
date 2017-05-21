@@ -19,6 +19,7 @@ ffi = FFI()
 
 ffi.set_source('http_ffi', """
     #include <stdlib.h>
+    #include <string.h>
     #include "src/http_parser.h"
     #include "src/http_parser.c"
 
@@ -30,6 +31,8 @@ ffi.set_source('http_ffi', """
 """, include_dirs=[topdir])
 
 ffi.cdef("""
+    int strcasecmp(const char *, const char *);
+
     typedef struct http_parser http_parser;
     typedef struct http_parser_settings http_parser_settings;
 
