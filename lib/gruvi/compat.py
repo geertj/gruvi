@@ -8,9 +8,9 @@
 
 from __future__ import absolute_import, print_function
 
+import io
 import sys
 import threading
-import functools
 
 
 # Some compatibility stuff that is not in six.
@@ -50,19 +50,24 @@ else:
 # Support write_through for TextIOWrapper on Python 2.x. The write_through
 # argument first appeared in Python 3.3.
 
-def _textiowrapper_write(self, buf):
-    ret = self._orig_write(buf)
-    self.flush()
-    return ret
+if PY3:
 
-def _textiowrapper_writelines(self, seq):
-    ret = self._orig_writelines(seq)
-    self.flush()
-    return ret
+    TextIOWrapper = io.TextIOWrapper
 
-def make_textiowrapper_writethrough(wrapper):
-    """Enable write_through for a TextIOWrapper."""
-    wrapper._orig_write = wrapper.write
-    wrapper.write = functools.partial(_textiowrapper_write, wrapper)
-    wrapper._orig_writelines = wrapper.writelines
-    wrapper.writelines = functools.partial(_textiowrapper_writelines, wrapper)
+else:
+
+    class TextIOWrapper(io.TextIOWrapper):
+
+        def __init__(self, *args, **kwargs):
+            self._write_through = kwargs.pop('write_through', False)
+            super(TextIOWrapper, self).__init__(*args, **kwargs)
+
+        def write(self, buf):
+            super(TextIOWrapper, self).write(buf)
+            if self._write_through:
+                self.flush()
+
+        def writelines(self, seq):
+            super(TextIOWrapper, self).writelines(seq)
+            if self._write_through:
+                self.flush()

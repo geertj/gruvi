@@ -279,25 +279,44 @@ class TestStream(UnitTest):
         self.assertEqual(six.next(it), b'bar\n')
         self.assertRaises(StopIteration, six.next, it)
 
+    def test_write(self):
+        transport = MockTransport()
+        stream = Stream(transport)
+        stream.write(b'foo')
+        stream.flush()
+        self.assertEqual(transport.buffer.getvalue(), b'foo')
 
-class TestWrappedStreamReader(UnitTest):
+    def test_write_through(self):
+        transport = MockTransport()
+        stream = Stream(transport)
+        stream.write(b'foo')
+        self.assertEqual(transport.buffer.getvalue(), b'foo')
+
+    def test_writelines(self):
+        transport = MockTransport()
+        stream = Stream(transport)
+        stream.writelines([b'foo', b'bar'])
+        self.assertEqual(transport.buffer.getvalue(), b'foobar')
+
+
+class TestWrappedStream(UnitTest):
 
     def test_simple(self):
         stream = Stream(None)
-        wrapped = TextIOWrapper(stream, 'utf-8')
+        wrapped = stream.wrap('utf-8')
         stream.buffer.feed(b'foo')
         self.assertEqual(wrapped.read(3), 'foo')
 
     def test_read_eof(self):
         stream = Stream(None)
-        wrapped = TextIOWrapper(stream, 'utf-8')
+        wrapped = stream.wrap('utf-8')
         stream.buffer.feed(b'foo')
         stream.buffer.feed_eof()
         self.assertEqual(wrapped.read(), 'foo')
 
     def test_partial_decode_at_eof(self):
         stream = Stream(None)
-        wrapped = TextIOWrapper(stream, 'utf-8')
+        wrapped = stream.wrap('utf-8')
         # \u20ac is the euro sign in case you wondered..
         buf = u'20 \u20ac'.encode('utf-8')
         stream.buffer.feed(buf[:-1])
@@ -306,14 +325,36 @@ class TestWrappedStreamReader(UnitTest):
 
     def test_partial_decode_wait(self):
         stream = Stream(None)
-        wrapped = TextIOWrapper(stream, 'utf-8')
+        wrapped = stream.wrap('utf-8')
         buf = u'20 \u20ac'.encode('utf-8')
         stream.buffer.feed(buf[:-1])
-        def write_last():
+        def write_last_byte():
             gruvi.sleep(0.01)
             stream.buffer.feed(buf[-1:])
-        gruvi.spawn(write_last)
+        gruvi.spawn(write_last_byte)
         self.assertEqual(wrapped.read(4), u'20 \u20ac')
+
+    def test_write(self):
+        transport = MockTransport()
+        stream = Stream(transport)
+        wrapped = stream.wrap('utf-8')
+        wrapped.write(u'foo')
+        wrapped.flush()
+        self.assertEqual(transport.buffer.getvalue(), b'foo')
+
+    def test_write_through(self):
+        transport = MockTransport()
+        stream = Stream(transport)
+        wrapped = stream.wrap('utf-8')
+        wrapped.write(u'foo')
+        self.assertEqual(transport.buffer.getvalue(), b'foo')
+
+    def test_writelines(self):
+        transport = MockTransport()
+        stream = Stream(transport)
+        wrapped = stream.wrap('utf-8')
+        wrapped.writelines([u'foo', u'bar'])
+        self.assertEqual(transport.buffer.getvalue(), b'foobar')
 
 
 class TestStreamProtocol(UnitTest):

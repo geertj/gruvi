@@ -38,28 +38,15 @@ class Process(Endpoint):
     control it. The API is modeled after the :class:`subprocess.Popen` class.
     """
 
-    def __init__(self, encoding=None, textio_args={}, timeout=None):
+    def __init__(self, encoding=None, timeout=None):
         """
-        The *encoding* argument specifies the encoding to use for output of the
-        child. If it is not specified, then reading from the child will produce
-        ``bytes`` objects.
-
-        The *textio_args* argument can be used to pass keyword arguments to the
-        :class:`io.TextIOWrapper` instances that are used to wrap the raw
-        standard input and outputs in case *encoding* is provided. It can be
-        used e.g. to change buffering and enable universal newlines.
+        The *encoding* argument specifies the encoding to use for
+        communications with the child. If an encoding is specified, the
+        standard input and output handles provide text-based IO, otherwise they
+        provide bytes-based IO.
         """
         super(Process, self).__init__(StreamProtocol, timeout)
         self._encoding = encoding
-        self._textio_args = textio_args.copy()
-        # Unless specified otherwise, a text stream should be write-through.
-        self._emulate_write_through = False
-        if encoding and 'line_buffering' not in textio_args \
-                    and 'write_through' not in textio_args:
-            if six.PY2:
-                self._emulate_write_through = True
-            else:
-                textio_args['write_through'] = True
         self._process = None
         self._child_exited = Event()
         self._closed = Event()
@@ -140,9 +127,7 @@ class Process(Endpoint):
         transport, protocol = create_connection(StreamProtocol, stdio.stream,
                                                 timeout=self._timeout)
         if self._encoding:
-            stream = TextIOWrapper(protocol.stream, self._encoding, **self._textio_args)
-            if self._emulate_write_through:
-                compat.make_textiowrapper_writethrough(stream)
+            stream = protocol.stream.wrap(self._encoding)
         else:
             stream = protocol.stream
         return stream, transport, protocol

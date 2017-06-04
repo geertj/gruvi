@@ -8,7 +8,7 @@
 
 from __future__ import absolute_import, print_function
 
-from io import BufferedIOBase
+from io import BufferedIOBase, TextIOWrapper
 
 from . import compat
 from .util import delegate_method
@@ -168,6 +168,26 @@ class Stream(BufferedIOBase):
             self._buffer = StreamBuffer(transport, timeout)
         self._autoclose = autoclose
         self._closed = False
+
+    @property
+    def transport(self):
+        """Return the transport wrapped by this stream."""
+        return self._transport
+
+    def wrap(self, encoding, **textio_args):
+        """Return a :class:`io.TextIOWrapper` that wraps the stream.
+
+        The wrapper provides text IO on top of the byte stream, using the
+        specified *encoding*. The *textio_args* keyword arguments are
+        additional keyword arguments passed to the :class:`~io.TextIOWrapper`
+        constructor. Unless another buffering scheme is specified, the
+        *write_through* option is enabled.
+        """
+        # By default we want write_through behavior, unless the user specifies
+        # something else.
+        if 'line_buffering' not in textio_args and 'write_through' not in textio_args:
+            textio_args['write_through'] = True
+        return compat.TextIOWrapper(self, encoding, **textio_args)
 
     def readable(self):
         """Return whether the stream is readable."""
