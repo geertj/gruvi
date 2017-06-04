@@ -332,6 +332,8 @@ class MockTransport(object):
         self._reading = False
         self._writing = False
         self._can_write = Event()
+        if self._writable:
+            self._can_write.set()
         self._closed = Event()
         self._write_buffer_high = self.default_write_buffer
         self._write_buffer_low = self.default_write_buffer // 2
@@ -345,7 +347,6 @@ class MockTransport(object):
             self.resume_reading()
         if self._writable:
             self._writing = True
-            self._can_write.set()
 
     def get_write_buffer_size(self):
         return len(self.buffer.getvalue())
@@ -367,7 +368,8 @@ class MockTransport(object):
         self.buffer.seek(0)
         self.buffer.truncate()
         self._can_write.set()
-        self._protocol.resume_writing()
+        if self._protocol:
+            self._protocol.resume_writing()
 
     def get_extra_info(self, name, default=None):
         if name == 'unix_creds':
@@ -388,7 +390,8 @@ class MockTransport(object):
         if self.get_write_buffer_size() > self.get_write_buffer_limits()[0]:
             self._can_write.clear()
             self._writing = False
-            self._protocol.pause_writing()
+            if self._protocol:
+                self._protocol.pause_writing()
 
     def writelines(self, seq):
         for line in seq:
@@ -402,8 +405,10 @@ class MockTransport(object):
 
     def close(self):
         self._closed.set()
-        self._protocol.connection_lost(None)
+        if self._protocol:
+            self._protocol.connection_lost(None)
 
     def abort(self):
         self._closed.set()
-        self._protocol.connection_lost(None)
+        if self._protocol:
+            self._protocol.connection_lost(None)
