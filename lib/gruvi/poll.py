@@ -121,9 +121,9 @@ class MultiPoll(object):
         if self._poll is None:
             raise RuntimeError('poll instance is closed')
         remove_callback(self, handle)
-        if handle.args & READABLE:
+        if handle.extra & READABLE:
             self._readers -= 1
-        if handle.args & WRITABLE:
+        if handle.extra & WRITABLE:
             self._writers -= 1
         self._sync()
 
@@ -135,17 +135,17 @@ class MultiPoll(object):
             raise ValueError('no such callback')
         if events & ~(READABLE|WRITABLE):
             raise ValueError('illegal event mask: {}'.format(events))
-        if handle.args == events:
+        if handle.extra == events:
             return
-        if handle.args & READABLE:
+        if handle.extra & READABLE:
             self._readers -= 1
-        if handle.args & WRITABLE:
+        if handle.extra & WRITABLE:
             self._writers -= 1
         if events & READABLE:
             self._readers += 1
         if events & WRITABLE:
             self._writers += 1
-        handle.args = events
+        handle.extra = events
         self._sync()
 
     def close(self):
