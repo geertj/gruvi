@@ -82,7 +82,7 @@ class ContextLogger(object):
         if tid == 'MainThread':
             tid = 'Main'
         current = fibers.current()
-        fid = getattr(current, 'name', util.objref(current)) if current.parent else 'Root'
+        fid = getattr(current, 'name') if current.parent else 'Root'
         return '{}/{}'.format(tid, fid)
 
     def frame_info(self):
