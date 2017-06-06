@@ -182,10 +182,10 @@ class TestCase(unittest.TestCase):
             # subjectAltNames. Most of our tests connect to the IP address of
             # localhost, so on these older versions pass the server_hostname
             if sys.version_info[:2] < (3, 5):
-                cls.ssl_c_args['ssl_args'] = {'server_hostname': 'localhost'}
+                cls.ssl_c_args['server_hostname'] = 'localhost'
             # For clients working over pipes we always need to pass the hostname.
             cls.ssl_cp_args = {'ssl': cls.client_context,
-                               'ssl_args': {'server_hostname': 'localhost'}}
+                               'server_hostname': 'localhost'}
             cls.ssl_s_args = {'ssl': cls.server_context}
         bindir = os.path.join(cls.testdir, 'bin')
         path = os.environ.get('PATH', '')

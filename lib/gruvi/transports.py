@@ -203,11 +203,14 @@ class BaseTransport(object):
 class Transport(BaseTransport):
     """A connection oriented transport."""
 
-    def __init__(self, handle, mode='rw'):
+    def __init__(self, handle, server_hostname=None, mode='rw'):
         """
         The *handle* argument is the pyuv handle for which to create the
         transport. It must be a ``pyuv.Stream`` instance, so either a
         :class:`pyuv.TCP`, :class:`pyuv.Pipe` or a :class:`pyuv.TTY`.
+
+        The *server_hostname* argument specifies the host name of the remote
+        peer, if available and applicable for the handle.
 
         The *mode* argument specifies if this is transport is read-only
         (``'r'``), write-only (``'w'``) or read-write (``'rw'``).
@@ -216,6 +219,7 @@ class Transport(BaseTransport):
             raise TypeError("handle: expecting a 'pyuv.Stream' instance, got {!r}"
                                 .format(type(handle).__name__))
         super(Transport, self).__init__(handle, mode)
+        self._server_hostname = server_hostname
 
     @docfrom(BaseTransport.get_write_buffer_size)
     def get_write_buffer_size(self):
@@ -331,20 +335,22 @@ class Transport(BaseTransport):
         In addition to the fields from :meth:`BaseTransport.get_extra_info`,
         the following information is also available:
 
-        ==================  ===================================================
-        Name                Description
-        ==================  ===================================================
-        ``'sockname'``      The socket name i.e. the result of the
-                            ``getsockname()`` system call.
-        ``'peername'``      The peer name i.e. the result of the
-                            ``getpeername()`` system call.
-        ``'winsize'``       The terminal window size as a ``(cols, rows)``
-                            tuple. Only available for :class:`pyuv.TTY`
-                            handles.
-        ``'unix_creds'``    The Unix credentials of the peer as a
-                            ``(pid, uid, gid)`` tuple. Only available for
-                            :class:`pyuv.Pipe` handles on Unix.
-        ==================  ===================================================
+        =====================  ===================================================
+        Name                   Description
+        =====================  ===================================================
+        ``'sockname'``         The socket name i.e. the result of the
+                               ``getsockname()`` system call.
+        ``'peername'``         The peer name i.e. the result of the
+                               ``getpeername()`` system call.
+        ``'winsize'``          The terminal window size as a ``(cols, rows)``
+                               tuple. Only available for :class:`pyuv.TTY`
+                               handles.
+        ``'unix_creds'``       The Unix credentials of the peer as a
+                               ``(pid, uid, gid)`` tuple. Only available for
+                               :class:`pyuv.Pipe` handles on Unix.
+        ``'server_hostname'``  The host name of the remote peer prior to
+                               address resolution, if applicable.
+        =====================  ===================================================
         """
         if name == 'sockname':
             if not hasattr(self._handle, 'getsockname'):
@@ -380,6 +386,8 @@ class Transport(BaseTransport):
             except socket.error:
                 return default
             return struct.unpack('3i', creds)
+        elif name == 'server_hostname':
+            return self._server_hostname
         else:
             return super(Transport, self).get_extra_info(name, default)
 

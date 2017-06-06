@@ -32,7 +32,7 @@ requires this.
 
 This module provides a number of APIs. Client-side there is one:
 
-* A :class:`gruvi.Client` based API. You will use :meth:`~HttpClient.connect`
+* A :class:`gruvi.Client` based API. You will use :meth:`~gruvi.Client.connect`
   to connect to a server, and then use :meth:`~HttpClient.request` and
   :meth:`~HttpClient.getresponse` to interact with it.
 
@@ -870,9 +870,15 @@ class HttpProtocol(MessageProtocol):
         ``handler(message, transport, protocol)``.
 
         The *server_side* argument specifies whether this is a client or server
-        side protocol. For server-side protocols, the *server_name* argument
-        can be used to provide a server name. If not provided, then the socket
-        name of the listening socket will be used.
+        side protocol.
+
+        For client-side protocols, the *server_name* argument specifies the
+        remote server name, which is used as the ``Host:`` header. It is
+        normally not required to set this as it is taken from the unresolved
+        hostname passed to :meth:`~gruvi.Client.connect`.
+
+        For server-side protocols, *server_name* will be used as the value for
+        the ``SERVER_NAME`` WSGI environment variable.
         """
         super(HttpProtocol, self).__init__(handler, timeout=timeout)
         if server_side and handler is None:
@@ -1049,6 +1055,8 @@ class HttpProtocol(MessageProtocol):
             handle.nodelay(True)
         self._transport = transport
         self._writer = Stream(transport, 'w')
+        if not self._server_side and self._server_name is None:
+            self._server_name = transport.get_extra_info('server_hostname')
 
     def data_received(self, data):
         # Protocol callback
@@ -1165,19 +1173,6 @@ class HttpClient(Client):
         """
         protocol_factory = functools.partial(HttpProtocol, version=version)
         super(HttpClient, self).__init__(protocol_factory, timeout=timeout)
-        self._server_name = None
-
-    @docfrom(Client.connect)
-    def connect(self, address, **kwargs):
-        # Capture the host name that we are connecting to. We need this for
-        # generating "Host" headers in HTTP/1.1
-        if self._server_name is None and isinstance(address, tuple):
-            host, port = address[:2]  # len(address) == 4 for IPv6
-            if port != default_ports['https' if 'ssl' in kwargs else 'http']:
-                host = '{}:{}'.format(host, port)
-            self._server_name = host
-        super(HttpClient, self).connect(address, **kwargs)
-        self._protocol._server_name = self._server_name
 
     protocol = Client.protocol
 
@@ -1198,9 +1193,8 @@ class HttpServer(Server):
         :attr:`default_adapter` is used.
 
         The optional *server_name* argument specifies the server name. The
-        default is to use the host portion of the address passed to
-        :meth:`~gruvi.Server.listen`. The server name is made available to WSGI
-        applications as the $SERVER_NAME environment variable.
+        server name is made available to WSGI applications as the $SERVER_NAME
+        environment variable.
 
         The optional *timeout* argument specifies the timeout for various
         network and protocol operations.
@@ -1210,17 +1204,3 @@ class HttpServer(Server):
         protocol_factory = functools.partial(HttpProtocol, handler,
                                              server_side=True, server_name=server_name)
         super(HttpServer, self).__init__(protocol_factory, timeout)
-        self._server_name = server_name
-
-    def connection_made(self, transport, protocol):
-        if protocol._server_name is None:
-            protocol._server_name = self._server_name
-
-    def listen(self, address, **kwargs):
-        # Capture the first listen address to provide for a default server name.
-        if not self._server_name and isinstance(address, tuple):
-            host, port = address[:2]  # len(address) == 4 for IPv6
-            if port != default_ports['https' if 'ssl' in kwargs else 'http']:
-                host = '{}:{}'.format(host, port)
-            self._server_name = host
-        super(HttpServer, self).listen(address, **kwargs)

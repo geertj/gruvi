@@ -269,7 +269,7 @@ class SslTransport(Transport):
         of when an SSL "close_notify" is received from the remote peer. The
         default is to close the connection.
         """
-        super(SslTransport, self).__init__(handle)
+        super(SslTransport, self).__init__(handle, server_hostname=server_hostname)
         self._sslpipe = SslPipe(context, server_side, server_hostname)
         self._do_handshake_on_connect = do_handshake_on_connect
         self._close_on_unwrap = close_on_unwrap

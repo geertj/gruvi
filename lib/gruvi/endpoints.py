@@ -65,8 +65,8 @@ def _af_unix_helper(handle, address, op):
 
 
 @switchpoint
-def create_connection(protocol_factory, address, ssl=False, ssl_args={},
-                      family=0, flags=0, local_address=None, timeout=None, mode='rw'):
+def create_connection(protocol_factory, address, ssl=False, server_hostname=None,
+                      local_address=None, family=0, flags=0, timeout=None, mode='rw'):
     """Create a new client connection.
 
     This method creates a new :class:`pyuv.Handle`, connects it to *address*,
@@ -82,42 +82,46 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
     ``pyuv.Stream`` handle or a file descriptor:
 
     * If the address is a string, this method connects to a named pipe using a
-      :class:`pyuv.Pipe` handle.
+      :class:`pyuv.Pipe` handle. The address specifies the pipe name.
     * If the address is a tuple, this method connects to a TCP/IP service using
-      a :class:`pyuv.TCP` handle. The host element of the tuple the IP address
-      or DNS name, and the port element is the port number or service name. The
-      tuple is always passed to :func:`getaddrinfo` for resolution together
-      with the *family* and *flags* arguments.
+      a :class:`pyuv.TCP` handle. The first element of the tuple specifies the
+      IP address or DNS name, and the second element specifies the port number
+      or service name.
     * If the address is a ``pyuv.Stream`` instance, it must be an already
       connected stream.
     * If the address is a file descriptor, then it is attached to a
       :class:`pyuv.TTY` stream if :func:`os.isatty` returns true, or to a
       :class:`pyuv.Pipe` instance otherwise.
 
-    The *ssl* parameter indicates whether SSL should be used on top of the
-    stream transport. If an SSL connection is desired, then *ssl* can be set to
-    ``True`` or to an :class:`ssl.SSLContext` instance. In the former case a
-    default SSL context is created. In the case of Python 2.x the :mod:`ssl`
-    module does not define an SSL context object and you can use
-    :func:`~gruvi.create_default_context` instead which works across all
-    supported Python versions. The *ssl_args* argument may be used to pass
-    keyword arguments to :class:`SslTransport`.
+    The *ssl* parameter indicates whether an SSL/TLS connection is desired. If
+    so then an :class:`ssl.SSLContext` instance is used to wrap the connection
+    using the :mod:`ssl` module's asynchronous SSL support. The context is
+    created as follows. If *ssl* is an :class:`~ssl.SSLContext` instance, it is
+    used directly. If it is a function, it is called with the connection handle
+    as an argument and it must return a context . If it is ``True`` then a
+    default context is created using :func:`gruvi.create_default_context`. To
+    disable SSL (the default), pass ``False``. If SSL is active, the return
+    transport will be an :class:`SslTransport` instance, otherwise it will be a
+    :class:`Transport` instance.
 
-    If an SSL connection was selected, the resulting transport will be a
-    :class:`SslTransport` instance, otherwise it will be a :class:`Transport`
-    instance.
+    The *server_hostname* parameter is only relevant for SSL connections, and
+    specifies the server hostname to use with SNI (Server Name Indication). If
+    no server hostname is provided, the hostname specified in *address* is
+    used, if available.
+
+    The *local_address* keyword argument is relevant only for TCP transports.
+    If provided, it specifies the local address to bind to.
+
+    The *family* and *flags* keyword arguments are used to customize address
+    resolution for TCP handles as described in :func:`socket.getaddrinfo`.
 
     The *mode* parameter specifies if the transport should be put in read-only
     (``'r'``), write-only (``'w'``) or read-write (``'rw'``) mode. For TTY
     transports, the mode must be either read-only or write-only. For all other
     transport the mode should usually be read-write.
-
-    The *local_address* keyword argument is relevant only for TCP transports.
-    If provided, it specifies the local address to bind to.
     """
     hub = get_hub()
     log = logging.get_logger()
-    server_hostname = None
     if isinstance(address, (six.binary_type, six.text_type)):
         handle_type = pyuv.Pipe
         addresses = [address]
@@ -126,7 +130,11 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
         result = getaddrinfo(address[0], address[1], family, socket.SOCK_STREAM,
                              socket.IPPROTO_TCP, flags)
         addresses = [res[4] for res in result]
-        server_hostname = address[0]
+        if server_hostname is None:
+            server_hostname = address[0]
+            # Python 2.7 annoyingly gives a unicode IP address
+            if not isinstance(server_hostname, str):
+                server_hostname = server_hostname.encode('ascii')
     elif isinstance(address, int):
         if os.isatty(address):
             if mode not in ('r', 'w'):
@@ -169,12 +177,11 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
     protocol = protocol_factory()
     protocol._timeout = timeout
     if ssl:
-        context = ssl if hasattr(ssl, 'set_ciphers') else create_default_context(False)
-        if server_hostname and 'server_hostname' not in ssl_args:
-            ssl_args['server_hostname'] = server_hostname
-        transport = SslTransport(handle, context, False, **ssl_args)
+        context = ssl if hasattr(ssl, 'set_ciphers') else ssl(handle) if callable(ssl) \
+                        else create_default_context(False)
+        transport = SslTransport(handle, context, False, server_hostname)
     else:
-        transport = Transport(handle, mode)
+        transport = Transport(handle, server_hostname, mode)
     events = transport.start(protocol)
     if events:
         for event in events:
@@ -184,8 +191,8 @@ def create_connection(protocol_factory, address, ssl=False, ssl_args={},
 
 
 @switchpoint
-def create_server(protocol_factory, address=None, ssl=False, ssl_args={},
-                  family=0, flags=0, backlog=128):
+def create_server(protocol_factory, address=None, ssl=False, family=0, flags=0,
+                  backlog=128):
     """
     Create a new network server.
 
@@ -200,27 +207,25 @@ def create_server(protocol_factory, address=None, ssl=False, ssl_args={},
     * If the address is a string, this method creates a new :class:`pyuv.Pipe`
       instance and binds it to *address*.
     * If the address is a tuple, this method creates one or more
-      :class:`pyuv.TCP` handles. The host element of the tuple the IP address
-      or DNS name, and the port element is the port number or service name. The
-      tuple is passed to :func:`getaddrinfo` for resolution together with the
-      *family* and *flags* arguments. A transport is created for each resolved
-      address.
+      :class:`pyuv.TCP` handles. The first element of the tuple specifies the
+      IP address or DNS name, and the second element specifies the port number
+      or service name. A transport is created for each resolved address.
     * If the address is a ``pyuv.Stream`` handle, it must already be bound to
       an address.
 
     The *ssl* parameter indicates whether SSL should be used for accepted
-    connections. See :func:`create_connection` for a description of the *ssl*
-    and *ssl_args* parameters.
+    connections. See :func:`create_connection` for a description.
+
+    The *family* and *flags* keyword arguments are used to customize address
+    resolution for TCP handles as described in :func:`socket.getaddrinfo`.
 
     The *backlog* parameter specifies the listen backlog i.e the maximum
     number of not yet accepted connections to queue.
 
-    The return value is a :class:`Server` instance that can be used to control
-    the listening transports.
+    The return value is a :class:`Server` instance.
     """
     server = Server(protocol_factory)
-    server.listen(address, ssl=ssl, ssl_args=ssl_args, family=family,
-                  flags=flags, backlog=backlog)
+    server.listen(address, ssl=ssl, family=family, flags=flags, backlog=backlog)
     return server
 
 
@@ -282,7 +287,6 @@ class Client(Endpoint):
         self._transport._log = self._log
         self._protocol = conn[1]
         self._protocol._log = self._log
-        self._protocol._timeout = self._timeout
 
     @switchpoint
     def close(self):
@@ -318,7 +322,7 @@ class Server(Endpoint):
         """An iterator yielding the (transport, protocol) pairs for each connection."""
         return self._connections.items()
 
-    def _on_new_connection(self, ssl, ssl_args, handle, error):
+    def _on_new_connection(self, handle, error, ssl):
         # Callback used with handle.listen().
         assert handle in self._handles
         if error:
@@ -330,14 +334,23 @@ class Server(Endpoint):
             self._log.warning('max connections reached, dropping new connection')
             client.close()
             return
+        self.handle_connection(client, ssl)
+        self._all_closed.clear()
+
+    def handle_connection(self, client, ssl):
+        """Handle a new connection with handle *client*.
+
+        This method exists so that it can be overridden in subclass. It is not
+        intended to be called directly.
+        """
         if ssl:
-            context = ssl if hasattr(ssl, 'set_ciphers') else create_default_context(True)
-            transport = SslTransport(client, context, True, **ssl_args)
+            context = ssl if hasattr(ssl, 'set_ciphers') else ssl(client) if callable(ssl) \
+                            else create_default_context(True)
+            transport = SslTransport(client, context, True)
         else:
             transport = Transport(client)
         transport._log = self._log
         transport._server = self
-        self._all_closed.clear()
         if __debug__:
             self._log.debug('new connection on {}', saddr(client.getsockname()))
             if hasattr(client, 'getpeername'):
@@ -363,7 +376,7 @@ class Server(Endpoint):
         """Called when a connection is lost."""
 
     @switchpoint
-    def listen(self, address, ssl=False, ssl_args={}, family=0, flags=0, backlog=128):
+    def listen(self, address, ssl=False, family=0, flags=0, backlog=128):
         """Create a new transport, bind it to *address*, and start listening
         for new connections.
 
@@ -397,7 +410,7 @@ class Server(Endpoint):
             handles.append(handle)
         addresses = []
         for handle in handles:
-            callback = functools.partial(self._on_new_connection, ssl, ssl_args)
+            callback = functools.partial(self._on_new_connection, ssl=ssl)
             handle.listen(callback, backlog)
             addr = handle.getsockname()
             self._log.debug('listen on {}', saddr(addr))

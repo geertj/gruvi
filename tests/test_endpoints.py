@@ -21,6 +21,13 @@ from gruvi.transports import TransportError
 from support import UnitTest
 
 
+class StreamProtocolNoSslHandshake(StreamProtocol):
+
+    def connection_made(self, transport):
+        transport._do_handshake_on_connect = False
+        super(StreamProtocolNoSslHandshake, self).connection_made(transport)
+
+
 class TestCreateConnection(UnitTest):
 
     def test_tcp(self):
@@ -110,10 +117,7 @@ class TestCreateConnection(UnitTest):
         # handshake has completed.
         server = create_server(StreamProtocol, ('localhost', 0), **self.ssl_s_args)
         addr = server.addresses[0]
-        ssl_args = self.ssl_c_args.copy()
-        ssl_args['ssl_args'] = self.ssl_c_args.get('ssl_args', {}).copy()
-        ssl_args['ssl_args']['do_handshake_on_connect'] = False
-        ctrans, cproto = create_connection(StreamProtocol, addr, **ssl_args)
+        ctrans, cproto = create_connection(StreamProtocolNoSslHandshake, addr, **self.ssl_c_args)
         # The SSL handshake has not been established at this point.
         sslobj = ctrans.get_extra_info('ssl')
         self.assertIsNone(sslobj)
@@ -155,10 +159,8 @@ class TestCreateConnection(UnitTest):
         server = create_server(StreamProtocol, ('localhost', 0), **self.ssl_s_args)
         addr = server.addresses[0]
         ssl_args = self.ssl_c_args.copy()
-        ssl_args['ssl_args'] = self.ssl_c_args.get('ssl_args', {}).copy()
-        ssl_args['ssl_args']['server_hostname'] = 'foobar'
-        self.assertRaises(TransportError, create_connection, StreamProtocol,
-                          addr, **ssl_args)
+        ssl_args['server_hostname'] = 'foobar'
+        self.assertRaises(TransportError, create_connection, StreamProtocol, addr, **ssl_args)
         server.close()
 
 
