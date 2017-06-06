@@ -20,11 +20,17 @@ import unittest
 from unittest import SkipTest
 
 import gruvi
+from gruvi.hub import _reinit_hub
 from gruvi.fibers import Fiber
 from support import UnitTest
 
 
 class TestHub(UnitTest):
+
+    def tearDown(self):
+        # Some of our tests kill the hub so we re-init it here.
+        _reinit_hub()
+        super(TestHub, self).tearDown()
 
     def test_switchpoint(self):
         # Wrapping a function in @switchpoint should return function with
@@ -36,20 +42,35 @@ class TestHub(UnitTest):
         wrapper = gruvi.switchpoint(func)
         self.assertTrue(wrapper.__switchpoint__)
         self.assertEqual(wrapper.__name__, 'func')
-        argspec = inspect.getargspec(wrapper)
-        self.assertEqual(argspec.args, ['foo', 'bar', 'baz'])
-        self.assertEqual(argspec.varargs, 'args')
-        self.assertEqual(argspec.keywords, 'kwargs')
-        self.assertEqual(argspec.defaults, (None,))
+        # inspect.getargspec() returns a DeprecationWarning on Python 3.5+
+        if hasattr(inspect, 'signature'):
+            signature = inspect.signature(wrapper)
+            pp = signature.parameters
+            self.assertEqual(list(pp), ['foo', 'bar', 'baz', 'args', 'kwargs'])
+            from inspect import Parameter
+            self.assertEqual(pp['foo'].kind, Parameter.POSITIONAL_OR_KEYWORD)
+            self.assertEqual(pp['foo'].default, Parameter.empty)
+            self.assertEqual(pp['bar'].kind, Parameter.POSITIONAL_OR_KEYWORD)
+            self.assertEqual(pp['bar'].default, Parameter.empty)
+            self.assertEqual(pp['baz'].kind, Parameter.POSITIONAL_OR_KEYWORD)
+            self.assertEqual(pp['baz'].default, None)
+            self.assertEqual(pp['args'].kind, Parameter.VAR_POSITIONAL)
+            self.assertEqual(pp['kwargs'].kind, Parameter.VAR_KEYWORD)
+        else:
+            argspec = inspect.getargspec(wrapper)
+            self.assertEqual(argspec.args, ['foo', 'bar', 'baz'])
+            self.assertEqual(argspec.varargs, 'args')
+            self.assertEqual(argspec.keywords, 'kwargs')
+            self.assertEqual(argspec.defaults, (None,))
         result = wrapper(1, 2, qux='foo')
         self.assertEqual(result, (1, 2, None, (), {'qux': 'foo'}))
         result = wrapper(1, 2, 3, 4, qux='foo')
         self.assertEqual(result, (1, 2, 3, (4,), {'qux': 'foo'}))
 
     def test_sigint(self):
-        # The Hub should exit on CTRL-C (SIGINT).
+        # The Hub should raise a KeyboardError in the root fiber on CTRL-C (SIGINT).
         # On windows, sending SIGINT kills all processes attached to a console,
-        # including the test driver.
+        # including the test driver. So skip this test on Windows.
         if sys.platform.startswith('win'):
             raise SkipTest('test skipped on Windows')
         def send_sigint():
@@ -58,90 +79,59 @@ class TestHub(UnitTest):
         t1 = threading.Thread(target=send_sigint)
         t1.start()
         hub = gruvi.get_hub()
-        hub.switch()
-        self.assertFalse(hub.is_alive())
+        self.assertRaises(KeyboardInterrupt, hub.switch)
+        self.assertTrue(hub.is_alive())
         t1.join()
-
-    def test_get_new_hub(self):
-        # When the hub is closed, get_hub() should return a new one.
-        hub = gruvi.get_hub()
-        hub.close()
-        hub.switch()
-        hub2 = gruvi.get_hub()
-        self.assertIsNot(hub, hub2)
 
     def test_close(self):
         # Calling hub.close() should cause the hub to exit.
-        hub = gruvi.Hub()
-        hub.run_callback(hub.close)
-        self.assertIsNone(hub.switch())
+        hub = gruvi.get_hub()
+        gruvi.sleep(0.01)
+        hub.close()
         self.assertFalse(hub.is_alive())
+
+    def test_get_closed_hub(self):
+        # When the hub is closed, get_hub() should still return the closed one
+        hub = gruvi.get_hub()
+        gruvi.sleep(0.01)
+        hub.close()
+        hub2 = gruvi.get_hub()
+        self.assertIs(hub, hub2)
 
     def test_close_from_thread(self):
-        # Calling hub.close() from a thread should cause the hub to exit.
+        # Calling hub.close() from a different thread should cause a RuntimeError
+        exc = []
+        hub = gruvi.get_hub()
         def close_hub():
             time.sleep(0.01)
-            hub.close()
+            try:
+                hub.close()
+            except Exception as e:
+                exc.append(e)
         t1 = threading.Thread(target=close_hub)
-        t1.start()
-        hub = gruvi.Hub()
-        self.assertIsNone(hub.switch())
-        self.assertFalse(hub.is_alive())
-        t1.join()
+        t1.start(); t1.join()
+        self.assertEqual(len(exc), 1)
+        self.assertIsInstance(exc[0], RuntimeError)
+        self.assertTrue(hub.is_alive())
 
     def test_cleanup(self):
-        # After we close() a Hub, it should be garbage collectable, including
-        # its event loop.
-        hub = gruvi.Hub()
-        gruvi.sleep(0)
-        ref1 = weakref.ref(hub)
-        ref2 = weakref.ref(hub.loop)
+        # After we close() a Hub, its event loop should be gc-able.
+        hub = gruvi.get_hub()
+        ref = weakref.ref(hub.loop)
+        gruvi.sleep(0.01)
         hub.close()
-        hub.switch()
         del hub
         gc.collect()
-        self.assertIsNone(ref1())
-        self.assertIsNone(ref2())
-
-    def test_thread_close(self):
-        # If we close() a Hub in a thread, it should be garbage collectable.
-        refs = []
-        def thread_sleep():
-            hub = gruvi.get_hub()
-            gruvi.sleep(0)
-            refs.append(weakref.ref(hub))
-            refs.append(weakref.ref(hub.loop))
-            hub.close()
-            hub.switch()
-        t1 = threading.Thread(target=thread_sleep)
-        refs.append(weakref.ref(t1))
-        t1.start(); t1.join(); del t1
-        gruvi.sleep(0.1)  # Give the thread time to exit.
-        gc.collect()
-        self.assertIsNone(refs[0]())
-        self.assertIsNone(refs[1]())
-        self.assertIsNone(refs[2]())
-
-    def test_many_hubs(self):
-        # Create and close a Hub in many threads. If the hub does not garbage
-        # collect, then this will run out of file descriptors.
-        for i in range(100):
-            hub = gruvi.Hub()
-            with gruvi.switch_back(timeout=0, hub=hub):
-                self.assertRaises(gruvi.Timeout, hub.switch)
-            hub.close()
-            hub.switch()
-            gc.collect()
+        self.assertIsNone(ref())
 
     def test_callback_order(self):
         # Callbacks run with run_callback() should be run in the order they
         # were added.
-        hub = gruvi.Hub()
+        hub = gruvi.get_hub()
         result = []
         for i in range(100):
             hub.run_callback(result.append, i)
-        hub.close()
-        hub.switch()
+        gruvi.sleep(0.01)
         self.assertEqual(len(result), 100)
         self.assertEqual(result, list(range(100)))
 

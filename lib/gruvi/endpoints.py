@@ -420,8 +420,12 @@ class Server(Endpoint):
     def run(self):
         """Run the event loop and start serving requests.
 
-        This method is useful in scripts that run only one server instance. In
-        more complicated applications you normally call :meth:`Hub.switch`
-        explicitly.
+        This method stops serving when a CTRL-C/SIGINT is received. It is
+        useful for top-level scripts that run only one server instance. In more
+        complicated application you would call :meth:`Hub.switch` directly, or
+        wait on some kind of "request to shutdown" event.
         """
-        get_hub().switch()
+        try:
+            get_hub().switch()
+        except KeyboardInterrupt:
+            pass

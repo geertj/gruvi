@@ -199,8 +199,21 @@ def get_hub():
     try:
         hub = _local.hub
     except AttributeError:
+        # The Hub can only be instantiated from the root fiber. No other fibers
+        # can run until the Hub is there, so the root will always be the first
+        # one to call get_hub().
+        assert fibers.current().parent is None
         hub = _local.hub = Hub()
     return hub
+
+def _reinit_hub():
+    # Semi-private function to re-initialize a hub on the current thread
+    # after close() was called. This isn't really supported and is here only
+    # for our tests.
+    try:
+        del _local.hub
+    except AttributeError:
+        pass
 
 
 class Hub(fibers.Fiber):
@@ -215,12 +228,16 @@ class Hub(fibers.Fiber):
     # The hub is used by fibers to pause themselves until a wake-up condition
     # becomes true. See the documentation for switch_back for details
 
+    #: By default the hub will raise a KeyboardInterrupt in the root fiber when
+    #: a SIGINT (CTRL-C) is received. Set this to ``True`` to ignore SIGINT
+    #: instead.
+    ignore_interrupt = False
+
     def __init__(self):
         if self.parent is not None:
             raise RuntimeError('Hub must be created in the root fiber')
         super(Hub, self).__init__(target=self.run)
-        self.name = 'Hub'
-        self.context = ''
+        self._name = 'Hub'
         self._loop = pyuv.Loop()
         self._loop.excepthook = self._on_uncaught_exception
         self._data = {}
@@ -246,6 +263,11 @@ class Hub(fibers.Fiber):
         self._poll = Poller(self)
 
     @property
+    def name(self):
+        """The name of the Hub, which is ``'Hub'``."""
+        return self._name
+
+    @property
     def loop(self):
         """The event loop used by this hub instance. This is an instance of
         :class:`pyuv.Loop`."""
@@ -266,8 +288,11 @@ class Hub(fibers.Fiber):
 
     def _on_sigint(self, h, signo):
         # SIGINT handler. Terminate the hub and switch back to the root.
-        self._log.debug('SIGINT received, stopping loop')
-        self.close()
+        if self.ignore_interrupt:
+            self._log.debug('SIGINT received, ignoring')
+            return
+        self._log.debug('SIGINT received, raising in root fiber')
+        self.run_callback(self.parent.throw, KeyboardInterrupt('SIGINT received'))
 
     def _on_uncaught_exception(self, *exc_info):
         # Installed as the handler for uncaught exceptions in pyuv callbacks.
@@ -285,22 +310,31 @@ class Hub(fibers.Fiber):
         else:
             self._async_handle.send()
 
+    @switchpoint
     def close(self):
-        """Close the hub.
+        """Close the hub and wait for it to be closed.
 
-        This sets a flag that will cause the event loop to exit when it next
-        runs. The hub fiber will then exit and control is transferred back to
-        the root fiber.
+        This may only be called in the root fiber. After this call returned,
+        Gruvi cannot be used anymore in the current thread. The main use case
+        for calling this method is to clean up resources in a multi-threaded
+        program where you want to exit a thead but not yet the entire process.
         """
         if self._loop is None:
             return
+        if fibers.current().parent is not None:
+            raise RuntimeError('close() may only be called in the root fiber')
+        elif compat.get_thread_ident() != self._thread:
+            raise RuntimeError('cannot close() from a different thread')
         self._closing = True
-        self._poll.close()
         self._interrupt_loop()
+        # Note how we are switching to the Hub without a switchback condition
+        # being in place. This works because the hub is our child and upon
+        # a child fiber exit its parent is switched in.
+        self.switch()
 
     def run(self):
         # Target of Hub.switch().
-        if self.current() is not self:
+        if fibers.current() is not self:
             raise RuntimeError('run() may only be called from the Hub')
         self._log.debug('starting hub fiber')
         # This is where the loop runs. There are two loops:
@@ -326,6 +360,7 @@ class Hub(fibers.Fiber):
             with assert_no_switchpoints(self):
                 self._loop.run(mode)
         # Hub is going to exit at this point. Clean everyting up.
+        self._poll.close()
         for handle in self._loop.handles:
             if not handle.closed:
                 handle.close()
@@ -333,8 +368,6 @@ class Hub(fibers.Fiber):
         # For some reason it appears this needs to be run twice.
         while self._loop.run():
             self._log.debug('run loop another time to close handles')
-        if getattr(_local, 'hub', None) is self:
-            del _local.hub
         self._loop = None
         self._callbacks.clear()
         self._async = None
@@ -358,13 +391,18 @@ class Hub(fibers.Fiber):
         """
         if self._loop is None or not self.is_alive():
             raise RuntimeError('hub is closed/dead')
-        elif self.current() is self:
+        elif fibers.current() is self:
             raise RuntimeError('cannot switch to myself')
         elif compat.get_thread_ident() != self._thread:
             raise RuntimeError('cannot switch from a different thread')
         value = super(Hub, self).switch()
-        if isinstance(value, Exception):
-            raise value
+        # A fiber exit will cause its parent to be switched to. All fibers in
+        # the system should be children of the Hub, *except* the Hub itself
+        # which is a child of the root fiber. So do an explicit check here to
+        # see if the Hub exited unexpectedly, and if so raise an error.
+        if fibers.current().parent is None and not self.is_alive() \
+                    and self._loop is not None:
+            raise RuntimeError('hub exited unexpectedly')
         return value
 
     def _run_callbacks(self):
@@ -400,7 +438,7 @@ def sleep(secs):
     """Sleep for *secs* seconds. The *secs* argument can be an int or a float."""
     hub = get_hub()
     try:
-        with switch_back(secs):
+        with switch_back(secs, hub):
             hub.switch()
     except Timeout:
         pass
