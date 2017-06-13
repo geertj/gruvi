@@ -274,6 +274,7 @@ class SslTransport(Transport):
         self._do_handshake_on_connect = do_handshake_on_connect
         self._close_on_unwrap = close_on_unwrap
         self._write_backlog = []
+        self._handle_backlog = []
         self._ssl_active = Event()
 
     def start(self, protocol):
@@ -308,11 +309,13 @@ class SslTransport(Transport):
         else:
             return super(SslTransport, self).get_extra_info(name, default)
 
-    def write(self, data):
+    def write(self, data, handle=None):
         # Write *data* to the transport.
         if not isinstance(data, (bytes, bytearray, memoryview)):
             raise TypeError("data: expecting a bytes-like instance, got {!r}"
                                 .format(type(data).__name__))
+        if handle is not None and not isinstance(self._handle, pyuv.Pipe):
+            raise ValueError('handle: can only be sent over pyuv.Pipe')
         if self._error:
             raise compat.saved_exc(self._error)
         elif self._closing or self._handle.closed:
@@ -320,6 +323,8 @@ class SslTransport(Transport):
         elif len(data) == 0:
             return
         self._write_backlog.append([data, 0])
+        if handle:
+            self._handle_backlog.append(handle)
         self._process_write_backlog()
 
     def _process_write_backlog(self):
@@ -339,7 +344,10 @@ class SslTransport(Transport):
                 # Write the ssl data that came out of the SSL pipe to the handle.
                 # Note that flow control is done at the record level data.
                 for chunk in ssldata:
-                    super(SslTransport, self).write(chunk)
+                    if self._handle_backlog:
+                        super(SslTransport, self).write(chunk, self._handle_backlog.pop(0))
+                    else:
+                        super(SslTransport, self).write(chunk)
                 self._closing = saved
                 if offset < len(data):
                     self._write_backlog[0][1] = offset

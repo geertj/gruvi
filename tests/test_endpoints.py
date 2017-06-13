@@ -11,14 +11,21 @@ from __future__ import absolute_import, print_function
 import ssl
 import socket
 import unittest
+import pyuv
 from unittest import SkipTest
 
 import gruvi
+from gruvi.hub import switchpoint, get_hub
 from gruvi.stream import StreamProtocol
 from gruvi.endpoints import create_server, create_connection, getaddrinfo
+from gruvi.endpoints import Client, Server
 from gruvi.transports import TransportError
+from gruvi.protocols import Protocol
+from gruvi.sync import Queue
+from gruvi.util import delegate_method
+from gruvi.fibers import spawn
 
-from support import UnitTest
+from support import UnitTest, socketpair
 
 
 class StreamProtocolNoSslHandshake(StreamProtocol):
@@ -174,6 +181,181 @@ class TestGetAddrInfo(UnitTest):
 
     def get_resolve_timeout(self):
         self.assertRaises(gruvi.Timeout, getaddrinfo, 'localhost', timeout=0)
+
+
+class IpcProtocol(Protocol):
+    """A very simple line based protocol that is used to test passing file
+    descriptors."""
+
+    def __init__(self, server=None, server_context=None):
+        self._server = server
+        self._server_context = server_context
+        self._queue = Queue()
+        self._transport = None
+
+    @property
+    def transport(self):
+        return self._transport
+
+    def connection_made(self, transport):
+        self._transport = transport
+        self._buffer = b''
+
+    def data_received(self, data):
+        self._buffer += data
+        p0 = p1 = 0
+        while True:
+            p1 = self._buffer.find(b'\n', p0)
+            if p1 == -1:
+                break
+            command = self._buffer[p0:p1].decode('ascii')
+            self.command_received(command)
+            p0 = p1+1
+        if p0:
+            self._buffer = self._buffer[p0:]
+
+    def command_received(self, command):
+        if self._server is None:
+            self._queue.put(command)
+        elif command == 'handle':
+            handle = self._transport.get_extra_info('handle')
+            assert handle is not None
+            self._server.accept_connection(handle)
+            self.send('ok')
+        elif command == 'ssl_handle':
+            handle = self._transport.get_extra_info('handle')
+            assert handle is not None
+            self._server.accept_connection(handle, ssl=self._server_context)
+            self.send('ok')
+        elif command == 'ping':
+            self.send('pong')
+        elif command == 'type':
+            handle = self._transport.get_extra_info('handle')
+            assert handle is not None
+            htype = 'tcp' if isinstance(handle, pyuv.TCP) \
+                        else 'udp' if isinstance(handle, pyuv.UDP) \
+                        else 'pipe'
+            self.send(htype)
+
+    def send(self, command, handle=None):
+        line = '{}\n'.format(command).encode('ascii')
+        if handle is not None:
+            self._transport.write(line, handle)
+        else:
+            self._transport.write(line)
+
+    @switchpoint
+    def call(self, command, handle=None):
+        self.send(command, handle)
+        value = self._queue.get()
+        return value
+
+
+class IpcServer(Server):
+
+    def __init__(self, server_context=None):
+        def protocol_factory():
+            return IpcProtocol(self, server_context)
+        super(IpcServer, self).__init__(protocol_factory)
+
+
+class IpcClient(Client):
+
+    def __init__(self):
+        super(IpcClient, self).__init__(IpcProtocol)
+
+    protocol = Client.protocol
+    delegate_method(protocol, IpcProtocol.send)
+    delegate_method(protocol, IpcProtocol.call)
+
+
+class TestIpc(UnitTest):
+
+    def test_simple(self):
+        server = IpcServer()
+        pipe = self.pipename()
+        server.listen(pipe)
+        client = IpcClient()
+        client.connect(pipe)
+        self.assertEqual(client.call('ping'), 'pong')
+        client.close()
+        server.close()
+
+    def test_pass_handle(self):
+        server = IpcServer()
+        pipe = self.pipename()
+        server.listen(pipe, ipc=True)
+        client = IpcClient()
+        client.connect(pipe, ipc=True)
+        self.assertEqual(client.call('type'), 'pipe')
+        s1, s2 = socketpair()
+        h2 = pyuv.Pipe(get_hub().loop)
+        h2.open(s2.fileno())
+        client.call('handle', h2)
+        c1 = IpcClient()
+        c1.connect(s1.fileno())
+        self.assertEqual(c1.call('ping'), 'pong')
+        self.assertEqual(c1.call('type'), 'tcp')
+        s1.close(); s2.close()
+        c1.close(); h2.close()
+        client.close(); server.close()
+
+    def test_pass_handle_over_ssl(self):
+        server = IpcServer()
+        pipe = self.pipename()
+        server.listen(pipe, ipc=True, **self.ssl_s_args)
+        client = IpcClient()
+        client.connect(pipe, ipc=True, **self.ssl_cp_args)
+        self.assertEqual(client.call('type'), 'pipe')
+        s1, s2 = socketpair()
+        h2 = pyuv.Pipe(get_hub().loop)
+        h2.open(s2.fileno())
+        client.call('handle', h2)
+        c1 = IpcClient()
+        c1.connect(s1.fileno())
+        self.assertEqual(c1.call('ping'), 'pong')
+        self.assertEqual(c1.call('type'), 'tcp')
+        s1.close(); s2.close()
+        c1.close(); h2.close()
+        client.close(); server.close()
+
+    def test_pass_ssl_handle(self):
+        server = IpcServer(self.ssl_s_args['ssl'])
+        pipe = self.pipename()
+        server.listen(pipe, ipc=True)
+        client = IpcClient()
+        client.connect(pipe, ipc=True)
+        self.assertEqual(client.call('type'), 'pipe')
+        s1, s2 = socketpair()
+        h2 = pyuv.Pipe(get_hub().loop)
+        h2.open(s2.fileno())
+        client.call('ssl_handle', h2)
+        c1 = IpcClient()
+        c1.connect(s1.fileno(), **self.ssl_cp_args)
+        self.assertEqual(c1.call('ping'), 'pong')
+        self.assertEqual(c1.call('type'), 'tcp')
+        s1.close(); s2.close()
+        c1.close(); h2.close()
+        client.close(); server.close()
+
+    def test_pass_ssl_handle_over_ssl(self):
+        server = IpcServer(self.ssl_s_args['ssl'])
+        pipe = self.pipename()
+        server.listen(pipe, ipc=True, **self.ssl_s_args)
+        client = IpcClient()
+        client.connect(pipe, ipc=True, **self.ssl_cp_args)
+        self.assertEqual(client.call('type'), 'pipe')
+        s1, s2 = socketpair()
+        h2 = pyuv.Pipe(get_hub().loop)
+        h2.open(s2.fileno())
+        client.call('ssl_handle', h2)
+        c1 = IpcClient()
+        c1.connect(s1.fileno(), **self.ssl_cp_args)
+        self.assertEqual(c1.call('ping'), 'pong')
+        self.assertEqual(c1.call('type'), 'tcp')
+        s1.close(); s2.close()
+        c1.close(); h2.close()
+        client.close(); server.close()
 
 
 if __name__ == '__main__':

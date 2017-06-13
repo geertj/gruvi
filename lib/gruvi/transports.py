@@ -284,18 +284,23 @@ class Transport(BaseTransport):
         self._maybe_resume_protocol()
         self._maybe_close()
 
-    def write(self, data):
+    def write(self, data, handle=None):
         """Write *data* to the transport."""
         if not isinstance(data, (bytes, bytearray, memoryview)):
             raise TypeError("data: expecting a bytes-like instance, got {!r}"
                                 .format(type(data).__name__))
+        if handle is not None and not isinstance(self._handle, pyuv.Pipe):
+            raise ValueError('handle: can only be sent over pyuv.Pipe')
         self._check_status()
         if not self._writable:
             raise TransportError('transport is not writable')
         if self._closing:
             raise TransportError('transport is closing')
         try:
-            self._handle.write(data, self._on_write_complete)
+            if handle:
+                self._handle.write(data, self._on_write_complete, handle)
+            else:
+                self._handle.write(data, self._on_write_complete)
         except pyuv.error.UVError as e:
             self._error = TransportError.from_errno(e.args[0])
             self.abort()

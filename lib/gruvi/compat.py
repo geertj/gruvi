@@ -8,9 +8,13 @@
 
 from __future__ import absolute_import, print_function
 
+import os
 import io
 import sys
 import threading
+import socket
+import errno
+import pyuv
 
 
 # Some compatibility stuff that is not in six.
@@ -71,3 +75,46 @@ else:
             super(TextIOWrapper, self).writelines(seq)
             if self._write_through:
                 self.flush()
+
+
+# Needed until pyuv accepts PR #249 and #250
+
+def pyuv_pipe_helper(handle, handle_args, op, addr):
+    if not isinstance(handle, pyuv.Pipe):
+        return False
+    # Store the 'ipc' constructor argument.
+    if handle_args and not hasattr(handle, 'ipc'):
+        handle.ipc = handle_args[0]
+    if not sys.platform.startswith('linux') or '\x00' not in addr:
+        return False
+    # Connect or bind the socket.
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.setblocking(False)
+    try:
+        if op == 'connect':
+            sock.connect(addr)
+        elif op == 'bind':
+            sock.bind(addr)
+        fd = os.dup(sock.fileno())
+    except IOError as e:
+        # Connecting to an AF_UNIX socket never gives EAGAIN on Linux.
+        assert e.errno != errno.EAGAIN
+        # Convert from Unix errno -> libuv errno via the symbolic error name
+        errname = 'UV_{}'.format(errno.errocode.get(e.errno, 'UNKNOWN'))
+        errnum = getattr(pyuv.errno, errname, pyuv.errno.UV_UNKNOWN)
+        raise pyuv.error.PipeError(errnum, os.strerror(e.errno))
+    finally:
+        sock.close()
+    handle.open(fd)
+    # Work around a bug in pyuv where abstract sockets names are reported as
+    # bytes by dynamically patching getsockname(). The above PRs should fix this.
+    if PY3:
+        self = handle
+        encoding = sys.getfilesystemencoding()
+        def getsockname():
+            value = type(handle).getsockname(self)
+            if isinstance(value, bytes):
+                value = value.decode(encoding)
+            return value
+        handle.getsockname = getsockname
+    return True
