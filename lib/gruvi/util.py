@@ -8,6 +8,7 @@
 
 from __future__ import absolute_import, print_function
 
+import os
 import sys
 import re
 import functools
@@ -15,6 +16,29 @@ import functools
 from weakref import WeakKeyDictionary
 
 __all__ = []
+
+
+class EnvBool(object):
+    """A boolean-like object that takes its value from the environment variable
+    *name*."""
+
+    _zero_values = ('0', 'n', 'f', 'false')
+
+    def __init__(self, name):
+        self._name = name
+
+    @classmethod
+    def new(cls, name):
+        # Optimize away $DEBUG when interpreter is running with -O
+        if name == 'DEBUG' and not __debug__:
+            return False
+        return cls(name)
+
+    def __nonzero__(self):
+        value = os.environ.get(self._name, '0')
+        return value.lower() not in self._zero_values
+
+    __bool__ = __nonzero__
 
 
 class AbsentType(object):

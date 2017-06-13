@@ -22,8 +22,11 @@ from .transports import TransportError, Transport
 from .ssl import SslTransport
 from .sslcompat import create_default_context
 from .address import getaddrinfo, saddr
+from .util import EnvBool
 
 __all__ = ['create_connection', 'create_server', 'Endpoint', 'Client', 'Server']
+
+DEBUG = EnvBool.new('DEBUG')
 
 
 @switchpoint
@@ -340,7 +343,7 @@ class Server(Endpoint):
             transport = Transport(client)
         transport._log = self._log
         transport._server = self
-        if __debug__:
+        if DEBUG:
             self._log.debug('new connection on {}', saddr(client.getsockname()))
             if hasattr(client, 'getpeername'):
                 self._log.debug('remote peer is {}', saddr(client.getpeername()))
