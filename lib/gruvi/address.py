@@ -3,7 +3,7 @@
 # terms of the MIT license. See the file "LICENSE" that was provided
 # together with this source file for the licensing terms.
 #
-# Copyright (c) 2012-2014 the Gruvi authors. See the file "AUTHORS" for a
+# Copyright (c) 2012-2017 the Gruvi authors. See the file "AUTHORS" for a
 # complete list.
 
 from __future__ import absolute_import, print_function
@@ -24,13 +24,11 @@ def saddr(address):
 
     The return value is always a ``str`` instance.
     """
-    if isinstance(address, six.binary_type) and six.PY3:
-        return address.decode('utf8')
-    elif isinstance(address, six.string_types):
+    if isinstance(address, six.string_types):
         return address
-    elif isinstance(address, tuple) and ':' in address[0]:
+    elif isinstance(address, tuple) and len(address) >= 2 and ':' in address[0]:
         return '[{}]:{}'.format(address[0], address[1])
-    elif isinstance(address, tuple):
+    elif isinstance(address, tuple) and len(address) >= 2:
         return '{}:{}'.format(*address)
     else:
         raise TypeError('illegal address type: {!s}'.format(type(address)))
@@ -41,6 +39,8 @@ def paddr(address):
 
     This function is the inverse of :func:`saddr`.
     """
+    if not isinstance(address, six.string_types):
+        raise TypeError('expecting a string')
     if address.startswith('['):
         p1 = address.find(']:')
         if p1 == -1:
