@@ -9,6 +9,7 @@
 from __future__ import absolute_import, print_function
 
 import os
+import io
 import sys
 import time
 import shutil
@@ -149,6 +150,23 @@ def socketpair(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
     csock.setblocking(True)
     lsock.close()
     return (ssock, csock)
+
+
+class capture_stdio(object):
+    """Context manager to capture standard output and standard error."""
+
+    def __enter__(self):
+        self.saved_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        self.saved_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        return (sys.stdout, sys.stderr)
+
+    def __exit__(self, typ, val, tb):
+        sys.stdout.seek(0)
+        sys.stderr.seek(0)
+        sys.stdout = self.saved_stdout
+        sys.stderr = self.saved_stderr
 
 
 class TestCase(unittest.TestCase):
