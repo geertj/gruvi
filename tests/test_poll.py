@@ -11,10 +11,9 @@ from __future__ import absolute_import, print_function
 import unittest
 
 from gruvi import get_hub, Event
-from gruvi.poll import MultiPoll, Poller, READABLE, WRITABLE
-from gruvi.poll import check as check_mpoll
+from gruvi.poll import MultiPoll, Poller, READABLE, WRITABLE, check, dump
 
-from support import UnitTest, socketpair
+from support import UnitTest, socketpair, capture_stdio
 
 
 class TestMultiPoll(UnitTest):
@@ -23,14 +22,14 @@ class TestMultiPoll(UnitTest):
         s1, s2 = socketpair()
         fd = s2.fileno()
         mp = MultiPoll(get_hub().loop, fd)
-        check_mpoll(mp)
+        check(mp)
         cbargs = []
         called = Event()
         def callback(fd, events):
             cbargs.append((fd, events))
             called.set()
         mp.add_callback(READABLE, callback)
-        check_mpoll(mp)
+        check(mp)
         called.wait(0.01)
         self.assertEqual(cbargs, [])
         s1.send(b'x')
@@ -41,7 +40,7 @@ class TestMultiPoll(UnitTest):
         called.wait(0.01)
         self.assertEqual(cbargs, [])
         mp.close()
-        check_mpoll(mp)
+        check(mp)
         s1.close(); s2.close()
 
     def test_multiple(self):
@@ -56,13 +55,13 @@ class TestMultiPoll(UnitTest):
                 called.set()
             return _callback
         mp.add_callback(READABLE, callback(0))
-        check_mpoll(mp)
+        check(mp)
         mp.add_callback(READABLE, callback(1))
-        check_mpoll(mp)
+        check(mp)
         mp.add_callback(WRITABLE, callback(2))
-        check_mpoll(mp)
+        check(mp)
         mp.add_callback(WRITABLE, callback(3))
-        check_mpoll(mp)
+        check(mp)
         called.wait(0.1)
         self.assertEqual(cbargs, [(fd, WRITABLE, 2), (fd, WRITABLE, 3)])
         del cbargs[:]; called.clear()
@@ -72,7 +71,7 @@ class TestMultiPoll(UnitTest):
                                   (fd, WRITABLE, 2), (fd, WRITABLE, 3)])
         self.assertEqual(s2.recv(10), b'x')
         mp.close()
-        check_mpoll(mp)
+        check(mp)
         s1.close(); s2.close()
 
     def test_remove(self):
@@ -87,21 +86,21 @@ class TestMultiPoll(UnitTest):
                 called.set()
             return _callback
         h1 = mp.add_callback(READABLE, callback(0))
-        check_mpoll(mp)
+        check(mp)
         h2 = mp.add_callback(READABLE, callback(1))
-        check_mpoll(mp)
+        check(mp)
         s1.send(b'x')
         called.wait(0.1)
         self.assertEqual(cbargs, [(fd, READABLE, 0), (fd, READABLE, 1)])
         del cbargs[:]; called.clear()
         mp.remove_callback(h1)
-        check_mpoll(mp)
+        check(mp)
         called.wait(0.1)
         self.assertEqual(cbargs, [(fd, READABLE, 1)])
         mp.remove_callback(h2)
-        check_mpoll(mp)
+        check(mp)
         mp.close()
-        check_mpoll(mp)
+        check(mp)
         s1.close(); s2.close()
 
     def test_update(self):
@@ -114,30 +113,30 @@ class TestMultiPoll(UnitTest):
             cbargs.append((fd, events))
             called.set()
         h1 = mp.add_callback(READABLE, callback)
-        check_mpoll(mp)
+        check(mp)
         s1.send(b'x')
         called.wait(0.1)
         self.assertEqual(cbargs, [(fd, READABLE)])
         del cbargs[:]; called.clear()
         mp.update_callback(h1, READABLE|WRITABLE)
-        check_mpoll(mp)
+        check(mp)
         s1.send(b'x')
         called.wait(0.1)
         self.assertEqual(cbargs, [(fd, READABLE|WRITABLE)])
         del cbargs[:]; called.clear()
         mp.update_callback(h1, WRITABLE)
-        check_mpoll(mp)
+        check(mp)
         s1.send(b'x')
         called.wait(0.1)
         self.assertEqual(cbargs, [(fd, WRITABLE)])
         del cbargs[:]; called.clear()
         mp.update_callback(h1, 0)
-        check_mpoll(mp)
+        check(mp)
         s1.send(b'x')
         called.wait(0.01)
         self.assertEqual(cbargs, [])
         mp.close()
-        check_mpoll(mp)
+        check(mp)
         s1.close(); s2.close()
 
     def test_close(self):
@@ -163,6 +162,27 @@ class TestMultiPoll(UnitTest):
         self.assertRaises(RuntimeError, mp.remove_callback, h2)
         self.assertRaises(RuntimeError, mp.update_callback, h1, WRITABLE)
         self.assertRaises(RuntimeError, mp.update_callback, h2, WRITABLE)
+        s1.close(); s2.close()
+
+    def test_debug(self):
+        if not __debug__:
+            return
+        s1, s2 = socketpair()
+        fd = s2.fileno()
+        mp = MultiPoll(get_hub().loop, fd)
+        def callback(fd, events):
+            pass
+        mp.add_callback(0, callback)
+        mp.add_callback(READABLE, callback)
+        mp.add_callback(WRITABLE, callback)
+        mp.add_callback(READABLE|WRITABLE, callback)
+        check(mp)
+        with capture_stdio() as (out, err):
+            dump(mp)
+        lines = out.readlines()
+        self.assertGreater(len(lines), 0)
+        self.assertEqual(err.read(), '')
+        mp.close()
         s1.close(); s2.close()
 
 
