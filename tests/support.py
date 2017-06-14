@@ -157,9 +157,9 @@ class capture_stdio(object):
 
     def __enter__(self):
         self.saved_stdout = sys.stdout
-        sys.stdout = io.StringIO()
+        sys.stdout = io.StringIO() if six.PY3 else io.BytesIO()
         self.saved_stderr = sys.stderr
-        sys.stderr = io.StringIO()
+        sys.stderr = io.StringIO() if six.PY3 else io.BytesIO()
         return (sys.stdout, sys.stderr)
 
     def __exit__(self, typ, val, tb):
