@@ -61,6 +61,7 @@ from collections import namedtuple
 from . import logging, compat
 from .hub import switchpoint
 from .util import delegate_method, docfrom
+from .transports import TransportError
 from .protocols import MessageProtocol, ProtocolError
 from .stream import Stream
 from .endpoints import Client, Server
@@ -1077,11 +1078,17 @@ class HttpProtocol(MessageProtocol):
         if nbytes != 0:
             msg = b2s(ffi.string(lib.http_errno_name(lib.http_errno(self._parser))))
             self._log.debug('http_parser_execute(): {}', msg)
-            if exc is None:
-                exc = HttpError('parse error: {}'.format(msg))
-            if self._message:
-                self._message.body.buffer.feed_error(exc)
-        self._error = exc
+            self._error = HttpError('parse error: {}'.format(msg))
+        elif self._error is None:
+            self._error = exc if exc is not None else TransportError('connection lost')
+        # If a message header was read then the error is passed as an IO error
+        # to the corresponding read() method. If not, for client protocols we
+        # report the error via the queue, where e.g. getresponse() will raise
+        # an exception.
+        if self._message:
+            self._message.body.buffer.feed_error(self._error)
+        elif not self._server_side:
+            self._queue.put_nowait(self._error)
 
     @property
     def writer(self):
