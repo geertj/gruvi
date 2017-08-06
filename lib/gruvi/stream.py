@@ -248,7 +248,7 @@ class Stream(BufferedIOBase):
             if bytes_left > 0:
                 bytes_left -= len(chunk)
         # If EOF was set, always return that instead of any error.
-        if not chunks and not self._buffer.eof and self._buffer.error:
+        if self._buffer.error and not self._buffer.eof and (not chunks or size == -1):
             raise compat.saved_exc(self._buffer.error)
         return b''.join(chunks)
 

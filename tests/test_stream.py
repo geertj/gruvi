@@ -62,7 +62,18 @@ class TestStream(UnitTest):
         stream = Stream(None)
         stream.buffer.feed(b'foo')
         stream.buffer.feed_error(RuntimeError)
-        self.assertEqual(stream.read(), b'foo')
+        self.assertEqual(stream.read(10), b'foo')
+        self.assertRaises(RuntimeError, stream.read)
+
+    def test_read_nothing_error(self):
+        stream = Stream(None)
+        stream.buffer.feed_error(RuntimeError)
+        self.assertRaises(RuntimeError, stream.read, 10)
+
+    def test_readall_error(self):
+        stream = Stream(None)
+        stream.buffer.feed(b'foo')
+        stream.buffer.feed_error(RuntimeError)
         self.assertRaises(RuntimeError, stream.read)
 
     def test_read_wait_error(self):
@@ -74,7 +85,7 @@ class TestStream(UnitTest):
             gruvi.sleep(0.01)
             stream.buffer.feed_error(RuntimeError)
         gruvi.spawn(write_more)
-        self.assertEqual(stream.read(), b'foobar')
+        self.assertEqual(stream.read(10), b'foobar')
         self.assertRaises(RuntimeError, stream.read)
 
     def test_read_eof_and_error(self):
