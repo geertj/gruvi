@@ -11,10 +11,11 @@ from __future__ import absolute_import, print_function
 import unittest
 
 from gruvi import http
-from gruvi.http import HttpServer, HttpClient, HttpMessage, HttpProtocol, ParsedUrl
-from gruvi.http import parse_content_type, parse_te, parse_trailer, parse_url
+from gruvi.http import HttpServer, HttpClient, HttpMessage, HttpProtocol, HttpError
+from gruvi.http import parse_content_type, parse_te, parse_trailer, parse_url, ParsedUrl
 from gruvi.http import get_header, remove_headers
-from gruvi.stream import Stream, StreamClient
+from gruvi.transports import TransportError
+from gruvi.stream import Stream, StreamClient, StreamServer
 from gruvi.sync import Queue
 
 from support import UnitTest, MockTransport
@@ -684,6 +685,70 @@ class TestHttp(UnitTest):
         client.write_eof()
         buf = client.read()
         self.assertEqual(buf, b'')
+        server.close()
+        client.close()
+
+
+def close_immediately(stream, transport, protocol):
+    pass
+
+def send_illegal_response(stream, transport, protocol):
+    # Skip request header.
+    while True:
+        line = stream.readline().rstrip()
+        if not line:
+            break
+    stream.write(b'HTTP FOOBAR\r\n')
+
+def send_partial_response_body(stream, transport, protocol):
+    # Skip request header.
+    while True:
+        line = stream.readline().rstrip()
+        if not line:
+            break
+    stream.write(b'HTTP/1.1 200 OK\r\n')
+    stream.write(b'Content-Length: 100\r\n')
+    stream.write(b'\r\n')
+    stream.write(b'foobar')
+
+
+class TestHttpErrors(UnitTest):
+    # Test how the endpoint behaves against transport and protocol errrors.
+
+    def test_server_closes_immediately(self):
+        server = StreamServer(close_immediately)
+        server.listen(('localhost', 0))
+        addr = server.addresses[0]
+        client = HttpClient()
+        client.connect(addr)
+        client.request('GET', '/')
+        self.assertRaises(TransportError, client.getresponse)
+        server.close()
+        client.close()
+
+    def test_server_sends_illegal_response(self):
+        server = StreamServer(send_partial_response_body)
+        server.listen(('localhost', 0))
+        addr = server.addresses[0]
+        client = HttpClient()
+        client.connect(addr)
+        client.request('GET', '/')
+        resp = client.getresponse()
+        self.assertIsInstance(resp, HttpMessage)
+        self.assertRaises(HttpError, resp.body.read)
+        server.close()
+        client.close()
+
+    def test_server_sends_partial_response_body(self):
+        server = StreamServer(send_partial_response_body)
+        server.listen(('localhost', 0))
+        addr = server.addresses[0]
+        client = HttpClient()
+        client.connect(addr)
+        client.request('GET', '/')
+        resp = client.getresponse()
+        self.assertIsInstance(resp, HttpMessage)
+        self.assertRaises(HttpError, resp.body.read)
         server.close()
         client.close()
 
